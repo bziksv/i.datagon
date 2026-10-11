@@ -1,0 +1,7 @@
+# Локально: docker compose -f docker-compose.yml -f docker-compose.local.yml up
+# На сервере этот файл не подключать — 5432 наружу не публикуется.
+
+services:
+  postgres:
+    ports:
+      - "5432:5432"

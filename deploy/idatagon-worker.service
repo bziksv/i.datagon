@@ -1,0 +1,17 @@
+[Unit]
+Description=i.datagon worker
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=i_datagon_ru_usr
+Group=i_datagon_ru_usr
+WorkingDirectory=/var/www/i_datagon_ru_usr/data/www/i.datagon.ru
+EnvironmentFile=/var/www/i_datagon_ru_usr/data/www/i.datagon.ru/.env
+ExecStart=/var/www/i_datagon_ru_usr/data/www/i.datagon.ru/.venv/bin/python -m worker
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,37 @@
+# secrets
+.env
+.env.*
+!.env.example
+
+# python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# tests / tools
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# ide / os
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# dumps / local data
+*.sql
+!deploy/postgres/*.sql
+*.sql.gz
+*.dump
+dumps/
+data/*.csv
+*.log
