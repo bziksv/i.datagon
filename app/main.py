@@ -1073,51 +1073,10 @@ def create_app() -> FastAPI:
 
     @app.post("/fundamentals/demo")
     async def fundamentals_demo(session: AsyncSession = Depends(get_db)) -> dict:
-        """Локальные демо-снимки без брокера — чтобы кабинет не был пустым."""
-        samples = [
-            Fundamental(
-                ticker="SBER",
-                asset_uid="demo-sber",
-                ts=datetime.now(UTC),
-                pe_ratio_ttm=5.5,
-                price_to_book_ttm=0.8,
-                eps_ttm=45.0,
-                market_capitalization=6_000_000_000_000.0,
-                raw={
-                    "roe": 0.22,
-                    "free_float": 0.48,
-                    "dividend_yield_daily_ttm": 0.09,
-                },
-            ),
-            Fundamental(
-                ticker="LKOH",
-                asset_uid="demo-lkoh",
-                ts=datetime.now(UTC),
-                pe_ratio_ttm=4.2,
-                price_to_book_ttm=0.7,
-                eps_ttm=120.0,
-                market_capitalization=4_000_000_000_000.0,
-                raw={
-                    "roe": 0.18,
-                    "free_float": 0.40,
-                    "dividend_yield_daily_ttm": 0.11,
-                },
-            ),
-            Fundamental(
-                ticker="GAZP",
-                asset_uid="demo-gazp",
-                ts=datetime.now(UTC),
-                pe_ratio_ttm=28.0,
-                price_to_book_ttm=0.4,
-                eps_ttm=8.0,
-                market_capitalization=3_000_000_000_000.0,
-                raw={
-                    "roe": 0.06,
-                    "free_float": 0.50,
-                    "dividend_yield_daily_ttm": 0.03,
-                },
-            ),
-        ]
+        """Синтетические снимки desk MOEX без брокера — кабинет не пустой при down sandbox."""
+        from app.advisory.demo_fundamentals import demo_fundamentals
+
+        samples = demo_fundamentals()
         existing = {
             row.ticker: row for row in await session.scalars(select(Fundamental))
         }
@@ -1135,7 +1094,13 @@ def create_app() -> FastAPI:
                 found.asset_uid = snap.asset_uid
         await session.commit()
         rows = list(await session.scalars(select(Fundamental)))
-        return fundamentals_view(rows)
+        view = fundamentals_view(rows)
+        view["disclaimer"] = (
+            "Демо-снимки desk MOEX (синтетика). Не данные брокера. "
+            + DISCLAIMER
+        )
+        view["source"] = "demo"
+        return view
 
     @app.get("/news")
     async def news(session: AsyncSession = Depends(get_db)) -> dict:

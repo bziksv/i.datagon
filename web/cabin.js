@@ -2,7 +2,7 @@
   "use strict";
 
   /** Версия UI кабинета (этап 30+). Не путать с version API. */
-  var CABIN_UI_VERSION = "v3.3.9";
+  var CABIN_UI_VERSION = "v3.3.10";
 
   var ROUTES = [
     {
@@ -2258,12 +2258,13 @@
             "</tbody></table>",
           true
         )
-      : '<p class="empty" data-tour="companies-empty">Снимков ещё нет. Нажмите «Демо-данные» (локально) или «Обновить с брокера».</p>';
+      : '<p class="empty" data-tour="companies-empty">Снимков ещё нет. Если sandbox Тинькофф недоступен — нажмите «Демо-данные» (весь desk MOEX, синтетика). «Обновить с брокера» — только когда API отвечает.</p>';
     body.innerHTML =
       '<section class="panel" data-tour="companies-panel">' +
       "<h3>Компании</h3>" +
       "<p>Фундаментальные метрики и скор: оценка, качество и дивиденды. " +
-      'Кандидаты на вход — в <a class="panel-link" href="#/recommendations">Рекомендациях</a>.</p>' +
+      'Кандидаты на вход — в <a class="panel-link" href="#/recommendations">Рекомендациях</a>. ' +
+      "Сейчас sandbox API часто недоступен (DNS/SSL) — тогда таблицу наполняет демо по desk MOEX, не брокер.</p>" +
       '<div class="panel-actions">' +
       '<button type="button" class="primary" id="companies-demo">Демо-данные</button>' +
       '<button type="button" class="ghost" id="companies-refresh">Обновить с брокера</button>' +
