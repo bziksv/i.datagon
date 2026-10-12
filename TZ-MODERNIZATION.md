@@ -289,12 +289,12 @@ signal → proposal → risk decision → order → fills → ledger → PnL.
 
 | ID | Задача | Готово когда | Статус |
 |---|---|---|---|
-| M601 | Новый Overview | Net PnL/DD/free cash/data quality/strategy attribution | todo |
-| M602 | Portfolio drill-down | Cost/market/PnL/mark freshness по каждой позиции | todo |
-| M603 | Strategy report | Backtest/OOS/benchmark/trades/costs/qualification | todo |
-| M604 | Decision card | Thesis → sizing → checks → effect → invalidation | todo |
-| M605 | Сквозной журнал | Signal-to-ledger timeline и audit настроек | todo |
-| M606 | Alerts/metrics | stale data, drift, unknown order, risk halt, worker lag | todo |
+| M601 | Новый Overview | Net PnL/DD/free cash/data quality/strategy attribution | done |
+| M602 | Portfolio drill-down | Cost/market/PnL/mark freshness по каждой позиции | done |
+| M603 | Strategy report | Backtest/OOS/benchmark/trades/costs/qualification | done |
+| M604 | Decision card | Thesis → sizing → checks → effect → invalidation | done |
+| M605 | Сквозной журнал | Signal-to-ledger timeline и audit настроек | done |
+| M606 | Alerts/metrics | stale data, drift, unknown order, risk halt, worker lag | done |
 
 ### M7. Допуск
 

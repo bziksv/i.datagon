@@ -2,7 +2,7 @@
   "use strict";
 
   /** Версия UI кабинета (этап 30+). Не путать с version API. */
-  var CABIN_UI_VERSION = "v1.4";
+  var CABIN_UI_VERSION = "v2.0";
 
   var ROUTES = [
     {
@@ -196,6 +196,9 @@
   var lastStatus = null;
   var lastStatusAt = null;
   var lastCapital = null;
+  var lastWeeklyReport = null;
+  var lastAudit = null;
+  var lastUnknownOrders = [];
   var lastProposals = [];
   var lastSleeves = [];
   var lastVault = null;
@@ -1028,6 +1031,7 @@
       setBlockLoading("proposals", true);
       setBlockLoading("sleeves", true);
       setBlockLoading("capital", true);
+      setBlockLoading("observability", true);
       if (currentRoute === "overview") renderOverview();
     }
     return Promise.all([
@@ -1058,9 +1062,23 @@
         .finally(function () {
           setBlockLoading("capital", false);
         }),
+      apiGet("/reports/weekly").catch(function () {
+        return lastWeeklyReport;
+      }),
+      apiGet("/audit/timeline").catch(function () {
+        return lastAudit;
+      }),
+      apiGet("/orders?status=unknown").catch(function () {
+        return { orders: lastUnknownOrders };
+      }),
     ]).then(function (parts) {
       lastSleeves = (parts[1] && parts[1].sleeves) || lastSleeves;
       lastCapital = parts[2] || lastCapital;
+      lastWeeklyReport = parts[3] || lastWeeklyReport;
+      lastAudit = parts[4] || lastAudit;
+      lastUnknownOrders =
+        (parts[5] && parts[5].orders) || lastUnknownOrders;
+      setBlockLoading("observability", false);
       if (currentRoute === "overview") renderOverview();
       return parts;
     });
@@ -1139,76 +1157,121 @@
         .map(function (row) {
           var pnl = row.pnl || {};
           var name = SLEEVE_NAMES[row.sleeve] || row.sleeve || "—";
+          var total = Number(pnl.total || 0);
           return (
-            '<tr data-href="#/strategies/' +
+            '<a class="strategy-tile" href="#/strategies/' +
             encodeURIComponent(row.sleeve) +
             '">' +
-            "<td>" +
-            escapeHtml(name) +
-            "</td><td>" +
+            '<span class="strategy-tile__eyebrow">' +
             escapeHtml(row.sleeve || "") +
-            "</td><td>" +
+            "</span>" +
+            '<strong class="strategy-tile__name">' +
+            escapeHtml(name) +
+            "</strong>" +
+            '<span class="strategy-tile__pnl ' +
+            (total > 0 ? "is-positive" : total < 0 ? "is-negative" : "") +
+            '">' +
+            money(total) +
+            "</span>" +
+            '<span class="strategy-tile__split">realized ' +
             money(pnl.realized) +
-            "</td><td>" +
+            " · open " +
             money(pnl.unrealized) +
-            "</td><td>" +
-            money(pnl.total) +
-            "</td></tr>"
+            "</span></a>"
           );
         })
         .join("");
       sleevesBlock = sleevesRows
-        ? wrapTableScroll(
-            '<table class="data-table"><thead><tr><th>рукав</th><th>код</th><th>зафиксировано</th><th>на бумаге</th><th>итог</th></tr></thead><tbody>' +
-              sleevesRows +
-              "</tbody></table>"
-          )
+        ? '<div class="strategy-grid">' + sleevesRows + "</div>"
         : '<p class="empty">Пока нет сводки рукавов.</p>';
     }
 
     var capital = lastCapital;
     var quality = (capital && capital.data_quality) || {};
+    var weekly = lastWeeklyReport || {};
+    var audit = lastAudit || {};
+    var qualityTotal = Number(quality.positions || 0);
+    var qualityFresh = Number(quality.fresh_marks || 0);
+    var qualityPct = qualityTotal
+      ? Math.round((qualityFresh / qualityTotal) * 100)
+      : 100;
+    var alertItems = [];
+    if (killed) alertItems.push(["critical", "Risk halt", "Новые входы остановлены"]);
+    if (!(lastStatus && lastStatus.worker_alive)) {
+      alertItems.push(["warning", "Worker", "Нет свежего heartbeat"]);
+    }
+    if (capital && capital.status !== "complete") {
+      alertItems.push(["critical", "Market data", "Equity скрыта: неполные цены"]);
+    } else if (Number(quality.stale_marks || 0) || Number(quality.missing_marks || 0)) {
+      alertItems.push([
+        "warning",
+        "Data quality",
+        String(quality.stale_marks || 0) +
+          " stale · " +
+          String(quality.missing_marks || 0) +
+          " missing",
+      ]);
+    }
+    if (lastDrift && lastDrift.alert) {
+      alertItems.push([
+        "critical",
+        "Book drift",
+        "Расхождение " + money(lastDrift.drift),
+      ]);
+    }
+    if (lastUnknownOrders.length) {
+      alertItems.push([
+        "critical",
+        "Execution",
+        String(lastUnknownOrders.length) + " ордеров в unknown",
+      ]);
+    }
+    if (!alertItems.length) {
+      alertItems.push(["ok", "System clear", "Критичных событий нет"]);
+    }
+    var alertsHtml = alertItems
+      .map(function (item) {
+        return (
+          '<div class="ops-alert is-' +
+          item[0] +
+          '"><span class="ops-alert__dot"></span><div><strong>' +
+          escapeHtml(item[1]) +
+          "</strong><span>" +
+          escapeHtml(item[2]) +
+          "</span></div></div>"
+        );
+      })
+      .join("");
     var capitalBlock = isBlockLoading("capital") && !capital
       ? skeletonHtml(2)
       : !capital
       ? '<p class="empty" data-tour="overview-capital-empty">Рыночная оценка ещё не пришла. Это не «0 ₽» — обновите статус.</p>'
-      : '<div class="metrics">' +
-        '<div class="metric hero"><div class="k">рыночная стоимость счёта</div><div class="v">' +
+      : '<div class="capital-hero__value">' +
         money(capital.equity) +
-        '</div></div>' +
-        '<div class="metric"><div class="k">свободный кэш</div><div class="v">' +
+        '</div><div class="capital-hero__meta"><span>free cash ' +
         money(capital.cash) +
-        '</div></div>' +
-        '<div class="metric"><div class="k">сейф прибыли</div><div class="v">' +
+        "</span><span>vault " +
         money(capital.vault != null ? capital.vault : vault.accumulated) +
-        '</div></div>' +
-        '<div class="metric"><div class="k">нереализованный PnL</div><div class="v">' +
-        money(capital.unrealized_pnl) +
-        '</div></div>' +
-        '<div class="metric"><div class="k">реализованный PnL net</div><div class="v">' +
+        "</span><span>peak " +
+        money(capital.peak_equity) +
+        "</span></div>" +
+        '<div class="capital-kpis">' +
+        '<div><span>Net realized</span><strong>' +
         money(capital.realized_net_pnl) +
-        '</div></div>' +
-        '<div class="metric"><div class="k">торговые расходы</div><div class="v">' +
-        money(capital.trading_costs) +
-        '</div></div>' +
-        '<div class="metric"><div class="k">макс. просадка</div><div class="v">' +
+        "</strong></div>" +
+        '<div><span>Open PnL</span><strong>' +
+        money(capital.unrealized_pnl) +
+        "</strong></div>" +
+        '<div><span>Max drawdown</span><strong>' +
         (capital.max_drawdown == null
           ? "—"
           : escapeHtml((Number(capital.max_drawdown) * 100).toFixed(2) + "%")) +
-        '</div></div>' +
-        '<div class="metric"><div class="k">TWR без пополнений</div><div class="v">' +
+        "</strong></div>" +
+        '<div><span>TWR ex flows</span><strong>' +
         (capital.twr == null
           ? "—"
           : escapeHtml((Number(capital.twr) * 100).toFixed(2) + "%")) +
-        '</div></div>' +
-        '<div class="metric"><div class="k">качество цен</div><div class="v">' +
-        escapeHtml(
-          String(quality.fresh_marks || 0) +
-            "/" +
-            String(quality.positions || 0) +
-            " свежих"
-        ) +
-        "</div></div></div>" +
+        "</strong></div></div>" +
         (capital.status !== "complete"
           ? '<p class="warning-text">Точная equity скрыта: есть устаревшие или отсутствующие цены (' +
             escapeHtml(
@@ -1225,26 +1288,41 @@
             "</p>");
 
     body.innerHTML =
-      attention +
       blockErrorHtml("proposals") +
       blockErrorHtml("sleeves") +
       blockErrorHtml("capital") +
-      '<section class="panel" data-tour="overview-capital">' +
-      "<h3>Капитал</h3>" +
-      '<p>Рыночная paper-оценка. При stale/missing цене точная equity не показывается.</p>' +
+      '<div class="capital-center">' +
+      '<section class="capital-hero" data-tour="overview-capital">' +
+      '<div class="capital-hero__head"><div><span class="section-kicker">Total market equity</span>' +
+      "<h3>Центр капитала</h3></div>" +
+      '<div class="quality-orbit" style="--quality:' +
+      escapeHtml(String(qualityPct)) +
+      '"><strong>' +
+      escapeHtml(String(qualityPct)) +
+      '%</strong><span>data</span></div></div>' +
       capitalBlock +
-      '<a class="panel-link" href="#/portfolio">Подробнее в Портфеле</a>' +
+      '<div class="capital-hero__footer"><span>Week PnL <strong>' +
+      money(weekly.pnl) +
+      '</strong></span><span>Day start <strong>' +
+      money(capital && capital.day_start_equity) +
+      '</strong></span><a href="#/portfolio">Подробнее в Портфеле →</a></div>' +
       "</section>" +
-      '<section class="panel" data-tour="overview-queue">' +
-      "<h3>Очередь решений</h3>" +
-      "<p>Агенты только предлагают — без вашего решения ордер или веса не применятся.</p>" +
+      '<aside class="ops-rail"><div class="ops-rail__head"><span class="section-kicker">Live controls</span><h3>Контур</h3></div>' +
+      alertsHtml +
+      '<div class="ops-chain"><span>Audit chain</span><strong>' +
+      (audit.chain_valid === false ? "BROKEN" : "VALID") +
+      "</strong><small>" +
+      escapeHtml(String((audit.events || []).length)) +
+      " events</small></div></aside>" +
+      '<section class="command-panel" data-tour="overview-attention"><div class="command-panel__head"><span class="section-kicker">Attention</span><h3>Что требует решения</h3></div>' +
+      attention +
+      "</section>" +
+      '<section class="decision-panel" data-tour="overview-queue"><div class="section-head"><div><span class="section-kicker">Human in the loop</span><h3>Очередь решений</h3></div><a href="#/agents">Все решения →</a></div>' +
       queueHtml +
       "</section>" +
-      '<section class="panel" data-tour="overview-sleeves">' +
-      "<h3>Рукава</h3>" +
-      "<p>Краткое сравнение paper-PnL. Клик по строке откроет раздел «Стратегии».</p>" +
+      '<section class="strategy-panel" data-tour="overview-sleeves"><div class="section-head"><div><span class="section-kicker">Attribution</span><h3>Стратегии</h3></div><a href="#/strategies">Full report →</a></div>' +
       sleevesBlock +
-      "</section>";
+      "</section></div>";
 
     var unkill = byId("overview-unkill");
     if (unkill) {
@@ -1252,11 +1330,6 @@
         requestKill(false);
       });
     }
-    body.querySelectorAll("tr[data-href]").forEach(function (row) {
-      row.addEventListener("click", function () {
-        location.hash = row.getAttribute("data-href");
-      });
-    });
   }
 
   function renderHelpPanel() {
@@ -1479,7 +1552,28 @@
 
   function proposalCardHtml(row, opts) {
     var waiting = row.status === "proposed";
+    var payload = row.payload || {};
     var payloadJson = JSON.stringify(row.payload || {}, null, 2);
+    var isOrder = row.kind === "order" || !!payload.ticker;
+    var thesis = payload.reason || proposalSummary(row);
+    var sizing = isOrder
+      ? orderSideLabel(payload.side) +
+        " " +
+        String(payload.qty || "—") +
+        " × " +
+        String(payload.ticker || "—")
+      : (payload.weights || [])
+          .map(function (item) {
+            return (
+              (SLEEVE_NAMES[item.sleeve] || item.sleeve) +
+              " " +
+              pctLabel(item.weight)
+            );
+          })
+          .join(" · ");
+    var invalidation = isOrder
+      ? "Стоп " + money(payload.stop) + "; риск-ворота могут отклонить до исполнения."
+      : "Не применять, если OOS-квалификация или лимиты капитала изменились.";
     var actions = "";
     if (waiting) {
       actions =
@@ -1507,6 +1601,20 @@
       '<p class="summary">' +
       escapeHtml(proposalSummary(row)) +
       "</p>" +
+      '<div class="decision-flow">' +
+      '<div><span>01 / THESIS</span><strong>' +
+      escapeHtml(thesis) +
+      "</strong></div>" +
+      '<div><span>02 / SIZING</span><strong>' +
+      escapeHtml(sizing || "—") +
+      "</strong></div>" +
+      '<div><span>03 / CHECKS</span><strong>Risk policy · лимиты · свежие данные</strong></div>' +
+      '<div><span>04 / EFFECT</span><strong>' +
+      escapeHtml(proposalWillDo(row)) +
+      "</strong></div>" +
+      '<div><span>05 / INVALIDATION</span><strong>' +
+      escapeHtml(invalidation) +
+      "</strong></div></div>" +
       (waiting
         ? '<p class="will-do" data-tour="agents-will-do"><strong>Что будет при «Принять»:</strong> ' +
           escapeHtml(proposalWillDo(row)) +
@@ -2461,6 +2569,10 @@
       var flats = Number(kinds.flat || 0);
       var exits = Number(kinds.exit || 0);
       var trades = buys + sells + exits;
+      var qualified =
+        !oos.insufficient_statistics &&
+        Number(oos.trades || 0) >= 5 &&
+        Number(oos.excess_return || 0) > 0;
       var verdict =
         trades === 0
           ? "На этом отрезке торговых сигналов нет — стратегия всё время в плоскости."
@@ -2489,6 +2601,15 @@
         })
         .join("");
       resultHtml =
+        '<div class="experiment-report">' +
+        '<div class="experiment-report__head"><div><span class="section-kicker">EXPERIMENT ' +
+        escapeHtml(shortId(result.experiment_id)) +
+        "</span><h4>Strategy evidence report</h4></div>" +
+        '<span class="qualification ' +
+        (qualified ? "is-qualified" : "is-rejected") +
+        '">' +
+        (qualified ? "OOS QUALIFIED" : "CASH FALLBACK") +
+        "</span></div>" +
         '<div class="callout" data-tour="strategies-desk-verdict"><strong>Paper-бэктест.</strong> ' +
         escapeHtml(verdict) +
         " Сигнал исполняется не раньше открытия следующего бара; учтены комиссия и проскальзывание из конфигурации." +
@@ -2536,6 +2657,26 @@
             : "Недостаточно данных для OOS-окна."
         ) +
         "</div>" +
+        '<div class="evidence-lanes">' +
+        '<div><span>IN-SAMPLE</span><strong>' +
+        escapeHtml(String(summary.trades || 0)) +
+        ' trades</strong><small>return ' +
+        escapeHtml(pctLabel(summary.total_return)) +
+        "</small></div>" +
+        '<div><span>OUT-OF-SAMPLE</span><strong>' +
+        escapeHtml(String(oos.trades || 0)) +
+        ' trades / ' +
+        escapeHtml(String(oos.folds || 0)) +
+        ' folds</strong><small>excess ' +
+        escapeHtml(pctLabel(oos.excess_return)) +
+        "</small></div>" +
+        '<div><span>CAPITAL DECISION</span><strong>' +
+        (qualified ? "eligible" : "cash only") +
+        "</strong><small>" +
+        (qualified
+          ? "≥5 OOS trades and positive excess"
+          : "qualification gate not passed") +
+        "</small></div></div>" +
         (summary.insufficient_statistics
           ? '<p class="warning-text">Сделок мало: статистики недостаточно для вывода о преимуществе стратегии.</p>'
           : "") +
@@ -2555,7 +2696,8 @@
                 lastRows +
                 "</tbody></table>"
             )
-          : '<p class="empty">В хвосте файла нет покупок/продаж — одни «плоско». Смотрите счётчики выше.</p>');
+          : '<p class="empty">В хвосте файла нет покупок/продаж — одни «плоско». Смотрите счётчики выше.</p>') +
+        "</div>";
     } else {
       resultHtml =
         '<p class="empty">Необязательный тест: рукав + тикер CSV → сколько раз стратегия хотела купить/продать. Ордера не ставит.</p>';
@@ -3287,44 +3429,55 @@
     var equity = Number(book.equity) || 0;
     var table = "";
     if (rows.length) {
-      table = wrapTableScroll(
-        '<table class="data-table" data-tour="portfolio-positions-table">' +
-          "<thead><tr>" +
-          "<th>тикер</th><th>рукав</th><th>количество</th><th>средняя цена</th><th>оценка</th><th>доля</th>" +
-          "</tr></thead><tbody>" +
-          rows
-            .map(function (row) {
-              var qty = Number(row.qty) || 0;
-              var avg = Number(row.avg_price) || 0;
-              var value = qty * avg;
-              var share =
-                equity > 0
-                  ? ((value / equity) * 100).toFixed(1).replace(".", ",") + "%"
-                  : "—";
-              var sleeve = SLEEVE_NAMES[row.sleeve] || row.sleeve || "—";
-              return (
-                "<tr>" +
-                '<td title="' +
-                escapeHtml(row.instrument_id || row.ticker || "") +
-                '">' +
-                escapeHtml(row.ticker || shortId(row.instrument_id)) +
-                "</td><td>" +
-                escapeHtml(sleeve) +
-                "</td><td>" +
-                escapeHtml(String(qty)) +
-                "</td><td>" +
-                money(avg) +
-                "</td><td>" +
-                money(value) +
-                "</td><td>" +
-                escapeHtml(share) +
-                "</td></tr>"
-              );
-            })
-            .join("") +
-          "</tbody></table>",
-        true
-      );
+      table =
+        '<div class="position-grid" data-tour="portfolio-positions-table">' +
+        rows
+          .map(function (row) {
+            var qty = Number(row.qty) || 0;
+            var value = Number(row.market_value);
+            var share =
+              equity > 0 && isFinite(value)
+                ? ((value / equity) * 100).toFixed(1).replace(".", ",") + "%"
+                : "—";
+            var sleeve = SLEEVE_NAMES[row.sleeve] || row.sleeve || "—";
+            var pnl = Number(row.unrealized_pnl || 0);
+            return (
+              '<article class="position-card">' +
+              '<div class="position-card__head"><div><span class="section-kicker">' +
+              escapeHtml(sleeve) +
+              "</span><h4>" +
+              escapeHtml(row.ticker || shortId(row.instrument_id)) +
+              "</h4></div><span class=\"mark-state is-" +
+              escapeHtml(row.mark_quality || "missing") +
+              '">' +
+              escapeHtml(row.mark_quality || "missing") +
+              "</span></div>" +
+              '<div class="position-card__value">' +
+              money(row.market_value) +
+              "</div>" +
+              '<div class="position-card__pnl ' +
+              (pnl > 0 ? "is-positive" : pnl < 0 ? "is-negative" : "") +
+              '">Open PnL ' +
+              money(row.unrealized_pnl) +
+              "</div>" +
+              '<dl><div><dt>Qty</dt><dd>' +
+              escapeHtml(String(qty)) +
+              "</dd></div><div><dt>Cost</dt><dd>" +
+              money(row.cost_basis) +
+              "</dd></div><div><dt>Mark</dt><dd>" +
+              money(row.mark) +
+              "</dd></div><div><dt>Weight</dt><dd>" +
+              escapeHtml(share) +
+              "</dd></div></dl>" +
+              '<p class="position-card__source">' +
+              escapeHtml(row.mark_source || "no source") +
+              " · " +
+              escapeHtml(formatSignalTime(row.mark_as_of)) +
+              "</p></article>"
+            );
+          })
+          .join("") +
+        "</div>";
     } else {
       table =
         '<p class="empty" data-tour="portfolio-positions-empty">' +
@@ -3335,7 +3488,7 @@
     return (
       '<section class="panel" data-tour="portfolio-positions">' +
       "<h3>Позиции</h3>" +
-      "<p>Открытый состав paper-книги по рукавам. Оценка = количество × средняя цена.</p>" +
+      "<p>Cost → market → PnL с источником и свежестью каждой цены.</p>" +
       table +
       "</section>"
     );
@@ -3772,6 +3925,7 @@
     }
     if (route.id === "journal") {
       if (hashQuery().tab === "ledger") journalTab = "ledger";
+      else if (hashQuery().tab === "audit") journalTab = "audit";
       else journalTab = "orders";
       renderJournal();
       refreshJournal().then(function () {
@@ -4629,6 +4783,7 @@
     var tabs = [
       { id: "orders", label: "Ордера" },
       { id: "ledger", label: "Проводки" },
+      { id: "audit", label: "Audit trail" },
     ];
     return (
       '<div class="tabs" data-tour="journal-tabs">' +
@@ -4895,6 +5050,89 @@
     );
   }
 
+  function renderJournalAudit() {
+    var audit = lastAudit || {};
+    var auditRows = (audit.events || []).map(function (row) {
+      return Object.assign({ lane: "AUDIT", timeline_at: row.occurred_at }, row);
+    });
+    var orderRows = (lastOrders || []).map(function (row) {
+      return {
+        lane: "ORDER",
+        timeline_at: row.created_at,
+        event_type:
+          orderSideLabel(row.side) + " · " + orderStatusLabel(row.status),
+        entity_type: row.sleeve || "order",
+        entity_id: row.ticker || row.id,
+        payload: row.raw || row,
+      };
+    });
+    var ledgerRows = (lastLedger || []).map(function (row) {
+      return {
+        lane: "LEDGER",
+        timeline_at: row.ts,
+        event_type: ledgerReasonLabel(row.reason),
+        entity_type: ledgerAccountLabel(row.account_kind),
+        entity_id: row.ref || row.id,
+        payload: row,
+      };
+    });
+    var rows = auditRows
+      .concat(orderRows, ledgerRows)
+      .sort(function (a, b) {
+        return new Date(a.timeline_at).getTime() - new Date(b.timeline_at).getTime();
+      });
+    var chainOk = audit.chain_valid === true;
+    var events = rows
+      .slice()
+      .reverse()
+      .map(function (row, index) {
+        return (
+          '<article class="audit-event">' +
+          '<div class="audit-event__rail"><span>' +
+          escapeHtml(String(rows.length - index).padStart(2, "0")) +
+          "</span></div>" +
+          '<div class="audit-event__body"><div class="audit-event__head"><strong>' +
+          '<span class="audit-lane">' +
+          escapeHtml(row.lane) +
+          "</span> " +
+          escapeHtml(row.event_type || "event") +
+          '</strong><time>' +
+          formatSignalTime(row.timeline_at) +
+          "</time></div>" +
+          '<p><span class="section-kicker">' +
+          escapeHtml(row.entity_type || "entity") +
+          "</span> " +
+          escapeHtml(row.entity_id || "—") +
+          "</p>" +
+          (row.lane === "AUDIT"
+            ? '<div class="audit-hashes"><code>prev ' +
+              escapeHtml(shortId(row.previous_hash)) +
+              '</code><code>hash ' +
+              escapeHtml(shortId(row.event_hash)) +
+              "</code></div>"
+            : "") +
+          '<details class="fold tight"><summary>Данные события</summary><pre class="payload">' +
+          escapeHtml(JSON.stringify(row.payload || {}, null, 2)) +
+          "</pre></details></div></article>"
+        );
+      })
+      .join("");
+    return (
+      '<section class="panel" data-tour="journal-audit">' +
+      '<div class="audit-title"><div><span class="section-kicker">IMMUTABLE EVIDENCE</span><h3>Сквозной audit trail</h3></div>' +
+      '<span class="qualification ' +
+      (chainOk ? "is-qualified" : "is-rejected") +
+      '">' +
+      (chainOk ? "CHAIN VALID" : "CHAIN INVALID") +
+      "</span></div>" +
+      "<p>Ордера, проводки и append-only события на одной временной оси. Audit-события связаны хешами; исправления выполняются компенсирующими проводками.</p>" +
+      (events
+        ? '<div class="audit-timeline">' + events + "</div>"
+        : '<p class="empty">Audit-событий пока нет.</p>') +
+      "</section>"
+    );
+  }
+
   function bindJournalControls() {
     byId("page-body")
       .querySelectorAll("[data-journal-tab]")
@@ -4935,7 +5173,11 @@
   function renderJournal() {
     var body = byId("page-body");
     var content =
-      journalTab === "ledger" ? renderJournalLedger() : renderJournalOrders();
+      journalTab === "ledger"
+        ? renderJournalLedger()
+        : journalTab === "audit"
+          ? renderJournalAudit()
+          : renderJournalOrders();
     body.innerHTML = journalTabsHtml() + content;
     bindJournalControls();
   }
@@ -4964,9 +5206,13 @@
           setLoadError("ledger", err);
           return { entries: lastLedger };
         }),
+      apiGet("/audit/timeline").catch(function () {
+        return lastAudit;
+      }),
     ]).then(function (parts) {
       if (parts[0] && parts[0].orders) lastOrders = parts[0].orders;
       if (parts[1] && parts[1].entries) lastLedger = parts[1].entries;
+      if (parts[2]) lastAudit = parts[2];
       routeLoading = false;
       if (currentRoute === "journal") renderJournal();
       return parts;

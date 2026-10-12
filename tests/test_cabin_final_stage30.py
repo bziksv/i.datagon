@@ -1,4 +1,4 @@
-"""Этап 30: финальная приёмка — v1 в Помощи, TZ-ссылки, known limitations."""
+"""Этап 30+: финальная приёмка — версия UI, TZ-ссылки, known limitations."""
 
 from pathlib import Path
 
@@ -10,10 +10,10 @@ TZ = ROOT / "TZ.md"
 TZ_CABIN = ROOT / "TZ-CABIN.md"
 
 
-def test_cabin_ui_version_v1_in_help() -> None:
+def test_cabin_ui_version_in_help() -> None:
     js = JS.read_text()
     assert "CABIN_UI_VERSION" in js
-    assert 'CABIN_UI_VERSION = "v1' in js
+    assert 'CABIN_UI_VERSION = "v2.0"' in js
     assert "help-version" in js
     assert "help-cabin-v1" in js
     assert "кабинет" in js
