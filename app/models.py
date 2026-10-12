@@ -387,3 +387,55 @@ class AuditEvent(Base):
     occurred_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )
+
+
+class PaperForwardRun(Base):
+    __tablename__ = "paper_forward_runs"
+    __table_args__ = (Index("ix_paper_forward_runs_started_at", "started_at"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    sleeve: Mapped[str] = mapped_column(String(64), nullable=False)
+    experiment_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("backtest_experiments.id"),
+        nullable=False,
+    )
+    minimum_days: Mapped[int] = mapped_column(Integer, nullable=False, default=30)
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    ends_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+
+
+class PaperForwardObservation(Base):
+    __tablename__ = "paper_forward_observations"
+    __table_args__ = (
+        UniqueConstraint(
+            "run_id",
+            "observed_at",
+            name="uq_paper_forward_run_observed_at",
+        ),
+        Index("ix_paper_forward_observations_run_id", "run_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    run_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("paper_forward_runs.id"),
+        nullable=False,
+    )
+    observed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    strategy_equity: Mapped[float] = mapped_column(
+        Numeric(18, 2), nullable=False
+    )
+    benchmark_equity: Mapped[float] = mapped_column(
+        Numeric(18, 2), nullable=False
+    )

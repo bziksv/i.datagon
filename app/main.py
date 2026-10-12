@@ -36,6 +36,7 @@ from app.book.events import cash_event
 from app.book.ledger import ensure_deposit, ledger_balance, ledger_view
 from app.book.orders import (
     STATUS_REJECTED,
+    STATUS_UNKNOWN,
     order_item,
     orders_view,
     reconcile_order,
@@ -64,11 +65,14 @@ from app.models import (
     NewsEvent,
     NewsStudy,
     Order,
+    PaperForwardObservation,
+    PaperForwardRun,
     Position,
     SignalRow,
     UniverseMember,
 )
 from app.news.view import news_view, studies_view
+from app.ops.emergency import emergency_drills
 from app.ops.guest_link import token_accepted
 from app.ops.ratelimit import DEFAULT_CABIN_RATE_PER_MIN, IpRateLimit, client_ip
 from app.ops.ready import read_beat, ready_view
@@ -91,6 +95,12 @@ from app.strategy.experiments import (
     new_experiment,
     result_is_intact,
 )
+from app.strategy.paper_forward import (
+    new_observation,
+    new_paper_forward_run,
+    paper_forward_view,
+)
+from app.strategy.qualification import backtest_admission
 from app.strategy.view import sleeve_view, sleeves_view
 from app.universe.cap import resolve_universe_max
 from app.universe.view import universe_view
@@ -288,6 +298,118 @@ def create_app() -> FastAPI:
     async def kill_status(session: AsyncSession = Depends(get_db)) -> dict:
         flags = list(await session.scalars(select(Flag)))
         return kill_view(flags)
+
+    @app.get("/admission")
+    async def admission_status(
+        session: AsyncSession = Depends(get_db),
+    ) -> dict:
+        now = datetime.now(UTC)
+        book = await portfolio_valuation(session, now=now)
+        unknown_orders = int(
+            await session.scalar(
+                select(func.count())
+                .select_from(Order)
+                .where(Order.status == STATUS_UNKNOWN)
+            )
+            or 0
+        )
+        audit_rows = list(
+            await session.scalars(
+                select(AuditEvent).order_by(
+                    AuditEvent.occurred_at,
+                    AuditEvent.id,
+                )
+            )
+        )
+        g1_checks = [
+            {
+                "code": "accounting_reconciliation",
+                "passed": bool(
+                    (book.get("reconciliation") or {}).get("passed")
+                ),
+            },
+            {
+                "code": "no_unknown_orders",
+                "passed": unknown_orders == 0,
+                "value": unknown_orders,
+            },
+            {
+                "code": "audit_chain_valid",
+                "passed": audit_chain_valid(audit_rows),
+            },
+        ]
+        g1_passed = all(bool(row["passed"]) for row in g1_checks)
+
+        experiments = list(
+            await session.scalars(
+                select(BacktestExperiment).order_by(
+                    BacktestExperiment.created_at.desc()
+                )
+            )
+        )
+        qualified_experiment = next(
+            (
+                row
+                for row in experiments
+                if result_is_intact(row)
+                and bool(
+                    (
+                        row.result.get("admission")
+                        or backtest_admission(row.result)
+                    ).get("passed")
+                )
+            ),
+            None,
+        )
+        g2 = {
+            "gate": "G2",
+            "status": "passed" if qualified_experiment else "blocked",
+            "passed": qualified_experiment is not None,
+            "experiment_id": (
+                str(qualified_experiment.id) if qualified_experiment else None
+            ),
+        }
+
+        campaign = await session.scalar(
+            select(PaperForwardRun).order_by(
+                PaperForwardRun.started_at.desc()
+            )
+        )
+        if campaign is None:
+            g3 = {
+                "gate": "G3",
+                "status": "blocked",
+                "passed": False,
+                "reason": "paper_forward_not_started",
+            }
+        else:
+            g3 = await _paper_forward_response(session, campaign)
+            g3["gate"] = "G3"
+            g3["passed"] = bool(g3.get("capital_eligible"))
+
+        worker_alive = bool(ready_view(0, read_beat(), now)["worker_alive"])
+        g4 = emergency_drills(worker_alive=worker_alive, now=now)
+        return {
+            "paper_only": True,
+            "live_eligible": False,
+            "gates": {
+                "G1": {
+                    "gate": "G1",
+                    "status": "passed" if g1_passed else "blocked",
+                    "passed": g1_passed,
+                    "checks": g1_checks,
+                },
+                "G2": g2,
+                "G3": g3,
+                "G4": g4,
+                "G5": {
+                    "gate": "G5",
+                    "status": "blocked",
+                    "passed": False,
+                    "reason": "separate_security_legal_execution_audit_required",
+                },
+            },
+        }
 
     @app.get("/portfolio")
     async def portfolio(session: AsyncSession = Depends(get_db)) -> dict:
@@ -711,6 +833,82 @@ def create_app() -> FastAPI:
             "id": str(row.id),
             "trades": (row.result.get("backtest") or {}).get("trades", []),
         }
+
+    class PaperForwardStartBody(BaseModel):
+        sleeve: str = Field(..., min_length=1)
+        experiment_id: UUID
+        minimum_days: int = Field(default=30, ge=7, le=365)
+
+    class PaperForwardObservationBody(BaseModel):
+        strategy_equity: float = Field(..., gt=0)
+        benchmark_equity: float = Field(..., gt=0)
+        observed_at: datetime | None = None
+
+    async def _paper_forward_response(
+        session: AsyncSession,
+        run: PaperForwardRun,
+    ) -> dict:
+        observations = list(
+            await session.scalars(
+                select(PaperForwardObservation).where(
+                    PaperForwardObservation.run_id == run.id
+                )
+            )
+        )
+        return paper_forward_view(run, observations)
+
+    @app.post("/paper-forward")
+    async def start_paper_forward(
+        body: PaperForwardStartBody,
+        session: AsyncSession = Depends(get_db),
+    ) -> dict:
+        experiment = await session.get(BacktestExperiment, body.experiment_id)
+        if experiment is None:
+            raise HTTPException(status_code=404, detail="experiment not found")
+        if not result_is_intact(experiment):
+            raise HTTPException(status_code=409, detail="result hash mismatch")
+        if experiment.sleeve != body.sleeve:
+            raise HTTPException(status_code=422, detail="sleeve mismatch")
+        run = new_paper_forward_run(
+            sleeve=body.sleeve,
+            experiment_id=body.experiment_id,
+            minimum_days=body.minimum_days,
+        )
+        session.add(run)
+        await session.commit()
+        return await _paper_forward_response(session, run)
+
+    @app.get("/paper-forward/{run_id}")
+    async def get_paper_forward(
+        run_id: UUID,
+        session: AsyncSession = Depends(get_db),
+    ) -> dict:
+        run = await session.get(PaperForwardRun, run_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail="not found")
+        return await _paper_forward_response(session, run)
+
+    @app.post("/paper-forward/{run_id}/observations")
+    async def add_paper_forward_observation(
+        run_id: UUID,
+        body: PaperForwardObservationBody,
+        session: AsyncSession = Depends(get_db),
+    ) -> dict:
+        run = await session.get(PaperForwardRun, run_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail="not found")
+        try:
+            row = new_observation(
+                run,
+                strategy_equity=Decimal(str(body.strategy_equity)),
+                benchmark_equity=Decimal(str(body.benchmark_equity)),
+                observed_at=body.observed_at,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        session.add(row)
+        await session.commit()
+        return await _paper_forward_response(session, run)
 
     @app.get("/fundamentals")
     async def fundamentals(session: AsyncSession = Depends(get_db)) -> dict:

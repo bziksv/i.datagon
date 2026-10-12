@@ -50,6 +50,9 @@
   расходов, paper-forward и покрытия walk-forward;
 - рекомендации весов используют inverse-volatility и correlation penalty,
   сохраняют cash reserve и ограничены floor/cap/step/cooldown;
+- admission gates G1–G5 видны через единый отчёт; live остаётся заблокирован;
+- paper-forward кампания заранее фиксирует experiment и минимальный период,
+  а капитал допускается только после новых наблюдений с положительным excess;
 - карточка рукава: правила, позиции, лента сигналов.
 
 ### 2.3. Фундамент и рекомендации
@@ -200,6 +203,9 @@
 | GET | `/reports/weekly` | Недельный отчёт из рыночных equity snapshots |
 | POST/GET | `/backtests`, `/backtests/{id}` | Сохранённый эксперимент с data/config/code hash |
 | GET | `/backtests/{id}/trades` | Сделки сохранённого эксперимента |
+| POST/GET | `/paper-forward`, `/paper-forward/{id}` | Предзарегистрированный forward-период |
+| POST | `/paper-forward/{id}/observations` | Новая strategy/benchmark equity точка |
+| GET | `/admission` | Состояние gates G1–G5; live всегда fail-closed |
 | POST | `/orders/{id}/reconcile` | Идемпотентная сверка неоднозначного ордера |
 | POST | `/ledger/deposit` | Дотянуть кэш до цели |
 | POST | `/ledger/events` | Типизированные fee/tax/dividend/withdrawal события |

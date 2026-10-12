@@ -7,6 +7,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.book.reconcile import accounting_reconciliation
 from app.book.valuation import PriceMark, value_portfolio
 from app.models import Candle, EquitySnapshot, Fill, LedgerEntry, Position
 
@@ -45,7 +46,7 @@ async def portfolio_valuation(
         )
         for instrument_id, candle in latest.items()
     }
-    return value_portfolio(
+    valuation = value_portfolio(
         entries,
         positions,
         marks,
@@ -54,3 +55,5 @@ async def portfolio_valuation(
         now=now,
         stale_after=stale_after,
     )
+    valuation["reconciliation"] = accounting_reconciliation(valuation)
+    return valuation

@@ -22,6 +22,7 @@ from app.strategy.config import (
 )
 from app.strategy.donchian import SLEEVE as DONCHIAN_SLEEVE
 from app.strategy.evidence import strategy_evidence
+from app.strategy.qualification import backtest_admission
 from app.strategy.rsi import SLEEVE as RSI_SLEEVE
 from app.strategy.scalp import SLEEVE as SCALP_SLEEVE
 from app.strategy.sma import SLEEVE as SMA_SLEEVE
@@ -141,5 +142,6 @@ def desk_backtest(
             for row in tail
         ],
     }
+    report["admission"] = backtest_admission(report)
     report["evidence"] = strategy_evidence(report)
     return report

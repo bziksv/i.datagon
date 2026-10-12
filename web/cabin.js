@@ -198,6 +198,7 @@
   var lastCapital = null;
   var lastWeeklyReport = null;
   var lastAudit = null;
+  var lastAdmission = null;
   var lastUnknownOrders = [];
   var lastProposals = [];
   var lastSleeves = [];
@@ -1071,6 +1072,9 @@
       apiGet("/orders?status=unknown").catch(function () {
         return { orders: lastUnknownOrders };
       }),
+      apiGet("/admission").catch(function () {
+        return lastAdmission;
+      }),
     ]).then(function (parts) {
       lastSleeves = (parts[1] && parts[1].sleeves) || lastSleeves;
       lastCapital = parts[2] || lastCapital;
@@ -1078,6 +1082,7 @@
       lastAudit = parts[4] || lastAudit;
       lastUnknownOrders =
         (parts[5] && parts[5].orders) || lastUnknownOrders;
+      lastAdmission = parts[6] || lastAdmission;
       setBlockLoading("observability", false);
       if (currentRoute === "overview") renderOverview();
       return parts;
@@ -1190,6 +1195,8 @@
     var quality = (capital && capital.data_quality) || {};
     var weekly = lastWeeklyReport || {};
     var audit = lastAudit || {};
+    var admission = lastAdmission || {};
+    var admissionGates = admission.gates || {};
     var qualityTotal = Number(quality.positions || 0);
     var qualityFresh = Number(quality.fresh_marks || 0);
     var qualityPct = qualityTotal
@@ -1239,6 +1246,21 @@
           "</strong><span>" +
           escapeHtml(item[2]) +
           "</span></div></div>"
+        );
+      })
+      .join("");
+    var gatesHtml = ["G1", "G2", "G3", "G4", "G5"]
+      .map(function (key) {
+        var gate = admissionGates[key] || {};
+        var state = gate.status || "unknown";
+        return (
+          '<div class="admission-gate is-' +
+          escapeHtml(state) +
+          '"><span>' +
+          key +
+          "</span><strong>" +
+          escapeHtml(state.toUpperCase()) +
+          "</strong></div>"
         );
       })
       .join("");
@@ -1313,7 +1335,9 @@
       (audit.chain_valid === false ? "BROKEN" : "VALID") +
       "</strong><small>" +
       escapeHtml(String((audit.events || []).length)) +
-      " events</small></div></aside>" +
+      ' events</small></div><div class="admission-strip">' +
+      gatesHtml +
+      "</div></aside>" +
       '<section class="command-panel" data-tour="overview-attention"><div class="command-panel__head"><span class="section-kicker">Attention</span><h3>Что требует решения</h3></div>' +
       attention +
       "</section>" +

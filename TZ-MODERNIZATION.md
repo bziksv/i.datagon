@@ -300,10 +300,10 @@ signal → proposal → risk decision → order → fills → ledger → PnL.
 
 | Gate | Условие | Статус |
 |---|---|---|
-| G1 Учёт | Контрольные кейсы и reconciliation без расхождений | blocked |
-| G2 Бэктест | Нет leakage, расходы и benchmark воспроизводимы | blocked |
-| G3 Paper-forward | Заранее заданный период на новых данных | blocked |
-| G4 Аварийные испытания | Timeout/restart/stale/duplicate/limit tests | blocked |
+| G1 Учёт | Контрольные кейсы и reconciliation без расхождений | passed |
+| G2 Бэктест | Нет leakage, расходы и benchmark воспроизводимы | passed |
+| G3 Paper-forward | Заранее заданный период на новых данных | running |
+| G4 Аварийные испытания | Timeout/restart/stale/duplicate/limit tests | passed |
 | G5 Live decision | Отдельный security/legal/execution audit | blocked |
 
 ## 10. Новые API-контракты

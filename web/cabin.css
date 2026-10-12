@@ -970,6 +970,39 @@ button.danger:hover {
   color: var(--muted);
 }
 
+.admission-strip {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 5px;
+  margin-top: 12px;
+}
+
+.admission-gate {
+  padding: 7px 3px;
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 8px;
+  text-align: center;
+}
+
+.admission-gate span,
+.admission-gate strong { display: block; }
+.admission-gate span {
+  color: #77867c;
+  font: 700 9px/1 monospace;
+}
+.admission-gate strong {
+  margin-top: 4px;
+  color: #88958c;
+  font: 600 7px/1 monospace;
+}
+.admission-gate.is-passed {
+  border-color: rgba(120,238,150,.28);
+  background: rgba(120,238,150,.04);
+}
+.admission-gate.is-passed strong { color: #8ff0a8; }
+.admission-gate.is-running strong { color: #ffc679; }
+.admission-gate.is-blocked strong { color: #ff9898; }
+
 .command-panel,
 .decision-panel,
 .strategy-panel {
