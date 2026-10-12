@@ -28,7 +28,7 @@ def test_abs_mom_defaults_tuned_for_both_universes() -> None:
     assert sleeve.lookback == 20
     assert sleeve.min_roc == Decimal("0.02")
     assert sleeve.exit_roc == Decimal("-0.01")
-    assert sleeve.max_stretch == Decimal("1.14")
+    assert sleeve.max_stretch == Decimal("1.10")
     assert sleeve.trail_pct == Decimal("0.10")
 
 

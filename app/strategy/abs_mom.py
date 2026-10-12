@@ -23,8 +23,8 @@ DEFAULT_MIN_ROC = Decimal("0.02")
 DEFAULT_EXIT_ROC = Decimal("-0.01")
 DEFAULT_STOP_PCT = Decimal("0")
 DEFAULT_TRAIL_PCT = Decimal("0.10")
-# Не докупать на растяжке: close/SMA > 1.14 → ждём отката к тренду.
-DEFAULT_MAX_STRETCH = Decimal("1.14")
+# Не докупать на растяжке: close/SMA > 1.10 → ждём отката к тренду.
+DEFAULT_MAX_STRETCH = Decimal("1.10")
 # Полный кэш на имя в desk-бэктесте — чтобы видеть «максимум» на истории.
 DEFAULT_BACKTEST_POSITION_SHARE = Decimal("1")
 
