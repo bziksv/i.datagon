@@ -10,6 +10,12 @@ from app.alloc.capital import sleeve_capital
 from app.alloc.view import ACTIVE_SLEEVES
 from app.alloc.weights_store import load_weights
 from app.risk.sleeve import DEFAULT_SLEEVE_SHARE
+from app.strategy.abs_mom import (
+    DEFAULT_LOOKBACK as ABS_LOOKBACK,
+    DEFAULT_MIN_ROC as ABS_MIN_ROC,
+    DEFAULT_SMA_PERIOD as ABS_SMA,
+    SLEEVE as ABS_MOM,
+)
 from app.strategy.donchian import DEFAULT_PERIOD, SLEEVE as DONCHIAN
 from app.strategy.morning import (
     DEFAULT_MAX_HOLD_BARS as MORNING_MAX_HOLD,
@@ -128,6 +134,19 @@ SLEEVE_HOWTO = {
             "Зеркало вечернего рукава: вход утром, выход к вечеру. "
             "Усреднение — только если к close всё ещё в минусе. "
             "Модель open/close на днёвках."
+        ),
+    },
+    ABS_MOM: {
+        "title": "Абс. моментум",
+        "horizon": "дневки",
+        "signal": (
+            f"В рынке только при силе: close > SMA{ABS_SMA} и "
+            f"ROC({ABS_LOOKBACK}) ≥ {float(ABS_MIN_ROC)*100:g}%. "
+            "Иначе кэш. Параметры — сетка на 14 MOEX 2024–2026."
+        ),
+        "holds": (
+            "Тренд/кэш: не ловит дно, сидит в деньгах на слабых бумагах. "
+            "Desk-бэктест на полный кэш имени. In-sample — не гарантия вперёд."
         ),
     },
 }

@@ -6,6 +6,7 @@ from decimal import Decimal
 from app.alloc.capital import sleeve_capital
 from app.alloc.weights_store import load_weights
 from app.risk.sleeve import DEFAULT_SLEEVE_SHARE
+from app.strategy.abs_mom import SLEEVE as ABS_MOM_SLEEVE
 from app.strategy.donchian import SLEEVE as DONCHIAN_SLEEVE
 from app.strategy.morning import SLEEVE as MORNING_SLEEVE
 from app.strategy.overnight import SLEEVE as OVERNIGHT_SLEEVE
@@ -20,6 +21,7 @@ ACTIVE_SLEEVES = (
     SCALP_SLEEVE,
     OVERNIGHT_SLEEVE,
     MORNING_SLEEVE,
+    ABS_MOM_SLEEVE,
 )
 
 

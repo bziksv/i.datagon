@@ -56,3 +56,12 @@ morning_bounce:
   name_share: 0.10
   sleeve_share: 0.40
   stop_pct: 0.035
+
+abs_momentum:
+  lookback: 20
+  sma_period: 50
+  min_roc: 0.02
+  stop_pct: 0
+  backtest_position_share: 1.0
+  name_share: 0.10
+  sleeve_share: 0.40

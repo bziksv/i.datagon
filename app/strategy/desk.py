@@ -16,7 +16,9 @@ from app.strategy.backtest import (
     run_backtest,
     run_walk_forward,
 )
+from app.strategy.abs_mom import SLEEVE as ABS_MOM_SLEEVE
 from app.strategy.config import (
+    abs_mom_from_config,
     donchian_from_config,
     morning_from_config,
     overnight_from_config,
@@ -67,6 +69,8 @@ def strategy_for(sleeve: str, env: dict[str, str] | None = None):
         return overnight_from_config(env)
     if sleeve == MORNING_SLEEVE:
         return morning_from_config(env)
+    if sleeve == ABS_MOM_SLEEVE:
+        return abs_mom_from_config(env)
     raise ValueError(f"unknown sleeve: {sleeve}")
 
 
@@ -99,11 +103,15 @@ def desk_backtest(
     signals = replay(strategy, symbol, bars)
     config_values = env if env is not None else dict(os.environ)
     tf = getattr(strategy, "timeframe", "1d")
+    share_attr = getattr(strategy, "backtest_position_share", None)
+    position_share = (
+        Decimal(str(share_attr))
+        if share_attr is not None
+        else Decimal(config_values.get("BACKTEST_POSITION_SHARE", "0.10"))
+    )
     backtest_config = BacktestConfig(
         initial_cash=Decimal(config_values.get("BACKTEST_INITIAL_CASH", "1000000")),
-        position_share=Decimal(
-            config_values.get("BACKTEST_POSITION_SHARE", "0.10")
-        ),
+        position_share=position_share,
         commission_bps=Decimal(config_values.get("BACKTEST_COMMISSION_BPS", "5")),
         slippage_bps=Decimal(config_values.get("BACKTEST_SLIPPAGE_BPS", "5")),
         lot=int(config_values.get("BACKTEST_LOT", "1")),

@@ -4,6 +4,14 @@ from collections.abc import Mapping
 from decimal import Decimal
 from pathlib import Path
 
+from app.strategy.abs_mom import (
+    DEFAULT_BACKTEST_POSITION_SHARE as ABS_MOM_SHARE,
+    DEFAULT_LOOKBACK as ABS_MOM_LOOKBACK,
+    DEFAULT_MIN_ROC as ABS_MOM_MIN_ROC,
+    DEFAULT_SMA_PERIOD as ABS_MOM_SMA,
+    DEFAULT_STOP_PCT as ABS_MOM_STOP,
+    AbsMomentumStrategy,
+)
 from app.strategy.donchian import DEFAULT_PERIOD, DonchianBreakoutStrategy
 from app.strategy.morning import (
     DEFAULT_MAX_HOLD_BARS as MORNING_MAX_HOLD,
@@ -339,6 +347,50 @@ def morning_from_config(
     return MorningBounceStrategy(**morning_params(env, _yaml_text(yaml_path)))
 
 
+def abs_mom_params(
+    env: Mapping[str, str],
+    yaml_text: str | None = None,
+) -> dict:
+    params = {
+        "lookback": ABS_MOM_LOOKBACK,
+        "sma_period": ABS_MOM_SMA,
+        "min_roc": ABS_MOM_MIN_ROC,
+        "stop_pct": ABS_MOM_STOP,
+        "backtest_position_share": ABS_MOM_SHARE,
+    }
+    if yaml_text:
+        section = _section(yaml_text, "abs_momentum")
+        params["lookback"] = _int_field(section, "lookback", params["lookback"])
+        params["sma_period"] = _int_field(
+            section, "sma_period", params["sma_period"]
+        )
+        params["min_roc"] = _decimal_field(section, "min_roc", params["min_roc"])
+        params["stop_pct"] = _decimal_field(section, "stop_pct", params["stop_pct"])
+        params["backtest_position_share"] = _decimal_field(
+            section,
+            "backtest_position_share",
+            params["backtest_position_share"],
+        )
+    env_map = {
+        "ABS_MOM_LOOKBACK": ("lookback", int),
+        "ABS_MOM_SMA_PERIOD": ("sma_period", int),
+        "ABS_MOM_MIN_ROC": ("min_roc", Decimal),
+        "ABS_MOM_STOP_PCT": ("stop_pct", Decimal),
+        "ABS_MOM_POSITION_SHARE": ("backtest_position_share", Decimal),
+    }
+    for env_key, (name, caster) in env_map.items():
+        if env.get(env_key):
+            params[name] = caster(env[env_key])
+    return params
+
+
+def abs_mom_from_config(
+    env: Mapping[str, str],
+    yaml_path: Path | None = DEFAULT_YAML,
+) -> AbsMomentumStrategy:
+    return AbsMomentumStrategy(**abs_mom_params(env, _yaml_text(yaml_path)))
+
+
 def active_strategies(env: Mapping[str, str], yaml_path: Path | None = DEFAULT_YAML):
     return [
         sma_from_config(env, yaml_path),
@@ -347,6 +399,7 @@ def active_strategies(env: Mapping[str, str], yaml_path: Path | None = DEFAULT_Y
         scalp_from_config(env, yaml_path),
         overnight_from_config(env, yaml_path),
         morning_from_config(env, yaml_path),
+        abs_mom_from_config(env, yaml_path),
     ]
 
 
@@ -357,6 +410,7 @@ def daily_strategies(env: Mapping[str, str], yaml_path: Path | None = DEFAULT_YA
         rsi_from_config(env, yaml_path),
         overnight_from_config(env, yaml_path),
         morning_from_config(env, yaml_path),
+        abs_mom_from_config(env, yaml_path),
     ]
 
 

@@ -18,7 +18,7 @@ def test_one_sleeve_gets_full_cap_within_101() -> None:
 
 def test_active_sleeves_equal_weight_within_101() -> None:
     weights = allocate(ACTIVE_SLEEVES)
-    assert len(ACTIVE_SLEEVES) == 6
+    assert len(ACTIVE_SLEEVES) == 7
     share = Decimal("1") / Decimal(len(ACTIVE_SLEEVES))
     assert weights[SLEEVE] == share
     assert weights[DONCHIAN] == share
@@ -32,7 +32,7 @@ def test_active_sleeves_equal_weight_within_101() -> None:
 def test_allocation_weights_in_view(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("SLEEVE_WEIGHTS_PATH", str(tmp_path / "missing.json"))
     view = allocation_view(ACTIVE_SLEEVES, equity=Decimal("1000000"))
-    share = 1 / 6
+    share = 1 / 7
     capital = round(1000000 * 0.4 * share, 2)
     assert view["sleeve_share"] == 0.4
     assert view["equity"] == 1000000.0
@@ -43,9 +43,10 @@ def test_allocation_weights_in_view(tmp_path, monkeypatch) -> None:
         "ema_scalp",
         "overnight_bounce",
         "morning_bounce",
+        "abs_momentum",
     ]
-    assert [row["weight"] for row in view["sleeves"]] == [share] * 6
-    assert [row["capital"] for row in view["sleeves"]] == [capital] * 6
+    assert [row["weight"] for row in view["sleeves"]] == [share] * 7
+    assert [row["capital"] for row in view["sleeves"]] == [capital] * 7
 
 
 def test_allocation_unauthorized(monkeypatch) -> None:
