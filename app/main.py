@@ -74,6 +74,7 @@ from app.models import (
 from app.news.view import news_view, studies_view
 from app.ops.emergency import emergency_drills
 from app.ops.guest_link import token_accepted
+from app.ops.live_preflight import live_preflight
 from app.ops.ratelimit import DEFAULT_CABIN_RATE_PER_MIN, IpRateLimit, client_ip
 from app.ops.ready import read_beat, ready_view
 from app.ops.safety import assert_paper_mode
@@ -389,6 +390,16 @@ def create_app() -> FastAPI:
 
         worker_alive = bool(ready_view(0, read_beat(), now)["worker_alive"])
         g4 = emergency_drills(worker_alive=worker_alive, now=now)
+        g5 = live_preflight(
+            {
+                "G1": g1_passed,
+                "G2": bool(g2["passed"]),
+                "G3": bool(g3["passed"]),
+                "G4": bool(g4["passed"]),
+            },
+            live_env_enabled=os.environ.get("TINKOFF_LIVE", "0").lower()
+            in {"1", "true", "yes", "on"},
+        )
         return {
             "paper_only": True,
             "live_eligible": False,
@@ -402,14 +413,16 @@ def create_app() -> FastAPI:
                 "G2": g2,
                 "G3": g3,
                 "G4": g4,
-                "G5": {
-                    "gate": "G5",
-                    "status": "blocked",
-                    "passed": False,
-                    "reason": "separate_security_legal_execution_audit_required",
-                },
+                "G5": g5,
             },
         }
+
+    @app.get("/live/preflight")
+    async def live_preflight_status(
+        session: AsyncSession = Depends(get_db),
+    ) -> dict:
+        report = await admission_status(session)
+        return report["gates"]["G5"]
 
     @app.get("/portfolio")
     async def portfolio(session: AsyncSession = Depends(get_db)) -> dict:

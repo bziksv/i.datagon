@@ -3,7 +3,7 @@
 Актуально для кабинета **v2.0** (paper / sandbox).
 Это не индивидуальная инвестиционная рекомендация и не услуга инвестиционного советника.
 
-Связанные документы: [TZ.md](../TZ.md) · [TZ-CABIN.md](../TZ-CABIN.md) · [TZ-ADVISORY.md](../TZ-ADVISORY.md) · [TZ-MODERNIZATION.md](../TZ-MODERNIZATION.md) · [deploy/LOCAL.md](../deploy/LOCAL.md)
+Связанные документы: [TZ.md](../TZ.md) · [TZ-CABIN.md](../TZ-CABIN.md) · [TZ-ADVISORY.md](../TZ-ADVISORY.md) · [TZ-MODERNIZATION.md](../TZ-MODERNIZATION.md) · [LIVE-READINESS.md](../LIVE-READINESS.md) · [deploy/LOCAL.md](../deploy/LOCAL.md)
 
 ---
 
@@ -206,6 +206,7 @@
 | POST/GET | `/paper-forward`, `/paper-forward/{id}` | Предзарегистрированный forward-период |
 | POST | `/paper-forward/{id}/observations` | Новая strategy/benchmark equity точка |
 | GET | `/admission` | Состояние gates G1–G5; live всегда fail-closed |
+| GET | `/live/preflight` | Детальные блокеры независимого live-аудита |
 | POST | `/orders/{id}/reconcile` | Идемпотентная сверка неоднозначного ордера |
 | POST | `/ledger/deposit` | Дотянуть кэш до цели |
 | POST | `/ledger/events` | Типизированные fee/tax/dividend/withdrawal события |

@@ -306,6 +306,9 @@ signal → proposal → risk decision → order → fills → ledger → PnL.
 | G4 Аварийные испытания | Timeout/restart/stale/duplicate/limit tests | passed |
 | G5 Live decision | Отдельный security/legal/execution audit | blocked |
 
+G5 имеет fail-closed preflight (`GET /live/preflight`) и пакет требований
+`LIVE-READINESS.md`. Это подготовка доказательств, не разрешение live.
+
 ## 10. Новые API-контракты
 
 - `GET /capital/summary` — valuation, PnL, returns, DD, freshness.
