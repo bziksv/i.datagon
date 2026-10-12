@@ -58,6 +58,19 @@ journalctl -u idatagon-api -n 100
 journalctl -u idatagon-worker -n 100
 ```
 
+## Свечи для paper-бэктеста
+
+Публичная история загружается из MOEX ISS, без брокерского токена:
+
+```bash
+cd /var/www/i_datagon_ru_usr/data/www/i.datagon.ru
+runuser -u i_datagon_ru_usr -- .venv/bin/python -m app.ops.refresh_candles \
+  --ticker SBER --days 730 --tf 1d
+```
+
+Для нескольких бумаг повторить `--ticker`. Для скальп-рукава использовать
+`--tf 15m --days 60`; каталог выбирается из `CANDLE_M15_DIR`.
+
 ## Postgres 5432
 
 Системный PostgreSQL 17: `listen_addresses = localhost`.  
