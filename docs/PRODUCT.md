@@ -193,10 +193,13 @@
 | GET | `/status` | Сводка контура + portfolio |
 | GET | `/portfolio` | Книга |
 | GET | `/capital/summary` | Рыночная оценка, PnL, просадка и качество цен |
+| GET | `/reports/weekly` | Недельный отчёт из рыночных equity snapshots |
 | POST/GET | `/backtests`, `/backtests/{id}` | Сохранённый эксперимент с data/config/code hash |
 | GET | `/backtests/{id}/trades` | Сделки сохранённого эксперимента |
 | POST | `/orders/{id}/reconcile` | Идемпотентная сверка неоднозначного ордера |
 | POST | `/ledger/deposit` | Дотянуть кэш до цели |
+| POST | `/ledger/events` | Типизированные fee/tax/dividend/withdrawal события |
+| POST/GET | `/ledger/corrections`, `/audit/timeline` | Компенсация и hash-chain audit |
 | GET/PUT | `/allocation`, `/allocation/weights` | Веса рукавов |
 | GET | `/allocation/plan` | Прозрачный план капитала |
 | GET/PUT | `/allocation/risk` | Версионированная risk policy и история изменений |

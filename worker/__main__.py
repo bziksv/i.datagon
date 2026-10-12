@@ -1,13 +1,14 @@
+import asyncio
 import logging
 import os
 import time
 from datetime import UTC, date, datetime
-from decimal import Decimal
 from pathlib import Path
 
 from app.logging import setup_logging
 from app.ops.envfile import load_env_file
 from app.ops.ready import write_beat
+from app.ops.safety import assert_paper_mode
 from app.strategy.config import daily_strategies, scalp_strategies
 
 from worker.bars import (
@@ -20,11 +21,16 @@ from worker.bars import (
     load_m15_books,
     m15_close_due,
 )
-from worker.equity import SNAPSHOT_INTERVAL_SEC, snapshot_due, take_snapshot
+from worker.equity import (
+    SNAPSHOT_INTERVAL_SEC,
+    persist_valuation_snapshot,
+    snapshot_due,
+)
 from worker.persist import persist_signals
 
 if __name__ == "__main__":
     load_env_file(Path(".env"))
+    assert_paper_mode()
     setup_logging()
     log = logging.getLogger("worker")
     log.info("worker start")
@@ -40,20 +46,21 @@ if __name__ == "__main__":
         write_beat(now)
         books = load_daily_books(os.environ.get("CANDLE_DIR"))
         m15_books = load_m15_books(os.environ.get("CANDLE_M15_DIR", "data/candles_m15"))
-        trading_cash = Decimal(
-            os.environ.get("WORKER_TRADING_CASH")
-            or os.environ.get("SANDBOX_DEPOSIT")
-            or "0"
-        )
-        vault = Decimal(os.environ.get("WORKER_VAULT", "0"))
         if snapshot_due(last_snapshot, now, SNAPSHOT_INTERVAL_SEC):
-            row = take_snapshot(
-                trading_cash=trading_cash,
-                vault=vault,
-                ts=now,
-            )
-            last_snapshot = now
-            log.info("equity snapshot equity=%s ts=%s", row.equity, row.ts.isoformat())
+            try:
+                row = asyncio.run(persist_valuation_snapshot(ts=now))
+                last_snapshot = now
+                if row is None:
+                    log.warning("equity snapshot skipped: incomplete valuation")
+                else:
+                    log.info(
+                        "equity snapshot equity=%s ts=%s",
+                        row.equity,
+                        row.ts.isoformat(),
+                    )
+            except Exception:
+                last_snapshot = now
+                log.exception("equity snapshot persist failed")
         if daily_close_due(last_bar_day, now):
             rows = close_all_books(
                 day_sleeves, books, last_processed=last_bar_day, now=now
@@ -87,8 +94,6 @@ if __name__ == "__main__":
         )
         if fund_due and os.environ.get("TINKOFF_SANDBOX_TOKEN"):
             try:
-                import asyncio
-
                 from worker.fundamentals import run_fundamentals_refresh
 
                 saved = asyncio.run(run_fundamentals_refresh())

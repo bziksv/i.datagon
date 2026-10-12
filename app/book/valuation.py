@@ -9,6 +9,7 @@ from decimal import Decimal
 from uuid import UUID
 
 from app.book.accounts import TRADING_CASH, VAULT
+from app.book.events import cash_event_summary
 from app.book.ledger import ledger_balance
 from app.book.returns import time_weighted_return
 from app.models import EquitySnapshot, Fill, LedgerEntry, Position
@@ -133,6 +134,21 @@ def value_portfolio(
     )
     drawdown = _max_drawdown(snapshots)
     twr = time_weighted_return(snapshots, entries)
+    ordered_snapshots = sorted(snapshots, key=lambda row: row.ts)
+    peak_equity = (
+        max((Decimal(str(row.equity)) for row in ordered_snapshots))
+        if ordered_snapshots
+        else None
+    )
+    today = observed_at.astimezone(UTC).date()
+    today_snapshots = [
+        row
+        for row in ordered_snapshots
+        if row.ts.astimezone(UTC).date() == today
+    ]
+    day_start_equity = (
+        Decimal(str(today_snapshots[0].equity)) if today_snapshots else None
+    )
     return {
         "version": VALUATION_VERSION,
         "as_of": observed_at.isoformat(),
@@ -146,7 +162,10 @@ def value_portfolio(
         "realized_net_pnl": _money(realized_net),
         "unrealized_pnl": _money(unrealized_total),
         "trading_costs": _money(costs),
+        "cash_events": cash_event_summary(entries),
         "max_drawdown": float(drawdown) if drawdown is not None else None,
+        "peak_equity": _money(peak_equity),
+        "day_start_equity": _money(day_start_equity),
         "twr": float(twr) if twr is not None else None,
         "positions": valued,
         "data_quality": {

@@ -4,7 +4,7 @@ from uuid import uuid4
 
 from app.book.accounts import TRADING_CASH
 from app.book.valuation import PriceMark, value_portfolio
-from app.models import LedgerEntry, Position
+from app.models import EquitySnapshot, LedgerEntry, Position
 
 
 def _entry(amount: str) -> LedgerEntry:
@@ -77,3 +77,33 @@ def test_missing_or_stale_mark_never_masquerades_as_exact_equity() -> None:
     assert stale["status"] == "partial"
     assert stale["equity"] is None
     assert stale["positions"][0]["mark_quality"] == "stale"
+
+
+def test_peak_drawdown_and_day_start_are_reproducible_from_snapshots() -> None:
+    now = datetime(2026, 10, 12, 12, 0, tzinfo=UTC)
+    snapshots = [
+        EquitySnapshot(
+            ts=now - timedelta(hours=3),
+            trading_cash=1000,
+            vault=0,
+            positions_value=0,
+            equity=1000,
+        ),
+        EquitySnapshot(
+            ts=now - timedelta(hours=1),
+            trading_cash=800,
+            vault=0,
+            positions_value=0,
+            equity=800,
+        ),
+    ]
+    result = value_portfolio(
+        [_entry("800")],
+        [],
+        {},
+        snapshots=snapshots,
+        now=now,
+    )
+    assert result["peak_equity"] == 1000.0
+    assert result["day_start_equity"] == 1000.0
+    assert result["max_drawdown"] == 0.2

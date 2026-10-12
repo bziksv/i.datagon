@@ -6,7 +6,7 @@ from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.exceptions import RequestValidationError
@@ -30,7 +30,9 @@ from app.alloc.plan import allocation_plan
 from app.alloc.view import ACTIVE_SLEEVES, allocation_view
 from app.alloc.weights_store import save_weights
 from app.book.accounts import TRADING_CASH
+from app.book.audit import audit_chain_valid, audit_event_view, new_audit_event
 from app.book.drift import drift_view
+from app.book.events import cash_event
 from app.book.ledger import ensure_deposit, ledger_balance, ledger_view
 from app.book.orders import (
     STATUS_REJECTED,
@@ -39,7 +41,8 @@ from app.book.orders import (
     reconcile_order,
     submit_order,
 )
-from app.book.portfolio import portfolio_from_book
+from app.book.reports import weekly_paper_report
+from app.book.service import portfolio_valuation
 from app.book.valuation import PriceMark, value_portfolio
 from app.book.vault import vault_view
 from app.broker.fake import FakeBroker
@@ -48,6 +51,7 @@ from app.broker.sandbox_payin import DEFAULT_DEPOSIT
 from app.broker.tinkoff import BrokerTokenError
 from app.db import get_db, get_sessionmaker, ping_session
 from app.models import (
+    AuditEvent,
     BacktestExperiment,
     Candle,
     EarningsDay,
@@ -68,6 +72,7 @@ from app.news.view import news_view, studies_view
 from app.ops.guest_link import token_accepted
 from app.ops.ratelimit import DEFAULT_CABIN_RATE_PER_MIN, IpRateLimit, client_ip
 from app.ops.ready import read_beat, ready_view
+from app.ops.safety import assert_paper_mode
 from app.ops.telegram import alert_kill, send_telegram
 from app.risk.calendar import calendar_map
 from app.risk.context import RiskContext
@@ -130,6 +135,7 @@ def create_app() -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
+        assert_paper_mode()
         await bootstrap_book()
         yield
 
@@ -253,14 +259,13 @@ def create_app() -> FastAPI:
         now = datetime.now(UTC)
         orders = await session.scalar(select(func.count()).select_from(Order))
         entries = list(await session.scalars(select(LedgerEntry)))
-        positions = list(await session.scalars(select(Position)))
         flags = list(await session.scalars(select(Flag)))
         members = list(
             await session.scalars(
                 select(UniverseMember).where(UniverseMember.active.is_(True))
             )
         )
-        book = portfolio_from_book(entries, positions)
+        book = await portfolio_valuation(session, now=now)
         ready = ready_view(int(orders or 0), read_beat(), now)
         agents_on = os.environ.get("AGENTS_ENABLED", "0").lower() in {
             "1",
@@ -286,49 +291,31 @@ def create_app() -> FastAPI:
 
     @app.get("/portfolio")
     async def portfolio(session: AsyncSession = Depends(get_db)) -> dict:
-        entries = list(await session.scalars(select(LedgerEntry)))
-        positions = list(await session.scalars(select(Position)))
-        return portfolio_from_book(entries, positions)
+        return await portfolio_valuation(session)
 
     @app.get("/capital/summary")
     async def capital_summary(session: AsyncSession = Depends(get_db)) -> dict:
-        entries = list(await session.scalars(select(LedgerEntry)))
-        positions = list(await session.scalars(select(Position)))
-        fills = list(await session.scalars(select(Fill)))
+        return await portfolio_valuation(session)
+
+    @app.get("/reports/weekly")
+    async def weekly_report(
+        at: datetime | None = None,
+        session: AsyncSession = Depends(get_db),
+    ) -> dict:
         snapshots = list(await session.scalars(select(EquitySnapshot)))
-        instrument_ids = {row.instrument_id for row in positions}
-        candles = (
-            list(
-                await session.scalars(
-                    select(Candle).where(Candle.instrument_id.in_(instrument_ids))
-                )
-            )
-            if instrument_ids
-            else []
-        )
-        latest: dict[UUID, Candle] = {}
-        for candle in candles:
-            previous = latest.get(candle.instrument_id)
-            if previous is None or candle.ts > previous.ts:
-                latest[candle.instrument_id] = candle
-        marks = {
-            instrument_id: PriceMark(
-                instrument_id=instrument_id,
-                price=Decimal(str(candle.c)),
-                as_of=candle.ts,
-                source=f"candle:{candle.tf}",
-            )
-            for instrument_id, candle in latest.items()
+        row = weekly_paper_report(snapshots, ts=at or datetime.now(UTC))
+        if row is None:
+            return {"available": False}
+        return {
+            "available": True,
+            "kind": row.kind,
+            "period_start": row.period_start.isoformat(),
+            "period_end": row.period_end.isoformat(),
+            "equity_start": float(row.equity_start),
+            "equity_end": float(row.equity_end),
+            "pnl": float(row.pnl),
+            "payload": row.payload,
         }
-        stale_hours = int(os.environ.get("VALUATION_STALE_HOURS", "36"))
-        return value_portfolio(
-            entries,
-            positions,
-            marks,
-            fills=fills,
-            snapshots=snapshots,
-            stale_after=timedelta(hours=stale_hours),
-        )
 
     @app.get("/orders")
     async def orders(
@@ -379,6 +366,16 @@ def create_app() -> FastAPI:
     class DepositBody(BaseModel):
         amount: float = Field(..., gt=0)
 
+    class CashEventBody(BaseModel):
+        reason: str = Field(..., min_length=1)
+        amount: float = Field(..., gt=0)
+        ref: str | None = None
+
+    class LedgerCorrectionBody(BaseModel):
+        amount: float
+        original_ref: str = Field(..., min_length=1)
+        explanation: str = Field(..., min_length=1)
+
     @app.post("/ledger/deposit")
     async def ledger_deposit(
         body: DepositBody,
@@ -396,17 +393,86 @@ def create_app() -> FastAPI:
         )
         await ensure_deposit(session, target)
         await session.commit()
-        positions = list(await session.scalars(select(Position)))
-        entries = list(await session.scalars(select(LedgerEntry)))
-        book = portfolio_from_book(entries, positions)
+        book = await portfolio_valuation(session)
         return {
             "target": float(target),
             "before": float(Decimal(before).quantize(Decimal("0.01"))),
             "cash": float(Decimal(str(book["cash"])).quantize(Decimal("0.01"))),
-            "equity": float(Decimal(str(book["equity"])).quantize(Decimal("0.01"))),
+            "equity": book["equity"],
+            "valuation_status": book["status"],
             "topped_up": float(
                 (Decimal(str(book["cash"])) - Decimal(before)).quantize(Decimal("0.01"))
             ),
+        }
+
+    @app.post("/ledger/events")
+    async def ledger_event(
+        body: CashEventBody,
+        session: AsyncSession = Depends(get_db),
+    ) -> dict:
+        try:
+            row = cash_event(
+                body.reason,
+                Decimal(str(body.amount)),
+                ref=body.ref,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        session.add(row)
+        await session.commit()
+        return ledger_view([row])["entries"][0]
+
+    @app.post("/ledger/corrections")
+    async def ledger_correction(
+        body: LedgerCorrectionBody,
+        session: AsyncSession = Depends(get_db),
+    ) -> dict:
+        amount = Decimal(str(body.amount)).quantize(Decimal("0.01"))
+        if amount == 0:
+            raise HTTPException(status_code=422, detail="amount must be non-zero")
+        latest = await session.scalar(
+            select(AuditEvent).order_by(AuditEvent.occurred_at.desc()).limit(1)
+        )
+        entry = LedgerEntry(
+            id=uuid4(),
+            account_kind=TRADING_CASH,
+            amount=amount,
+            reason="correction",
+            ref=body.original_ref,
+            ts=datetime.now(UTC),
+        )
+        event = new_audit_event(
+            event_type="ledger_correction",
+            entity_type="ledger_entry",
+            entity_id=str(entry.id),
+            payload={
+                "amount": float(amount),
+                "original_ref": body.original_ref,
+                "explanation": body.explanation,
+            },
+            previous_hash=latest.event_hash if latest is not None else None,
+            occurred_at=entry.ts,
+        )
+        session.add(entry)
+        session.add(event)
+        await session.commit()
+        return {
+            "entry": ledger_view([entry])["entries"][0],
+            "audit": audit_event_view(event),
+        }
+
+    @app.get("/audit/timeline")
+    async def audit_timeline(
+        session: AsyncSession = Depends(get_db),
+    ) -> dict:
+        rows = list(
+            await session.scalars(
+                select(AuditEvent).order_by(AuditEvent.occurred_at.asc())
+            )
+        )
+        return {
+            "chain_valid": audit_chain_valid(rows),
+            "events": [audit_event_view(row) for row in rows],
         }
 
     @app.get("/admin/drift")
@@ -438,10 +504,8 @@ def create_app() -> FastAPI:
         ticker: str = Field(default="SBER", min_length=1)
 
     async def _book_equity(session: AsyncSession) -> Decimal:
-        entries = list(await session.scalars(select(LedgerEntry)))
-        positions = list(await session.scalars(select(Position)))
-        book = portfolio_from_book(entries, positions)
-        equity = Decimal(str(book["equity"]))
+        book = await portfolio_valuation(session)
+        equity = Decimal(str(book["equity"] or 0))
         if equity <= 0:
             return Decimal(str(DEFAULT_DEPOSIT))
         return equity

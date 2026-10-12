@@ -4,6 +4,7 @@ from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
+from app.book.valuation import VALUATION_VERSION
 from app.models import EquitySnapshot, Report
 
 WEEKLY_PAPER = "weekly_paper"
@@ -46,7 +47,10 @@ def weekly_paper_report(
         equity_start=equity_start,
         equity_end=equity_end,
         pnl=equity_end - equity_start,
-        payload={"snapshots": len(week)},
+        payload={
+            "snapshots": len(week),
+            "valuation_version": VALUATION_VERSION,
+        },
     )
 
 

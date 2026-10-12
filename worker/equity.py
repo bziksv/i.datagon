@@ -4,6 +4,8 @@ from datetime import datetime
 from decimal import Decimal
 
 from app.book.equity import make_snapshot
+from app.book.service import portfolio_valuation
+from app.db import get_sessionmaker
 from app.models import EquitySnapshot
 
 SNAPSHOT_INTERVAL_SEC = 3600
@@ -40,3 +42,23 @@ def record_snapshot(
 ) -> list[EquitySnapshot]:
     rows.append(snapshot)
     return rows
+
+
+async def persist_valuation_snapshot(
+    *,
+    ts: datetime,
+) -> EquitySnapshot | None:
+    maker = get_sessionmaker()
+    async with maker() as session:
+        valuation = await portfolio_valuation(session, now=ts)
+        if valuation["status"] != "complete" or valuation["equity"] is None:
+            return None
+        row = take_snapshot(
+            trading_cash=Decimal(str(valuation["cash"])),
+            vault=Decimal(str(valuation["vault"])),
+            positions_value=Decimal(str(valuation["known_market_value"])),
+            ts=ts,
+        )
+        session.add(row)
+        await session.commit()
+        return row

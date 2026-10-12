@@ -226,21 +226,21 @@ signal → proposal → risk decision → order → fills → ledger → PnL.
 
 | ID | Задача | Готово когда | Статус |
 |---|---|---|---|
-| M001 | Карта денежных и торговых путей | Все routes/jobs/functions, меняющие деньги, позиции, ордера и лимиты, перечислены | doing |
-| M002 | Characterization tests | Зафиксированы текущие deposit/fill/approve/risk/backtest сценарии | todo |
-| M003 | Режим safety | В тестовой/prod paper-конфигурации live недостижим, startup это проверяет | todo |
+| M001 | Карта денежных и торговых путей | Все routes/jobs/functions, меняющие деньги, позиции, ордера и лимиты, перечислены | done |
+| M002 | Characterization tests | Зафиксированы текущие deposit/fill/approve/risk/backtest сценарии | done |
+| M003 | Режим safety | В тестовой/prod paper-конфигурации live недостижим, startup это проверяет | done |
 
 ### M1. Книга, цены и PnL — P0
 
 | ID | Задача | Готово когда | Статус |
 |---|---|---|---|
-| M101 | `PortfolioValuation` | Один сервис используется portfolio/status/risk/reports | todo |
+| M101 | `PortfolioValuation` | Один сервис используется portfolio/status/risk/reports | done |
 | M102 | Market marks | Цена имеет source/as_of/quality; stale/missing видны в API | done |
 | M103 | Realized/unrealized PnL | Контрольный пример даёт 2 800 ₽ net | done |
 | M104 | Денежные потоки и TWR | Deposit не считается прибылью; период разбивается на flows | done |
-| M105 | Drawdown и дневной старт | Peak/start-of-day воспроизводимы по snapshots | todo |
-| M106 | Расходы и доходы | Commission/fees/tax/dividend раздельны | todo |
-| M107 | Версия расчёта | Исторический отчёт воспроизводится той же версией | todo |
+| M105 | Drawdown и дневной старт | Peak/start-of-day воспроизводимы по snapshots | done |
+| M106 | Расходы и доходы | Commission/fees/tax/dividend раздельны | done |
+| M107 | Версия расчёта | Исторический отчёт воспроизводится той же версией | done |
 
 ### M2. Исполнения — P0
 
@@ -250,7 +250,7 @@ signal → proposal → risk decision → order → fills → ledger → PnL.
 | M202 | Статусы ордера | Поддержаны partial/cancel_pending/unknown/reconciled | done |
 | M203 | Персистентный approve | Risk decision и order записаны до отправки | done |
 | M204 | Reconciliation | Рестарт/timeout восстанавливает фактическое состояние без дубля | done |
-| M205 | Immutable audit | Коррекция — компенсирующая запись, история не удаляется | todo |
+| M205 | Immutable audit | Коррекция — компенсирующая запись, история не удаляется | done |
 
 ### M3. Risk engine — P0
 
