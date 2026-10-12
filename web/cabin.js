@@ -17,7 +17,7 @@
       title: "Портфель",
       hint: "Где деньги и позиции",
       intro:
-        "Paper-книга лаборатории: где лежат деньги и какие позиции открыты. Это не экран приложения брокера.",
+        "Тестовая книга лаборатории: где лежат деньги и какие позиции открыты. Это не экран приложения брокера.",
     },
     {
       id: "strategies",
@@ -156,6 +156,15 @@
     filled: "исполнен",
     partially_filled: "частично исполнен",
     cancelled: "отменён",
+    unknown: "статус неизвестен",
+    reconciled: "сверен",
+    cancel_pending: "отмена ожидается",
+  };
+  var MARK_QUALITY_RU = {
+    fresh: "актуальная",
+    good: "актуальная",
+    stale: "устарела",
+    missing: "нет цены",
   };
   var ORDER_REJECT_RU = {
     killed: "Отклонено: включён стоп торговли",
@@ -207,6 +216,7 @@
   var lastAllocPlan = null;
   var lastDrift = null;
   var lastSleeveDetail = null;
+  var sleeveDetailLoading = false;
   var sandboxCashKnown = null;
   var signalFilterTicker = "";
   var signalFilterKind = "";
@@ -416,13 +426,20 @@
     document
       .querySelectorAll(".nav a, .mobile-nav a[data-route], .mobile-more-links a")
       .forEach(function (el) {
-        el.classList.toggle("active", el.dataset.route === routeId);
+        var active = el.dataset.route === routeId;
+        el.classList.toggle("active", active);
+        if (active) el.setAttribute("aria-current", "page");
+        else el.removeAttribute("aria-current");
       });
     var moreBtn = byId("mobile-more-btn");
     if (moreBtn) {
       var inMore = MOBILE_MORE_IDS.indexOf(routeId) !== -1;
       moreBtn.classList.toggle("active", inMore);
-      moreBtn.setAttribute("aria-current", inMore ? "true" : "false");
+      var moreRoute = routeById(routeId);
+      moreBtn.setAttribute(
+        "aria-label",
+        inMore && moreRoute ? "Ещё, текущий раздел: " + moreRoute.title : "Ещё"
+      );
     }
   }
 
@@ -711,6 +728,8 @@
     authed = ok;
     byId("gate").hidden = ok;
     byId("app").hidden = !ok;
+    var skip = document.querySelector(".skip-link");
+    if (skip) skip.setAttribute("href", ok ? "#page-body" : "#gate-form");
     if (ok) {
       document.title = "i.datagon · Обзор";
       renderNav();
@@ -804,6 +823,12 @@
     if (location.hash !== "#/" + id) {
       location.hash = "#/" + id;
     }
+  }
+
+  function setRouteTab(routeId, tabId) {
+    var next = "#/" + routeId + "?tab=" + encodeURIComponent(tabId);
+    if (location.hash !== next) location.hash = next;
+    else showRoute(routeId);
   }
 
   function renderNav() {
@@ -910,6 +935,17 @@
     }
     if (row.kind === "weights") {
       var weights = payload.weights || payload;
+      if (Array.isArray(weights)) {
+        return weights
+          .map(function (item) {
+            return (
+              (SLEEVE_NAMES[item.sleeve] || item.sleeve || "рукав") +
+              " " +
+              pctLabel(item.weight)
+            );
+          })
+          .join(", ");
+      }
       if (weights && typeof weights === "object" && !Array.isArray(weights)) {
         return Object.keys(weights)
           .filter(function (name) {
@@ -1241,7 +1277,7 @@
     ) {
       alertItems.push([
         "critical",
-        "Paper-forward проверка",
+        "Проверка на новых данных",
         forwardGate.status === "stalled"
           ? "Новые наблюдения не поступают"
           : "Период завершён без полного покрытия",
@@ -1272,7 +1308,7 @@
           G2: "Бэктест",
           G3: "Наблюдение",
           G4: "Сбои",
-          G5: "Live",
+          G5: "Боевой контур",
         };
         var gateStates = {
           passed: "пройден",
@@ -1324,12 +1360,12 @@
           : escapeHtml((Number(capital.twr) * 100).toFixed(2) + "%")) +
         "</strong><small>метод TWR</small></div></div>" +
         (capital.status !== "complete"
-          ? '<p class="warning-text">Точная equity скрыта: есть устаревшие или отсутствующие цены (' +
+          ? '<p class="warning-text">Точная стоимость счёта скрыта: есть устаревшие или отсутствующие цены (' +
             escapeHtml(
               String(quality.stale_marks || 0) +
-                " stale, " +
+                " устарело, " +
                 String(quality.missing_marks || 0) +
-                " missing"
+                " отсутствует"
             ) +
             ").</p>"
           : '<p class="source-line">Оценка ' +
@@ -1361,7 +1397,7 @@
       '%</strong><span>актуальных цен</span></div></div>' +
       capitalBlock +
       '<div class="overview-card-footer"><span>За неделю <strong>' +
-      money(weekly.pnl) +
+      (weekly.available === false ? "нет данных" : money(weekly.pnl)) +
       '</strong></span><span>На начало дня <strong>' +
       money(capital && capital.day_start_equity) +
       '</strong></span><a href="#/portfolio">Подробнее в Портфеле</a></div></section>' +
@@ -1462,9 +1498,9 @@
       "</section>" +
       '<section class="panel" data-tour="help-version">' +
       "<h3>Версия</h3>" +
-      '<p data-tour="help-cabin-v1">Кабинет <strong>' +
+      '<p data-tour="help-cabin-version">Кабинет <strong>' +
       escapeHtml(CABIN_UI_VERSION) +
-      "</strong> — операторский UI paper/sandbox-лаборатории. " +
+      "</strong> — операторский интерфейс тестовой лаборатории (paper/sandbox). " +
       "Источник истины по экранам: TZ-CABIN.md (этапы 01–30). " +
       "Приёмка оператора: CABIN-ACCEPTANCE.md · фиксация: CABIN-FINAL.md.</p>" +
       "</section>" +
@@ -1662,17 +1698,17 @@
       escapeHtml(proposalSummary(row)) +
       "</p>" +
       '<div class="decision-flow">' +
-      '<div><span>01 / THESIS</span><strong>' +
+      '<div><span>01 / ОБОСНОВАНИЕ</span><strong>' +
       escapeHtml(thesis) +
       "</strong></div>" +
-      '<div><span>02 / SIZING</span><strong>' +
+      '<div><span>02 / РАЗМЕР</span><strong>' +
       escapeHtml(sizing || "—") +
       "</strong></div>" +
-      '<div><span>03 / CHECKS</span><strong>Risk policy · лимиты · свежие данные</strong></div>' +
-      '<div><span>04 / EFFECT</span><strong>' +
+      '<div><span>03 / ПРОВЕРКИ</span><strong>Риск-политика · лимиты · свежие данные</strong></div>' +
+      '<div><span>04 / РЕЗУЛЬТАТ</span><strong>' +
       escapeHtml(proposalWillDo(row)) +
       "</strong></div>" +
-      '<div><span>05 / INVALIDATION</span><strong>' +
+      '<div><span>05 / КОГДА НЕ ПРИМЕНЯТЬ</span><strong>' +
       escapeHtml(invalidation) +
       "</strong></div></div>" +
       (waiting
@@ -1999,7 +2035,7 @@
       '<section class="panel" data-tour="settings-capital">' +
       '<h3 data-tour="settings-title">Депозит и лимит на бумагу</h3>' +
       '<div class="callout warn" data-tour="settings-disclaimer">' +
-      "<strong>Рамка.</strong> Аналитика paper-лаборатории. Не индивидуальная инвестиционная рекомендация и не услуга ИК. " +
+      "<strong>Рамка.</strong> Аналитика тестовой лаборатории. Не индивидуальная инвестиционная рекомендация и не услуга ИК. " +
       'Кандидаты по фундаменту — в <a class="panel-link" href="#/recommendations">Рекомендациях</a>.' +
       "</div>" +
       "<p data-tour=\"settings-intro\">" +
@@ -2073,7 +2109,7 @@
       ? wrapTableScroll(
           '<table class="data-table" data-tour="companies-table">' +
             "<thead><tr>" +
-            "<th>тикер</th><th>скор</th><th>value</th><th>quality</th><th>div</th>" +
+            "<th>тикер</th><th>скор</th><th>оценка</th><th>качество</th><th>дивиденды</th>" +
             "<th>P/E</th><th>P/B</th><th>ROE</th><th>див.</th><th>почему</th>" +
             "</tr></thead><tbody>" +
             items
@@ -2118,7 +2154,7 @@
     body.innerHTML =
       '<section class="panel" data-tour="companies-panel">' +
       "<h3>Компании</h3>" +
-      "<p>Фундаментальные метрики и скор (value / quality / div). " +
+      "<p>Фундаментальные метрики и скор: оценка, качество и дивиденды. " +
       'Кандидаты на вход — в <a class="panel-link" href="#/recommendations">Рекомендациях</a>.</p>' +
       '<div class="panel-actions">' +
       '<button type="button" class="primary" id="companies-demo">Демо-данные</button>' +
@@ -2207,13 +2243,13 @@
               '<div class="metric hero"><div class="k">скор</div><div class="v">' +
               escapeHtml(String(scores.total != null ? scores.total : "—")) +
               "</div></div>" +
-              '<div class="metric"><div class="k">value</div><div class="v">' +
+              '<div class="metric"><div class="k">оценка</div><div class="v">' +
               escapeHtml(String(scores.value != null ? scores.value : "—")) +
               "</div></div>" +
-              '<div class="metric"><div class="k">quality</div><div class="v">' +
+              '<div class="metric"><div class="k">качество</div><div class="v">' +
               escapeHtml(String(scores.quality != null ? scores.quality : "—")) +
               "</div></div>" +
-              '<div class="metric"><div class="k">div</div><div class="v">' +
+              '<div class="metric"><div class="k">дивиденды</div><div class="v">' +
               escapeHtml(String(scores.div != null ? scores.div : "—")) +
               "</div></div></div>" +
               "<p>" +
@@ -2580,7 +2616,7 @@
       "<p>" +
       "Задайте долю или сумму в рублях от торгового потолка (" +
       money(pool) +
-      " = equity × " +
+      " = стоимость счёта × " +
       escapeHtml(pctLabel(alloc.sleeve_share)) +
       "). Сумма долей — 100%. Рубли считаются от потолка: бюджет = потолок × доля." +
       "</p>" +
@@ -2640,7 +2676,7 @@
         sample: "Объём выборки",
         drawdown: "Просадка",
         cost_resilience: "Устойчивость к расходам",
-        paper_forward: "Paper-forward",
+        paper_forward: "Проверка на новых данных",
         walk_forward_coverage: "Покрытие walk-forward",
       };
       var evidenceHtml = evidence
@@ -3010,6 +3046,21 @@
         "</section>"
       );
     }
+    if (
+      sleeveDetailLoading &&
+      (!lastSleeveDetail || lastSleeveDetail.sleeve !== sleeveId)
+    ) {
+      return (
+        '<section class="panel" data-tour="strategies-card">' +
+        '<p><a class="panel-link" href="#/strategies" data-tour="strategies-back">← ко сравнению</a></p>' +
+        "<h3>" +
+        escapeHtml(name) +
+        "</h3>" +
+        '<p class="source-line">Загружаем результат, позиции и сигналы рукава…</p>' +
+        skeletonHtml(4) +
+        "</section>"
+      );
+    }
     var detail =
       lastSleeveDetail && lastSleeveDetail.sleeve === sleeveId
         ? lastSleeveDetail
@@ -3060,7 +3111,7 @@
     var positionsBody = positions.length
       ? wrapTableScroll(
           '<table class="data-table" data-tour="strategies-positions">' +
-            "<thead><tr><th>тикер</th><th>qty</th><th>средняя</th><th>на бумаге</th></tr></thead><tbody>" +
+            "<thead><tr><th>тикер</th><th>кол-во</th><th>средняя</th><th>на бумаге</th></tr></thead><tbody>" +
             positions
               .map(function (row) {
                 return (
@@ -3429,6 +3480,7 @@
       allocPromise,
       planPromise,
     ]).then(function () {
+      sleeveDetailLoading = false;
       if (currentRoute === "strategies") renderStrategies();
     });
   }
@@ -3452,11 +3504,15 @@
       { id: "drift", label: "Расхождение" },
     ];
     return (
-      '<div class="tabs" data-tour="portfolio-tabs">' +
+      '<div class="tabs" role="tablist" aria-label="Разделы портфеля" data-tour="portfolio-tabs">' +
       tabs
         .map(function (tab) {
           return (
-            '<button type="button" data-tab="' +
+            '<button type="button" role="tab" id="portfolio-tab-' +
+            tab.id +
+            '" aria-controls="portfolio-panel" aria-selected="' +
+            (portfolioTab === tab.id ? "true" : "false") +
+            '" data-tab="' +
             tab.id +
             '"' +
             (portfolioTab === tab.id ? ' class="active"' : "") +
@@ -3553,27 +3609,27 @@
               "</h4></div><span class=\"mark-state is-" +
               escapeHtml(row.mark_quality || "missing") +
               '">' +
-              escapeHtml(row.mark_quality || "missing") +
+              escapeHtml(MARK_QUALITY_RU[row.mark_quality] || row.mark_quality || "нет цены") +
               "</span></div>" +
               '<div class="position-card__value">' +
               money(row.market_value) +
               "</div>" +
               '<div class="position-card__pnl ' +
               (pnl > 0 ? "is-positive" : pnl < 0 ? "is-negative" : "") +
-              '">Open PnL ' +
+              '">Открытый результат ' +
               money(row.unrealized_pnl) +
               "</div>" +
-              '<dl><div><dt>Qty</dt><dd>' +
+              '<dl><div><dt>Количество</dt><dd>' +
               escapeHtml(String(qty)) +
-              "</dd></div><div><dt>Cost</dt><dd>" +
+              "</dd></div><div><dt>Себестоимость</dt><dd>" +
               money(row.cost_basis) +
-              "</dd></div><div><dt>Mark</dt><dd>" +
+              "</dd></div><div><dt>Рыночная цена</dt><dd>" +
               money(row.mark) +
-              "</dd></div><div><dt>Weight</dt><dd>" +
+              "</dd></div><div><dt>Доля</dt><dd>" +
               escapeHtml(share) +
               "</dd></div></dl>" +
               '<p class="position-card__source">' +
-              escapeHtml(row.mark_source || "no source") +
+              escapeHtml(row.mark_source || "источник не указан") +
               " · " +
               escapeHtml(formatSignalTime(row.mark_as_of)) +
               "</p></article>"
@@ -3591,7 +3647,7 @@
     return (
       '<section class="panel" data-tour="portfolio-positions">' +
       "<h3>Позиции</h3>" +
-      "<p>Cost → market → PnL с источником и свежестью каждой цены.</p>" +
+      "<p>Себестоимость → рыночная оценка → результат с источником и свежестью каждой цены.</p>" +
       table +
       "</section>"
     );
@@ -3649,7 +3705,7 @@
       '<div class="metric" data-tour="portfolio-alloc-share"><div class="k">потолок рукава' +
       whatis(
         "Потолок рукава",
-        "Доля equity, в пределах которой рукава делят торговый капитал. Сейчас 40%."
+        "Доля стоимости счёта, в пределах которой рукава делят торговый капитал. Сейчас 40%."
       ) +
       '</div><div class="v">' +
       escapeHtml(pctLabel(alloc.sleeve_share)) +
@@ -3657,7 +3713,7 @@
       table +
       '<details class="fold" data-tour="portfolio-alloc-how">' +
       "<summary>Как считается</summary>" +
-      "<p>Два рукава → вес 50/50. Капитал рукава = equity × 0,40 × вес. Это лимит аллокатора, не факт позиций.</p>" +
+      "<p>Два рукава → вес 50/50. Капитал рукава = стоимость счёта × 0,40 × вес. Это лимит аллокатора, не факт позиций.</p>" +
       "</details></section>"
     );
   }
@@ -3921,7 +3977,13 @@
   function renderPortfolio() {
     var body = byId("page-body");
     if (routeLoading && currentRoute === "portfolio") {
-      body.innerHTML = portfolioTabsHtml() + skeletonHtml(3);
+      body.innerHTML =
+        portfolioTabsHtml() +
+        '<div id="portfolio-panel" role="tabpanel" aria-labelledby="portfolio-tab-' +
+        portfolioTab +
+        '">' +
+        skeletonHtml(3) +
+        "</div>";
       return;
     }
     var content = "";
@@ -3931,11 +3993,17 @@
     else if (portfolioTab === "allocation") content = renderPortfolioAllocation();
     else content = renderPortfolioDrift();
 
-    body.innerHTML = portfolioTabsHtml() + content;
+    body.innerHTML =
+      portfolioTabsHtml() +
+      '<div id="portfolio-panel" role="tabpanel" aria-labelledby="portfolio-tab-' +
+      portfolioTab +
+      '">' +
+      content +
+      "</div>";
     body.querySelectorAll(".tabs button").forEach(function (btn) {
       btn.addEventListener("click", function () {
         portfolioTab = btn.getAttribute("data-tab") || "capital";
-        renderPortfolio();
+        setRouteTab("portfolio", portfolioTab);
       });
     });
     if (portfolioTab === "drift") bindDriftActions();
@@ -3968,6 +4036,16 @@
       return;
     }
     if (route.id === "portfolio") {
+      var requestedPortfolioTab = hashQuery().tab;
+      if (
+        requestedPortfolioTab === "positions" ||
+        requestedPortfolioTab === "capital" ||
+        requestedPortfolioTab === "vault" ||
+        requestedPortfolioTab === "allocation" ||
+        requestedPortfolioTab === "drift"
+      ) {
+        portfolioTab = requestedPortfolioTab;
+      } else portfolioTab = "capital";
       if (
         portfolioTab !== "positions" &&
         portfolioTab !== "capital" &&
@@ -3984,6 +4062,11 @@
       return;
     }
     if (route.id === "strategies") {
+      var sleeveTarget = strategiesSleeveFromHash();
+      sleeveDetailLoading = !!(
+        sleeveTarget &&
+        (!lastSleeveDetail || lastSleeveDetail.sleeve !== sleeveTarget)
+      );
       renderStrategies();
       refreshStrategies().then(function () {
         maybeStartStrategiesTour();
@@ -4050,9 +4133,14 @@
 
   function syncFromHash() {
     if (!authed) return;
+    var raw = hashPath();
     var id = routeFromHash();
     if ((location.hash || "") === "" || location.hash === "#") {
       setHash(id);
+      return;
+    }
+    if (raw && id === "overview" && raw !== "overview") {
+      setHash("overview");
       return;
     }
     showRoute(id);
@@ -4318,11 +4406,15 @@
       { id: "studies", label: "Исследования" },
     ];
     return (
-      '<div class="tabs" data-tour="news-tabs">' +
+      '<div class="tabs" role="tablist" aria-label="Разделы новостей" data-tour="news-tabs">' +
       tabs
         .map(function (tab) {
           return (
-            '<button type="button" data-news-tab="' +
+            '<button type="button" role="tab" id="news-tab-' +
+            tab.id +
+            '" aria-controls="news-panel" aria-selected="' +
+            (newsTab === tab.id ? "true" : "false") +
+            '" data-news-tab="' +
             tab.id +
             '"' +
             (newsTab === tab.id ? ' class="active"' : "") +
@@ -4552,7 +4644,7 @@
       .forEach(function (btn) {
         btn.addEventListener("click", function () {
           newsTab = btn.getAttribute("data-news-tab") || "feed";
-          renderNews();
+          setRouteTab("news", newsTab);
         });
       });
     var tickerInput = byId("news-filter-ticker");
@@ -4594,7 +4686,13 @@
     var body = byId("page-body");
     var content =
       newsTab === "studies" ? renderNewsStudies() : renderNewsFeed();
-    body.innerHTML = newsTabsHtml() + content;
+    body.innerHTML =
+      newsTabsHtml() +
+      '<div id="news-panel" role="tabpanel" aria-labelledby="news-tab-' +
+      newsTab +
+      '">' +
+      content +
+      "</div>";
     bindNewsControls();
   }
 
@@ -4641,11 +4739,15 @@
       { id: "rules", label: "Правила риска" },
     ];
     return (
-      '<div class="tabs" data-tour="market-tabs">' +
+      '<div class="tabs" role="tablist" aria-label="Разделы рынка" data-tour="market-tabs">' +
       tabs
         .map(function (tab) {
           return (
-            '<button type="button" data-market-tab="' +
+            '<button type="button" role="tab" id="market-tab-' +
+            tab.id +
+            '" aria-controls="market-panel" aria-selected="' +
+            (marketTab === tab.id ? "true" : "false") +
+            '" data-market-tab="' +
             tab.id +
             '"' +
             (marketTab === tab.id ? ' class="active"' : "") +
@@ -4857,11 +4959,17 @@
     var body = byId("page-body");
     var content =
       marketTab === "rules" ? renderMarketRules() : renderMarketUniverse();
-    body.innerHTML = marketTabsHtml() + content;
+    body.innerHTML =
+      marketTabsHtml() +
+      '<div id="market-panel" role="tabpanel" aria-labelledby="market-tab-' +
+      marketTab +
+      '">' +
+      content +
+      "</div>";
     body.querySelectorAll("[data-market-tab]").forEach(function (btn) {
       btn.addEventListener("click", function () {
         marketTab = btn.getAttribute("data-market-tab") || "universe";
-        renderMarket();
+        setRouteTab("market", marketTab);
       });
     });
     if (marketTab === "rules") bindMarketRules();
@@ -4886,14 +4994,18 @@
     var tabs = [
       { id: "orders", label: "Ордера" },
       { id: "ledger", label: "Проводки" },
-      { id: "audit", label: "Audit trail" },
+      { id: "audit", label: "Сквозной журнал" },
     ];
     return (
-      '<div class="tabs" data-tour="journal-tabs">' +
+      '<div class="tabs" role="tablist" aria-label="Разделы журнала" data-tour="journal-tabs">' +
       tabs
         .map(function (tab) {
           return (
-            '<button type="button" data-journal-tab="' +
+            '<button type="button" role="tab" id="journal-tab-' +
+            tab.id +
+            '" aria-controls="journal-panel" aria-selected="' +
+            (journalTab === tab.id ? "true" : "false") +
+            '" data-journal-tab="' +
             tab.id +
             '"' +
             (journalTab === tab.id ? ' class="active"' : "") +
@@ -5018,7 +5130,6 @@
       );
     } else if (loadErrors.orders && !(lastOrders || []).length) {
       table =
-        blockErrorHtml("orders") ||
         '<p class="empty" data-tour="journal-orders-empty">Список ордеров не загрузился — это не «0 ордеров».</p>';
     } else if (!(lastOrders || []).length) {
       table =
@@ -5127,6 +5238,10 @@
             .join("") +
           "</tbody></table>"
       );
+    } else if (loadErrors.ledger) {
+      table =
+        blockErrorHtml("ledger") ||
+        '<p class="empty">Проводки не загрузились — это не означает, что денежных событий нет.</p>';
     } else {
       table =
         '<p class="empty" data-tour="journal-ledger-empty">' +
@@ -5156,11 +5271,11 @@
   function renderJournalAudit() {
     var audit = lastAudit || {};
     var auditRows = (audit.events || []).map(function (row) {
-      return Object.assign({ lane: "AUDIT", timeline_at: row.occurred_at }, row);
+      return Object.assign({ lane: "АУДИТ", timeline_at: row.occurred_at }, row);
     });
     var orderRows = (lastOrders || []).map(function (row) {
       return {
-        lane: "ORDER",
+        lane: "ОРДЕР",
         timeline_at: row.created_at,
         event_type:
           orderSideLabel(row.side) + " · " + orderStatusLabel(row.status),
@@ -5171,7 +5286,7 @@
     });
     var ledgerRows = (lastLedger || []).map(function (row) {
       return {
-        lane: "LEDGER",
+        lane: "ПРОВОДКА",
         timeline_at: row.ts,
         event_type: ledgerReasonLabel(row.reason),
         entity_type: ledgerAccountLabel(row.account_kind),
@@ -5198,19 +5313,19 @@
           '<span class="audit-lane">' +
           escapeHtml(row.lane) +
           "</span> " +
-          escapeHtml(row.event_type || "event") +
+          escapeHtml(row.event_type || "событие") +
           '</strong><time>' +
           formatSignalTime(row.timeline_at) +
           "</time></div>" +
           '<p><span class="section-kicker">' +
-          escapeHtml(row.entity_type || "entity") +
+          escapeHtml(row.entity_type || "объект") +
           "</span> " +
           escapeHtml(row.entity_id || "—") +
           "</p>" +
-          (row.lane === "AUDIT"
-            ? '<div class="audit-hashes"><code>prev ' +
+          (row.lane === "АУДИТ"
+            ? '<div class="audit-hashes"><code>предыдущий ' +
               escapeHtml(shortId(row.previous_hash)) +
-              '</code><code>hash ' +
+              '</code><code>хеш ' +
               escapeHtml(shortId(row.event_hash)) +
               "</code></div>"
             : "") +
@@ -5222,16 +5337,16 @@
       .join("");
     return (
       '<section class="panel" data-tour="journal-audit">' +
-      '<div class="audit-title"><div><span class="section-kicker">IMMUTABLE EVIDENCE</span><h3>Сквозной audit trail</h3></div>' +
+      '<div class="audit-title"><div><span class="section-kicker">НЕИЗМЕНЯЕМАЯ ИСТОРИЯ</span><h3>Сквозной журнал</h3></div>' +
       '<span class="qualification ' +
       (chainOk ? "is-qualified" : "is-rejected") +
       '">' +
-      (chainOk ? "CHAIN VALID" : "CHAIN INVALID") +
+      (chainOk ? "ЦЕПОЧКА ЦЕЛА" : "ЦЕПОЧКА НАРУШЕНА") +
       "</span></div>" +
-      "<p>Ордера, проводки и append-only события на одной временной оси. Audit-события связаны хешами; исправления выполняются компенсирующими проводками.</p>" +
+      "<p>Ордера, проводки и неизменяемые события на одной временной оси. События связаны хешами; исправления выполняются компенсирующими проводками.</p>" +
       (events
         ? '<div class="audit-timeline">' + events + "</div>"
-        : '<p class="empty">Audit-событий пока нет.</p>') +
+        : '<p class="empty">Событий аудита пока нет.</p>') +
       "</section>"
     );
   }
@@ -5242,7 +5357,7 @@
       .forEach(function (btn) {
         btn.addEventListener("click", function () {
           journalTab = btn.getAttribute("data-journal-tab") || "orders";
-          renderJournal();
+          setRouteTab("journal", journalTab);
         });
       });
     var statusEl = byId("order-filter-status");
@@ -5281,14 +5396,26 @@
         : journalTab === "audit"
           ? renderJournalAudit()
           : renderJournalOrders();
-    body.innerHTML = journalTabsHtml() + content;
+    body.innerHTML =
+      journalTabsHtml() +
+      '<div id="journal-panel" role="tabpanel" aria-labelledby="journal-tab-' +
+      journalTab +
+      '">' +
+      content +
+      "</div>";
     bindJournalControls();
   }
 
   function refreshJournal() {
     routeLoading = true;
     if (currentRoute === "journal") {
-      byId("page-body").innerHTML = journalTabsHtml() + skeletonHtml(3);
+      byId("page-body").innerHTML =
+        journalTabsHtml() +
+        '<div id="journal-panel" role="tabpanel" aria-labelledby="journal-tab-' +
+        journalTab +
+        '">' +
+        skeletonHtml(3) +
+        "</div>";
     }
     return Promise.all([
       apiGet("/orders")
@@ -5691,7 +5818,7 @@
         {
           tour: "help-map",
           title: "Карта кабинета",
-          text: "Восемь разделов с «зачем». Это карта оператора, а не список изменений.",
+          text: "Одиннадцать разделов с объяснением «зачем». Это карта оператора, а не список изменений.",
         },
         {
           tour: "help-vault",

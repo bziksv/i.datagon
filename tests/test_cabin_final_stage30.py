@@ -15,7 +15,7 @@ def test_cabin_ui_version_in_help() -> None:
     assert "CABIN_UI_VERSION" in js
     assert 'CABIN_UI_VERSION = "v3.0"' in js
     assert "help-version" in js
-    assert "help-cabin-v1" in js
+    assert "help-cabin-version" in js
     assert "кабинет" in js
     assert "help-known-limits" in js
     assert "кабинет " in js  # footer
