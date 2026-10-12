@@ -110,6 +110,8 @@ def test_cabin_strategies_budget_and_desk_ui() -> None:
     assert "lastDeskSleeve" in js
     assert 'id === selectedSleeve ? " selected"' in js
     assert "Период файла:" in js
+    assert "deskDateLabel" in js
+    assert "торг. лет" in js
     assert "Прогон на истории" in js
     assert "Strategy evidence report" not in js
     assert "OOS QUALIFIED" not in js

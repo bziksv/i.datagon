@@ -2715,11 +2715,26 @@
     );
   }
 
+  function deskDateLabel(iso) {
+    if (!iso) return "—";
+    var value = new Date(iso);
+    if (isNaN(value.getTime())) return String(iso);
+    return value.toLocaleDateString("ru-RU", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+    });
+  }
+
   function deskPeriodLabel(fromIso, toIso, bars, tf) {
-    var from = fromIso ? formatSignalTime(fromIso) : "—";
-    var to = toIso ? formatSignalTime(toIso) : "—";
+    var from = deskDateLabel(fromIso);
+    var to = deskDateLabel(toIso);
     var tfLabel = tf === "15m" ? "15 минут" : "дневки";
     var count = bars != null ? String(bars) : "—";
+    var years =
+      bars != null && tf !== "15m"
+        ? " (~" + (Math.round((Number(bars) / 252) * 10) / 10) + " торг. лет)"
+        : "";
     return (
       "Период файла: " +
       from +
@@ -2727,7 +2742,9 @@
       to +
       " · " +
       count +
-      " баров · " +
+      " баров" +
+      years +
+      " · " +
       tfLabel
     );
   }
@@ -2832,9 +2849,7 @@
         result.bars,
         result.tf
       );
-      var evalStart = result.evaluation_start
-        ? formatSignalTime(result.evaluation_start)
-        : "—";
+      var evalStart = deskDateLabel(result.evaluation_start);
       resultHtml =
         '<div class="experiment-report">' +
         '<div class="experiment-report__head"><div><span class="section-kicker">Прогон ' +
@@ -2958,8 +2973,8 @@
       '<section class="panel" data-tour="strategies-desk">' +
       "<h3>Прогон на истории</h3>" +
       "<p>" +
-      "<strong>Не путать с гарантией прибыли.</strong> Модель сделок по локальному файлу свечей: исполнение на открытии следующего бара, с комиссией и проскальзыванием, сравнение с «купить и держать». " +
-      "Даты не выбираются вручную — берётся весь доступный файл тикера. Депозит и % на бумагу — в " +
+      "<strong>Не путать с гарантией прибыли.</strong> Модель сделок по локальному файлу свечей (обычно с биржи MOEX, не из Тинькофф API): исполнение на открытии следующего бара, с комиссией и проскальзыванием, сравнение с «купить и держать». " +
+      "Даты не выбираются вручную — берётся весь файл тикера (по умолчанию ~2 года дневок). Нужен длиннее период — обновить CSV с большим --days. Депозит и % на бумагу — в " +
       '<a class="panel-link" href="#/settings">Настройках</a>.' +
       "</p>" +
       '<div class="filters" data-tour="strategies-desk-form">' +
