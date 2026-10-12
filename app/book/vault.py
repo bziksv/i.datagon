@@ -5,12 +5,30 @@ from datetime import UTC, datetime
 from decimal import Decimal
 
 from app.book.accounts import TRADING_CASH, VAULT
-from app.book.ledger import DEFAULT_DEPOSIT, ledger_balance
+from app.book.ledger import DEFAULT_DEPOSIT, DEPOSIT_REASON, ledger_balance
 from app.models import LedgerEntry
 
 PHASE_50 = Decimal("0.50")
 PHASE_20 = Decimal("0.20")
 VAULT_REASON = "vault"
+DEPOSIT_CAP_REASONS = frozenset({DEPOSIT_REASON, "external_deposit"})
+
+
+def deposit_cap(entries: Sequence[LedgerEntry]) -> Decimal:
+    """Цель сейфа = чистые внешние пополнения; иначе стартовый DEFAULT_DEPOSIT."""
+    total = Decimal("0")
+    for row in entries:
+        if row.account_kind != TRADING_CASH:
+            continue
+        reason = row.reason
+        amount = Decimal(str(row.amount))
+        if reason in DEPOSIT_CAP_REASONS:
+            total += amount
+        elif reason == "withdrawal":
+            total -= abs(amount)
+    if total <= 0:
+        return DEFAULT_DEPOSIT
+    return total.quantize(Decimal("0.01"))
 
 
 def vault_cut(
@@ -93,10 +111,10 @@ def _money(value: Decimal) -> float:
 def vault_view(
     entries: Sequence[LedgerEntry],
     *,
-    deposit: Decimal = DEFAULT_DEPOSIT,
+    deposit: Decimal | None = None,
 ) -> dict:
     accumulated = vault_balance(entries)
-    cap = Decimal(deposit)
+    cap = Decimal(deposit) if deposit is not None else deposit_cap(entries)
     remaining = cap - accumulated
     if remaining < 0:
         remaining = Decimal("0")

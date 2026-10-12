@@ -3761,7 +3761,8 @@
       '<section class="panel" data-tour="portfolio-alloc-panel">' +
       "<h3>Аллокация</h3>" +
       "<p data-tour=\"portfolio-alloc-intro\">" +
-      "Как капитал делится между рукавами. Веса equal-weight; капитал рукава = стоимость счёта × потолок рукава × вес." +
+      "Как капитал делится между рукавами. Торговый пул = стоимость счёта × потолок (сейчас 40%). " +
+      "Каждый рукав получает свою долю от этого пула: при equal-weight 25% × 800 000 = 200 000 ₽." +
       "</p>" +
       '<div class="metrics">' +
       '<div class="metric" data-tour="portfolio-alloc-equity"><div class="k">стоимость счёта</div><div class="v">' +
@@ -3884,7 +3885,10 @@
       "</p>" +
       '<div class="metrics">' +
       '<div class="metric" data-tour="portfolio-vault-deposit"><div class="k">депозит' +
-      whatis("Депозит", "Стартовое пополнение лаборатории — цель, которую сейф стремится перекрыть.") +
+      whatis(
+        "Депозит",
+        "Сумма внешних пополнений paper-книги. Сейф стремится накопить столько же из зафиксированной прибыли. Это не стоимость счёта и не торговый потолок."
+      ) +
       '</div><div class="v">' +
       money(vault.deposit) +
       "</div></div>" +
