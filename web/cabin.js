@@ -2,7 +2,7 @@
   "use strict";
 
   /** Версия UI кабинета (этап 30+). Не путать с version API. */
-  var CABIN_UI_VERSION = "v2.0";
+  var CABIN_UI_VERSION = "v3.0";
 
   var ROUTES = [
     {
@@ -1113,8 +1113,8 @@
     }
     if (!attention) {
       attention =
-        '<div class="attention" data-tour="overview-attention">' +
-        "Сейчас нет горящих событий: стоп выключен, очередь предложений пуста. Здесь появится баннер, если что-то потребует внимания." +
+        '<div class="attention calm" data-tour="overview-attention">' +
+        "<span><strong>Срочных действий нет.</strong> Торговый стоп выключен, критических событий не обнаружено.</span>" +
         "</div>";
     }
 
@@ -1178,9 +1178,9 @@
             '">' +
             money(total) +
             "</span>" +
-            '<span class="strategy-tile__split">realized ' +
+            '<span class="strategy-tile__split">зафиксировано ' +
             money(pnl.realized) +
-            " · open " +
+            " · открытый результат " +
             money(pnl.unrealized) +
             "</span></a>"
           );
@@ -1203,34 +1203,34 @@
       ? Math.round((qualityFresh / qualityTotal) * 100)
       : 100;
     var alertItems = [];
-    if (killed) alertItems.push(["critical", "Risk halt", "Новые входы остановлены"]);
+    if (killed) alertItems.push(["critical", "Торговля остановлена", "Новые заявки будут отклонены"]);
     if (!(lastStatus && lastStatus.worker_alive)) {
-      alertItems.push(["warning", "Worker", "Нет свежего heartbeat"]);
+      alertItems.push(["warning", "Нет связи с воркером", "Фоновые данные могут не обновляться"]);
     }
     if (capital && capital.status !== "complete") {
-      alertItems.push(["critical", "Market data", "Equity скрыта: неполные цены"]);
+      alertItems.push(["critical", "Не хватает рыночных цен", "Точная стоимость счёта временно скрыта"]);
     } else if (Number(quality.stale_marks || 0) || Number(quality.missing_marks || 0)) {
       alertItems.push([
         "warning",
-        "Data quality",
+        "Качество данных",
         String(quality.stale_marks || 0) +
-          " stale · " +
+          " устарело · " +
           String(quality.missing_marks || 0) +
-          " missing",
+          " отсутствует",
       ]);
     }
     if (lastDrift && lastDrift.alert) {
       alertItems.push([
         "critical",
-        "Book drift",
+        "Расхождение с брокером",
         "Расхождение " + money(lastDrift.drift),
       ]);
     }
     if (lastUnknownOrders.length) {
       alertItems.push([
         "critical",
-        "Execution",
-        String(lastUnknownOrders.length) + " ордеров в unknown",
+        "Неясный статус заявок",
+        String(lastUnknownOrders.length) + " заявок требуют сверки",
       ]);
     }
     var forwardGate = admissionGates.G3 || {};
@@ -1240,14 +1240,14 @@
     ) {
       alertItems.push([
         "critical",
-        "Paper-forward",
+        "Paper-forward проверка",
         forwardGate.status === "stalled"
           ? "Новые наблюдения не поступают"
           : "Период завершён без полного покрытия",
       ]);
     }
     if (!alertItems.length) {
-      alertItems.push(["ok", "System clear", "Критичных событий нет"]);
+      alertItems.push(["ok", "Система работает штатно", "Критических событий нет"]);
     }
     var alertsHtml = alertItems
       .map(function (item) {
@@ -1266,13 +1266,28 @@
       .map(function (key) {
         var gate = admissionGates[key] || {};
         var state = gate.status || "unknown";
+        var gateNames = {
+          G1: "Учёт",
+          G2: "Бэктест",
+          G3: "Наблюдение",
+          G4: "Сбои",
+          G5: "Live",
+        };
+        var gateStates = {
+          passed: "пройден",
+          running: "идёт",
+          blocked: "закрыт",
+          stalled: "остановлен",
+          incomplete: "не завершён",
+          unknown: "нет данных",
+        };
         return (
           '<div class="admission-gate is-' +
           escapeHtml(state) +
           '"><span>' +
-          key +
+          escapeHtml(gateNames[key] || key) +
           "</span><strong>" +
-          escapeHtml(state.toUpperCase()) +
+          escapeHtml(gateStates[state] || state) +
           "</strong></div>"
         );
       })
@@ -1281,32 +1296,32 @@
       ? skeletonHtml(2)
       : !capital
       ? '<p class="empty" data-tour="overview-capital-empty">Рыночная оценка ещё не пришла. Это не «0 ₽» — обновите статус.</p>'
-      : '<div class="capital-hero__value">' +
+      : '<div class="overview-balance"><span>Стоимость счёта</span><strong>' +
         money(capital.equity) +
-        '</div><div class="capital-hero__meta"><span>free cash ' +
+        '</strong><small>Оценка всех денег и открытых позиций</small></div>' +
+        '<div class="overview-money-grid">' +
+        '<div><span>Свободный кэш</span><strong>' +
         money(capital.cash) +
-        "</span><span>vault " +
+        "</strong><small>доступен для новых решений</small></div>" +
+        '<div><span>Сейф прибыли</span><strong>' +
         money(capital.vault != null ? capital.vault : vault.accumulated) +
-        "</span><span>peak " +
-        money(capital.peak_equity) +
-        "</span></div>" +
-        '<div class="capital-kpis">' +
-        '<div><span>Net realized</span><strong>' +
+        "</strong><small>отложено отдельно</small></div>" +
+        '<div><span>Зафиксированный результат</span><strong>' +
         money(capital.realized_net_pnl) +
-        "</strong></div>" +
-        '<div><span>Open PnL</span><strong>' +
+        "</strong><small>после расходов</small></div>" +
+        '<div><span>Открытый результат</span><strong>' +
         money(capital.unrealized_pnl) +
-        "</strong></div>" +
-        '<div><span>Max drawdown</span><strong>' +
+        "</strong><small>по текущим позициям</small></div>" +
+        '<div><span>Максимальная просадка</span><strong>' +
         (capital.max_drawdown == null
           ? "—"
           : escapeHtml((Number(capital.max_drawdown) * 100).toFixed(2) + "%")) +
-        "</strong></div>" +
-        '<div><span>TWR ex flows</span><strong>' +
+        "</strong><small>от исторического пика</small></div>" +
+        '<div><span>Доходность без пополнений</span><strong>' +
         (capital.twr == null
           ? "—"
           : escapeHtml((Number(capital.twr) * 100).toFixed(2) + "%")) +
-        "</strong></div></div>" +
+        "</strong><small>метод TWR</small></div></div>" +
         (capital.status !== "complete"
           ? '<p class="warning-text">Точная equity скрыта: есть устаревшие или отсутствующие цены (' +
             escapeHtml(
@@ -1326,40 +1341,47 @@
       blockErrorHtml("proposals") +
       blockErrorHtml("sleeves") +
       blockErrorHtml("capital") +
-      '<div class="capital-center">' +
-      '<section class="capital-hero" data-tour="overview-capital">' +
-      '<div class="capital-hero__head"><div><span class="section-kicker">Total market equity</span>' +
-      "<h3>Центр капитала</h3></div>" +
-      '<div class="quality-orbit" style="--quality:' +
-      escapeHtml(String(qualityPct)) +
-      '"><strong>' +
-      escapeHtml(String(qualityPct)) +
-      '%</strong><span>data</span></div></div>' +
-      capitalBlock +
-      '<div class="capital-hero__footer"><span>Week PnL <strong>' +
-      money(weekly.pnl) +
-      '</strong></span><span>Day start <strong>' +
-      money(capital && capital.day_start_equity) +
-      '</strong></span><a href="#/portfolio">Подробнее в Портфеле →</a></div>' +
-      "</section>" +
-      '<aside class="ops-rail"><div class="ops-rail__head"><span class="section-kicker">Live controls</span><h3>Контур</h3></div>' +
-      alertsHtml +
-      '<div class="ops-chain"><span>Audit chain</span><strong>' +
-      (audit.chain_valid === false ? "BROKEN" : "VALID") +
+      '<div class="overview-home">' +
+      '<section class="overview-welcome"><div><span class="overview-eyebrow">Главная · тестовый контур</span>' +
+      "<h3>" +
+      (killed ? "Торговля остановлена" : waiting.length ? "Есть решения, которые ждут вас" : "Капитал под контролем") +
+      "</h3><p>Здесь только главное: состояние денег, задачи на сейчас и здоровье системы.</p></div>" +
+      '<div class="overview-welcome__state ' +
+      (killed ? "is-critical" : "is-ok") +
+      '"><span class="overview-state-dot"></span><div><strong>' +
+      (killed ? "Новые заявки запрещены" : "Система работает") +
       "</strong><small>" +
-      escapeHtml(String((audit.events || []).length)) +
-      ' events</small></div><div class="admission-strip">' +
-      gatesHtml +
-      "</div></aside>" +
-      '<section class="command-panel" data-tour="overview-attention"><div class="command-panel__head"><span class="section-kicker">Attention</span><h3>Что требует решения</h3></div>' +
+      (lastStatusAt ? "Обновлено " + escapeHtml(formatSignalTime(lastStatusAt)) : "Ожидаем первое обновление") +
+      "</small></div></div></section>" +
+      '<section class="overview-capital-card" data-tour="overview-capital">' +
+      '<div class="overview-section-head"><div><span class="overview-eyebrow">Ваш капитал</span><h3>Деньги и результат</h3></div>' +
+      '<div class="overview-quality"><strong>' +
+      escapeHtml(String(qualityPct)) +
+      '%</strong><span>актуальных цен</span></div></div>' +
+      capitalBlock +
+      '<div class="overview-card-footer"><span>За неделю <strong>' +
+      money(weekly.pnl) +
+      '</strong></span><span>На начало дня <strong>' +
+      money(capital && capital.day_start_equity) +
+      '</strong></span><a href="#/portfolio">Подробнее в Портфеле</a></div></section>' +
+      '<aside class="overview-now" data-tour="overview-attention"><div class="overview-section-head"><div><span class="overview-eyebrow">Ваше внимание</span><h3>Что сделать сейчас</h3></div>' +
+      (waiting.length ? '<span class="overview-count">' + waiting.length + "</span>" : "") +
+      "</div>" +
       attention +
-      "</section>" +
-      '<section class="decision-panel" data-tour="overview-queue"><div class="section-head"><div><span class="section-kicker">Human in the loop</span><h3>Очередь решений</h3></div><a href="#/agents">Все решения →</a></div>' +
+      '<div class="overview-now__queue" data-tour="overview-queue">' +
       queueHtml +
-      "</section>" +
-      '<section class="strategy-panel" data-tour="overview-sleeves"><div class="section-head"><div><span class="section-kicker">Attribution</span><h3>Стратегии</h3></div><a href="#/strategies">Full report →</a></div>' +
+      "</div></aside>" +
+      '<section class="overview-strategies" data-tour="overview-sleeves"><div class="overview-section-head"><div><span class="overview-eyebrow">Результат по направлениям</span><h3>Стратегии</h3></div><a href="#/strategies">Открыть все</a></div>' +
       sleevesBlock +
-      "</section></div>";
+      "</section>" +
+      '<section class="overview-system"><div class="overview-section-head"><div><span class="overview-eyebrow">Надёжность</span><h3>Состояние системы</h3></div><a href="#/journal">Открыть журнал</a></div>' +
+      '<div class="overview-system-grid"><div class="overview-alerts">' +
+      alertsHtml +
+      '</div><div class="overview-readiness"><div class="overview-readiness__head"><div><strong>Готовность контуров</strong><small>Live остаётся закрыт до независимых проверок</small></div><span>' +
+      (audit.chain_valid === false ? "Цепочка нарушена" : "Журнал цел") +
+      "</span></div><div class=\"admission-strip\">" +
+      gatesHtml +
+      "</div></div></div></section></div>";
 
     var unkill = byId("overview-unkill");
     if (unkill) {
