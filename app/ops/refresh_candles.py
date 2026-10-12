@@ -7,7 +7,11 @@ import os
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from app.broker.moex_candles import fetch_moex_candles, write_candle_csv
+from app.broker.moex_candles import (
+    aggregate_candles,
+    fetch_moex_candles,
+    write_candle_csv,
+)
 from app.ops.envfile import load_env_file
 
 
@@ -20,7 +24,7 @@ def refresh(
 ) -> list[Path]:
     if days < 1:
         raise ValueError("days")
-    interval = 24 if tf == "1d" else 15
+    interval = 24 if tf == "1d" else 1
     today = datetime.now(UTC).date()
     from_day = today - timedelta(days=days)
     written = []
@@ -32,6 +36,8 @@ def refresh(
             till_day=today,
             interval=interval,
         )
+        if tf == "15m":
+            bars = aggregate_candles(bars, minutes=15)
         written.append(write_candle_csv(root / f"{symbol}.csv", bars))
     return written
 

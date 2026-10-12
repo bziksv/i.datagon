@@ -1,7 +1,12 @@
 from datetime import UTC, date, datetime
 from decimal import Decimal
+from pathlib import Path
 
-from app.broker.moex_candles import fetch_moex_candles, write_candle_csv
+from app.broker.moex_candles import (
+    aggregate_candles,
+    fetch_moex_candles,
+    write_candle_csv,
+)
 from app.strategy.backtest import load_bars
 
 
@@ -64,3 +69,35 @@ def test_write_moex_csv_is_compatible_with_backtest_loader(tmp_path) -> None:
     path = write_candle_csv(tmp_path / "SBER.csv", bars)
     loaded = load_bars(path)
     assert loaded == bars
+
+
+def test_minute_candles_aggregate_to_15m_ohlcv() -> None:
+    bars = [
+        load_bars(Path("tests/fixtures/sber_m15.csv"))[0],
+        load_bars(Path("tests/fixtures/sber_m15.csv"))[1],
+    ]
+    start = datetime(2026, 10, 12, 7, 1, tzinfo=UTC)
+    bars[0] = bars[0].__class__(
+        ts=start,
+        o=Decimal("100"),
+        h=Decimal("103"),
+        low=Decimal("99"),
+        c=Decimal("102"),
+        v=Decimal("10"),
+    )
+    bars[1] = bars[1].__class__(
+        ts=start.replace(minute=14),
+        o=Decimal("102"),
+        h=Decimal("106"),
+        low=Decimal("101"),
+        c=Decimal("105"),
+        v=Decimal("20"),
+    )
+    aggregated = aggregate_candles(bars, minutes=15)
+    assert len(aggregated) == 1
+    assert aggregated[0].ts == start.replace(minute=0)
+    assert aggregated[0].o == Decimal("100")
+    assert aggregated[0].h == Decimal("106")
+    assert aggregated[0].low == Decimal("99")
+    assert aggregated[0].c == Decimal("105")
+    assert aggregated[0].v == Decimal("30")

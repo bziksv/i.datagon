@@ -86,6 +86,35 @@ def fetch_moex_candles(
     return sorted(bars, key=lambda bar: bar.ts)
 
 
+def aggregate_candles(
+    bars: list[CandleBar],
+    *,
+    minutes: int,
+) -> list[CandleBar]:
+    if minutes < 1:
+        raise ValueError("minutes")
+    buckets: dict[datetime, list[CandleBar]] = {}
+    for bar in sorted(bars, key=lambda item: item.ts):
+        timestamp = bar.ts.astimezone(UTC)
+        bucket = timestamp.replace(
+            minute=(timestamp.minute // minutes) * minutes,
+            second=0,
+            microsecond=0,
+        )
+        buckets.setdefault(bucket, []).append(bar)
+    return [
+        CandleBar(
+            ts=timestamp,
+            o=rows[0].o,
+            h=max(row.h for row in rows),
+            low=min(row.low for row in rows),
+            c=rows[-1].c,
+            v=sum((row.v for row in rows), Decimal("0")),
+        )
+        for timestamp, rows in sorted(buckets.items())
+    ]
+
+
 def write_candle_csv(path: Path, bars: list[CandleBar]) -> Path:
     if not bars:
         raise ValueError("no candles")
