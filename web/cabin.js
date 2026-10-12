@@ -1026,7 +1026,7 @@
   }
 
   function loadOverviewData(silent) {
-    // Параллельно: proposals, sleeves и рыночная оценка капитала.
+    // Параллельно: proposals, sleeves, капитал и сигналы наблюдаемости.
     // Чужие endpoint (лента новостей и т.п.) сюда не входят и Обзор не роняют.
     if (!silent) {
       setBlockLoading("proposals", true);
@@ -1075,6 +1075,7 @@
       apiGet("/admission").catch(function () {
         return lastAdmission;
       }),
+      refreshDrift(),
     ]).then(function (parts) {
       lastSleeves = (parts[1] && parts[1].sleeves) || lastSleeves;
       lastCapital = parts[2] || lastCapital;
@@ -4128,7 +4129,7 @@
         {
           tour: "nav-overview",
           title: "Меню слева",
-          text: "Обзор — домашний экран. Дальше по меню: портфель, стратегии, агенты, новости, рынок, журнал, помощь.",
+          text: "Обзор — домашний экран. Дальше доступны портфель, стратегии, компании, рекомендации, агенты, новости, рынок, журнал, настройки и помощь.",
         },
       ]);
     }, 60);
