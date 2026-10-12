@@ -69,7 +69,8 @@ runuser -u i_datagon_ru_usr -- .venv/bin/python -m app.ops.refresh_candles \
 ```
 
 Для нескольких бумаг повторить `--ticker`. Для скальп-рукава использовать
-`--tf 15m --days 60`; каталог выбирается из `CANDLE_M15_DIR`.
+`--tf 15m --days 20`; минутные свечи агрегируются в M15, каталог выбирается
+из `CANDLE_M15_DIR`.
 
 ## Postgres 5432
 
