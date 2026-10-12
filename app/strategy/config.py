@@ -6,7 +6,9 @@ from pathlib import Path
 
 from app.strategy.abs_mom import (
     DEFAULT_BACKTEST_POSITION_SHARE as ABS_MOM_SHARE,
+    DEFAULT_EXIT_ROC as ABS_MOM_EXIT_ROC,
     DEFAULT_LOOKBACK as ABS_MOM_LOOKBACK,
+    DEFAULT_MAX_STRETCH as ABS_MOM_STRETCH,
     DEFAULT_MIN_ROC as ABS_MOM_MIN_ROC,
     DEFAULT_SMA_PERIOD as ABS_MOM_SMA,
     DEFAULT_STOP_PCT as ABS_MOM_STOP,
@@ -356,8 +358,10 @@ def abs_mom_params(
         "lookback": ABS_MOM_LOOKBACK,
         "sma_period": ABS_MOM_SMA,
         "min_roc": ABS_MOM_MIN_ROC,
+        "exit_roc": ABS_MOM_EXIT_ROC,
         "stop_pct": ABS_MOM_STOP,
         "trail_pct": ABS_MOM_TRAIL,
+        "max_stretch": ABS_MOM_STRETCH,
         "backtest_position_share": ABS_MOM_SHARE,
     }
     if yaml_text:
@@ -367,9 +371,15 @@ def abs_mom_params(
             section, "sma_period", params["sma_period"]
         )
         params["min_roc"] = _decimal_field(section, "min_roc", params["min_roc"])
+        params["exit_roc"] = _decimal_field(
+            section, "exit_roc", params["exit_roc"]
+        )
         params["stop_pct"] = _decimal_field(section, "stop_pct", params["stop_pct"])
         params["trail_pct"] = _decimal_field(
             section, "trail_pct", params["trail_pct"]
+        )
+        params["max_stretch"] = _decimal_field(
+            section, "max_stretch", params["max_stretch"]
         )
         params["backtest_position_share"] = _decimal_field(
             section,
@@ -380,8 +390,10 @@ def abs_mom_params(
         "ABS_MOM_LOOKBACK": ("lookback", int),
         "ABS_MOM_SMA_PERIOD": ("sma_period", int),
         "ABS_MOM_MIN_ROC": ("min_roc", Decimal),
+        "ABS_MOM_EXIT_ROC": ("exit_roc", Decimal),
         "ABS_MOM_STOP_PCT": ("stop_pct", Decimal),
         "ABS_MOM_TRAIL_PCT": ("trail_pct", Decimal),
+        "ABS_MOM_MAX_STRETCH": ("max_stretch", Decimal),
         "ABS_MOM_POSITION_SHARE": ("backtest_position_share", Decimal),
     }
     for env_key, (name, caster) in env_map.items():

@@ -11,7 +11,9 @@ from app.alloc.view import ACTIVE_SLEEVES
 from app.alloc.weights_store import load_weights
 from app.risk.sleeve import DEFAULT_SLEEVE_SHARE
 from app.strategy.abs_mom import (
+    DEFAULT_EXIT_ROC as ABS_EXIT_ROC,
     DEFAULT_LOOKBACK as ABS_LOOKBACK,
+    DEFAULT_MAX_STRETCH as ABS_STRETCH,
     DEFAULT_MIN_ROC as ABS_MIN_ROC,
     DEFAULT_SMA_PERIOD as ABS_SMA,
     DEFAULT_TRAIL_PCT as ABS_TRAIL,
@@ -141,13 +143,14 @@ SLEEVE_HOWTO = {
         "title": "Абс. моментум",
         "horizon": "дневки",
         "signal": (
-            f"В рынке только при силе: close > SMA{ABS_SMA} и "
-            f"ROC({ABS_LOOKBACK}) ≥ {float(ABS_MIN_ROC)*100:g}%. "
-            f"Трейлинг {float(ABS_TRAIL)*100:g}% от пика позиции. "
-            "Иначе кэш. Параметры — сетка MOEX+S&P desk 2024–2026."
+            f"Вход: close > SMA{ABS_SMA}, ROC({ABS_LOOKBACK}) ≥ "
+            f"{float(ABS_MIN_ROC)*100:g}% и close/SMA ≤ {float(ABS_STRETCH):g} "
+            f"(без перегрева). Выход мягче: ROC < {float(ABS_EXIT_ROC)*100:g}% "
+            f"или ниже SMA; трейл {float(ABS_TRAIL)*100:g}% от пика. "
+            "Иначе кэш. Сетка MOEX+S&P desk 2024–2026."
         ),
         "holds": (
-            "Тренд/кэш + трейлинг: не ловит дно, режет откат от пика. "
+            "Гистерезис + анти-FOMO: не гонится за растяжкой, дольше держит тренд. "
             "Desk-бэктест на полный кэш имени. In-sample — не гарантия вперёд."
         ),
     },
