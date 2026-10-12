@@ -44,7 +44,12 @@ def refresh(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Refresh paper candle CSV from MOEX")
-    parser.add_argument("--ticker", action="append", required=True)
+    parser.add_argument("--ticker", action="append", default=[])
+    parser.add_argument(
+        "--desk-all",
+        action="store_true",
+        help="все тикеры из отраслевых групп desk (ядро + нефть, банки, …)",
+    )
     parser.add_argument("--days", type=int, default=730)
     parser.add_argument("--tf", choices=("1d", "15m"), default="1d")
     parser.add_argument("--root")
@@ -57,8 +62,21 @@ def main() -> None:
         else os.environ.get("CANDLE_M15_DIR", "data/candles_m15")
     )
     root = Path(args.root or default_root)
-    for path in refresh(args.ticker, days=args.days, tf=args.tf, root=root):
-        print(path)
+    tickers = [name.strip().upper() for name in args.ticker if name.strip()]
+    if args.desk_all:
+        from app.strategy.moex_groups import all_moex_desk_tickers
+
+        for name in all_moex_desk_tickers():
+            if name not in tickers:
+                tickers.append(name)
+    if not tickers:
+        raise SystemExit("укажите --ticker и/или --desk-all")
+    for ticker in tickers:
+        try:
+            path = refresh([ticker], days=args.days, tf=args.tf, root=root)[0]
+            print(path)
+        except Exception as exc:  # noqa: BLE001 — fail-soft по имени
+            print(f"SKIP {ticker}: {exc}")
 
 
 if __name__ == "__main__":

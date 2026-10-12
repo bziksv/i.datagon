@@ -26,6 +26,10 @@ from app.strategy.config import (
     scalp_from_config,
     sma_from_config,
 )
+from app.strategy.moex_groups import (
+    MOEX_DESK_CORE,
+    filter_sectors_by_available,
+)
 from app.strategy.donchian import SLEEVE as DONCHIAN_SLEEVE
 from app.strategy.evidence import strategy_evidence
 from app.strategy.morning import SLEEVE as MORNING_SLEEVE
@@ -66,26 +70,65 @@ def list_candle_tickers(*, tf: str = "1d") -> list[str]:
 
 
 def list_candle_universe(*, tf: str = "1d") -> dict:
-    """MOEX и S&P 500 отдельно; плоский tickers — для batch/API."""
+    """MOEX (по отраслям) и S&P 500; плоский tickers — для batch/API."""
     if tf == "15m":
         m15 = _list_csv_tickers(candle_m15_dir())
         return {
             "tf": "15m",
             "tickers": m15,
             "count": len(m15),
-            "groups": {"moex": m15, "sp500": []},
+            "groups": {
+                "moex": m15,
+                "sp500": [],
+                "sectors": [
+                    {
+                        "id": "moex_m15",
+                        "title": "MOEX · M15",
+                        "default_on": True,
+                        "tickers": m15,
+                    }
+                ],
+            },
         }
     moex = _list_csv_tickers(candle_dir())
     sp500 = _list_csv_tickers(candle_sp500_dir())
-    # MOEX первым, затем S&P без дублей
     moex_set = set(moex)
     sp_only = [name for name in sp500 if name not in moex_set]
-    tickers = moex + sp_only
+    sectors = filter_sectors_by_available(moex)
+    # тикеры вне отраслевого справочника — отдельная куча
+    known = {name for sector in sectors for name in sector["tickers"]}
+    extra = [name for name in moex if name not in known]
+    if extra:
+        sectors.append(
+            {
+                "id": "moex_other",
+                "title": "MOEX · прочее",
+                "default_on": False,
+                "tickers": extra,
+            }
+        )
+    if sp_only:
+        sectors.append(
+            {
+                "id": "sp500",
+                "title": "S&P 500",
+                "default_on": False,
+                "tickers": sp_only,
+            }
+        )
+    # ядро сначала в плоском списке, потом остальные MOEX, потом S&P
+    core = [name for name in MOEX_DESK_CORE if name in moex_set]
+    rest_moex = [name for name in moex if name not in set(core)]
+    tickers = core + rest_moex + sp_only
     return {
         "tf": "1d",
         "tickers": tickers,
         "count": len(tickers),
-        "groups": {"moex": moex, "sp500": sp_only},
+        "groups": {
+            "moex": moex,
+            "sp500": sp_only,
+            "sectors": sectors,
+        },
     }
 
 

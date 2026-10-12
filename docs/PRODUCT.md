@@ -254,7 +254,7 @@
 | `SANDBOX_DEPOSIT` | Стартовый депозит при bootstrap |
 | `NAME_SHARE` / файл risk params | Лимит на бумагу (переопределяется из UI) |
 | `SLEEVE_SHARE` | Потолок капитала на рукава (по умолчанию 40%) |
-| `CANDLE_DIR` | Дневки CSV (MOEX) |
+| `CANDLE_DIR` | Дневки CSV (MOEX, отрасли desk) |
 | `CANDLE_SP500_DIR` | Дневки CSV S&P 500 (Yahoo) |
 | `CANDLE_M15_DIR` | M15 CSV для скальпа |
 | `AGENTS_ENABLED` | Фоновые агенты (0 по умолчанию) |

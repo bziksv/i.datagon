@@ -2,7 +2,7 @@
   "use strict";
 
   /** Версия UI кабинета (этап 30+). Не путать с version API. */
-  var CABIN_UI_VERSION = "v3.3.2";
+  var CABIN_UI_VERSION = "v3.3.3";
 
   var ROUTES = [
     {
@@ -139,7 +139,7 @@
   var lastDeskSleeve = "sma_cross";
   var lastDeskTicker = "SBER";
   var lastDeskTickers = [];
-  var lastDeskGroups = { moex: [], sp500: [] };
+  var lastDeskGroups = { moex: [], sp500: [], sectors: [] };
   var loadErrors = {};
   var blockLoading = {};
   var routeLoading = false;
@@ -2758,16 +2758,29 @@
     });
   }
 
+  function deskDefaultTickers(pool) {
+    var sectors = (lastDeskGroups && lastDeskGroups.sectors) || [];
+    var defaults = [];
+    sectors.forEach(function (sector) {
+      if (!sector || !sector.default_on) return;
+      (sector.tickers || []).forEach(function (ticker) {
+        if (defaults.indexOf(ticker) < 0) defaults.push(ticker);
+      });
+    });
+    if (!defaults.length) {
+      defaults = (lastDeskGroups && lastDeskGroups.moex) || [];
+    }
+    return defaults.filter(function (ticker) {
+      return pool.indexOf(ticker) >= 0;
+    });
+  }
+
   function deskBatchTickerSelection(available) {
     var pool = available && available.length ? available : [];
     if (lastDeskBatchTickers == null) {
-      // По умолчанию только MOEX — S&P включаете отдельно ниже.
-      var moex = (lastDeskGroups && lastDeskGroups.moex) || [];
-      if (moex.length) {
-        return moex.filter(function (ticker) {
-          return pool.indexOf(ticker) >= 0;
-        });
-      }
+      // По умолчанию — ядро MOEX; отрасли и S&P включаете отдельно.
+      var defaults = deskDefaultTickers(pool);
+      if (defaults.length) return defaults;
       return pool.slice();
     }
     return lastDeskBatchTickers.filter(function (ticker) {
@@ -3446,21 +3459,28 @@
         "</option>"
       );
     }
-    var moexForSelect =
-      lastDeskGroups && lastDeskGroups.moex && lastDeskGroups.moex.length
-        ? lastDeskGroups.moex
-        : tickers;
-    var spForSelect =
-      lastDeskGroups && lastDeskGroups.sp500 ? lastDeskGroups.sp500 : [];
-    var tickerOpts =
-      '<optgroup label="MOEX">' +
-      moexForSelect.map(tickerOption).join("") +
-      "</optgroup>" +
-      (spForSelect.length
-        ? '<optgroup label="S&P 500">' +
-          spForSelect.map(tickerOption).join("") +
+    var sectors =
+      lastDeskGroups && lastDeskGroups.sectors && lastDeskGroups.sectors.length
+        ? lastDeskGroups.sectors
+        : [
+            {
+              id: "moex",
+              title: "MOEX",
+              default_on: true,
+              tickers: tickers.slice(),
+            },
+          ];
+    var tickerOpts = sectors
+      .map(function (sector) {
+        return (
+          '<optgroup label="' +
+          escapeHtml(sector.title || sector.id || "группа") +
+          '">' +
+          (sector.tickers || []).map(tickerOption).join("") +
           "</optgroup>"
-        : "");
+        );
+      })
+      .join("");
     var batchSleeves = deskBatchSleeveSelection();
     var batchTickers = deskBatchTickerSelection(tickers);
     var batchCount = batchSleeves.length * batchTickers.length;
@@ -3483,35 +3503,35 @@
         ? lastDeskGroups.sp500
         : []
       ).slice();
-    var moexSelected = batchTickers.filter(function (ticker) {
-      return moexTickers.indexOf(ticker) >= 0;
-    });
-    var spSelected = batchTickers.filter(function (ticker) {
-      return sp500Tickers.indexOf(ticker) >= 0;
-    });
-    var tickerChecks =
-      renderDeskCheckGroup(
-        "ticker",
-        "Тикеры MOEX (" + moexSelected.length + "/" + moexTickers.length + ")",
-        moexTickers,
-        moexSelected
-      ) +
-      renderDeskCheckGroup(
-        "ticker",
-        "Тикеры S&P 500 (" + spSelected.length + "/" + sp500Tickers.length + ")",
-        sp500Tickers,
-        spSelected
-      );
+    var tickerChecks = sectors
+      .map(function (sector) {
+        var items = sector.tickers || [];
+        var selected = batchTickers.filter(function (ticker) {
+          return items.indexOf(ticker) >= 0;
+        });
+        return renderDeskCheckGroup(
+          "ticker",
+          (sector.title || "Тикеры") +
+            " (" +
+            selected.length +
+            "/" +
+            items.length +
+            ")",
+          items,
+          selected
+        );
+      })
+      .join("");
     return (
       '<section class="panel" data-tour="strategies-desk">' +
       "<h3>Прогон на истории</h3>" +
       "<p>" +
-      "<strong>Не путать с гарантией прибыли.</strong> Модель сделок по локальному файлу свечей (MOEX и отдельно S&P 500 с Yahoo, не из Тинькофф API): исполнение на открытии следующего бара, с комиссией и проскальзыванием, сравнение с «купить и держать». " +
+      "<strong>Не путать с гарантией прибыли.</strong> Модель сделок по локальному файлу свечей (MOEX по отраслям и S&P 500 с Yahoo, не из Тинькофф API): исполнение на открытии следующего бара, с комиссией и проскальзыванием, сравнение с «купить и держать». " +
       "Даты не выбираются вручную — берётся весь файл тикера (по умолчанию ~2 года дневок). Сейчас доступно: " +
       escapeHtml(String(moexTickers.length)) +
       " MOEX + " +
       escapeHtml(String(sp500Tickers.length)) +
-      " S&P. Один прогон — пара из списков ниже; пакет — отмеченные галочками рукава и тикеры. Депозит и % на бумагу — в " +
+      " S&P. По умолчанию отмечено ядро MOEX; отрасли и США — галочками ниже. Депозит и % на бумагу — в " +
       '<a class="panel-link" href="#/settings">Настройках</a>.' +
       "</p>" +
       '<div class="filters" data-tour="strategies-desk-form">' +
@@ -4307,6 +4327,7 @@
         lastDeskGroups = {
           moex: ((data && data.groups) || {}).moex || [],
           sp500: ((data && data.groups) || {}).sp500 || [],
+          sectors: ((data && data.groups) || {}).sectors || [],
         };
         if (
           lastDeskTickers.length &&

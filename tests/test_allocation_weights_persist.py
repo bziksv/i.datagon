@@ -266,7 +266,8 @@ def test_cabin_strategies_budget_and_desk_ui() -> None:
     assert "by_sleeve" in js
     assert "пик капитала" in js
     assert "макс. просадка" in js
-    assert "Тикеры MOEX" in js
-    assert "Тикеры S&P 500" in js
+    assert "MOEX · ядро" in js or "deskDefaultTickers" in js
     assert "lastDeskGroups" in js
     assert "data-desk-scope" in js
+    assert "sectors" in js
+    assert "deskDefaultTickers" in js
