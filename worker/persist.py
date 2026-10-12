@@ -7,7 +7,7 @@ from app.db import get_sessionmaker
 from app.models import SignalRow
 
 
-async def _save(rows: Sequence[SignalRow]) -> int:
+async def persist_signals_async(rows: Sequence[SignalRow]) -> int:
     if not rows:
         return 0
     maker = get_sessionmaker()
@@ -21,4 +21,4 @@ async def _save(rows: Sequence[SignalRow]) -> int:
 def persist_signals(rows: Sequence[SignalRow]) -> int:
     if not rows:
         return 0
-    return asyncio.run(_save(rows))
+    return asyncio.run(persist_signals_async(rows))

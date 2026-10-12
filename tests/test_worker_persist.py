@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.models import SignalRow
@@ -27,3 +28,11 @@ def test_persist_signals_commits_rows() -> None:
         assert persist_signals([row]) == 1
     session.add.assert_called_once_with(row)
     session.commit.assert_awaited_once()
+
+
+def test_worker_uses_one_event_loop_for_all_database_writes() -> None:
+    source = (Path(__file__).parents[1] / "worker" / "__main__.py").read_text()
+    assert source.count("asyncio.run(") == 1
+    assert "asyncio.run(run_worker())" in source
+    assert "await persist_valuation_snapshot" in source
+    assert "await persist_signals_async" in source

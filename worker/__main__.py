@@ -1,7 +1,6 @@
 import asyncio
 import logging
 import os
-import time
 from datetime import UTC, date, datetime
 from pathlib import Path
 
@@ -26,9 +25,10 @@ from worker.equity import (
     persist_valuation_snapshot,
     snapshot_due,
 )
-from worker.persist import persist_signals
+from worker.persist import persist_signals_async
 
-if __name__ == "__main__":
+
+async def run_worker() -> None:
     load_env_file(Path(".env"))
     assert_paper_mode()
     setup_logging()
@@ -48,7 +48,7 @@ if __name__ == "__main__":
         m15_books = load_m15_books(os.environ.get("CANDLE_M15_DIR", "data/candles_m15"))
         if snapshot_due(last_snapshot, now, SNAPSHOT_INTERVAL_SEC):
             try:
-                row = asyncio.run(persist_valuation_snapshot(ts=now))
+                row = await persist_valuation_snapshot(ts=now)
                 last_snapshot = now
                 if row is None:
                     log.warning("equity snapshot skipped: incomplete valuation")
@@ -65,7 +65,7 @@ if __name__ == "__main__":
             rows = close_all_books(
                 day_sleeves, books, last_processed=last_bar_day, now=now
             )
-            saved = persist_signals(rows)
+            saved = await persist_signals_async(rows)
             last_bar_day = last_closed_day(now)
             log.info(
                 "daily close day=%s signals=%s saved=%s books=%s sleeves=%s",
@@ -79,7 +79,7 @@ if __name__ == "__main__":
             rows = close_m15_books(
                 scalp_sleeves, m15_books, last_processed=last_m15_bar, now=now
             )
-            saved = persist_signals(rows)
+            saved = await persist_signals_async(rows)
             last_m15_bar = last_closed_m15(now)
             log.info(
                 "m15 close bar=%s signals=%s saved=%s books=%s sleeves=%s",
@@ -96,10 +96,14 @@ if __name__ == "__main__":
             try:
                 from worker.fundamentals import run_fundamentals_refresh
 
-                saved = asyncio.run(run_fundamentals_refresh())
+                saved = await run_fundamentals_refresh()
                 last_fundamentals = now
                 log.info("fundamentals refresh upserted=%s", saved)
             except Exception:
                 last_fundamentals = now
                 log.exception("fundamentals refresh skipped")
-        time.sleep(SNAPSHOT_INTERVAL_SEC)
+        await asyncio.sleep(SNAPSHOT_INTERVAL_SEC)
+
+
+if __name__ == "__main__":
+    asyncio.run(run_worker())
