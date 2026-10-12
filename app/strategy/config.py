@@ -5,6 +5,10 @@ from decimal import Decimal
 from pathlib import Path
 
 from app.strategy.donchian import DEFAULT_PERIOD, DonchianBreakoutStrategy
+from app.strategy.morning import (
+    DEFAULT_MAX_HOLD_BARS as MORNING_MAX_HOLD,
+    MorningBounceStrategy,
+)
 from app.strategy.overnight import (
     DEFAULT_AVERAGE_TRIGGER_PCT,
     DEFAULT_CLOSE_RANGE_MAX,
@@ -261,6 +265,80 @@ def overnight_from_config(
     return OvernightBounceStrategy(**overnight_params(env, _yaml_text(yaml_path)))
 
 
+def morning_params(
+    env: Mapping[str, str],
+    yaml_text: str | None = None,
+) -> dict:
+    params = {
+        "take_profit_pct": DEFAULT_TAKE_PROFIT_PCT,
+        "average_trigger_pct": DEFAULT_AVERAGE_TRIGGER_PCT,
+        "max_layers": DEFAULT_MAX_LAYERS,
+        "stop_pct": OVERNIGHT_STOP,
+        "sma_period": DEFAULT_SMA_PERIOD,
+        "max_hold_bars": MORNING_MAX_HOLD,
+        "cooldown_bars": DEFAULT_COOLDOWN_BARS,
+        "min_day_drop_pct": DEFAULT_MIN_DAY_DROP_PCT,
+        "rsi_period": DEFAULT_RSI_PERIOD,
+        "rsi_max": DEFAULT_RSI_MAX,
+        "close_range_max": DEFAULT_CLOSE_RANGE_MAX,
+    }
+    if yaml_text:
+        section = _section(yaml_text, "morning_bounce")
+        params["take_profit_pct"] = _decimal_field(
+            section, "take_profit_pct", params["take_profit_pct"]
+        )
+        params["average_trigger_pct"] = _decimal_field(
+            section, "average_trigger_pct", params["average_trigger_pct"]
+        )
+        params["max_layers"] = _int_field(
+            section, "max_layers", params["max_layers"]
+        )
+        params["stop_pct"] = _decimal_field(section, "stop_pct", params["stop_pct"])
+        params["sma_period"] = _int_field(
+            section, "sma_period", params["sma_period"]
+        )
+        params["max_hold_bars"] = _int_field(
+            section, "max_hold_bars", params["max_hold_bars"]
+        )
+        params["cooldown_bars"] = _int_field(
+            section, "cooldown_bars", params["cooldown_bars"]
+        )
+        params["min_day_drop_pct"] = _decimal_field(
+            section, "min_day_drop_pct", params["min_day_drop_pct"]
+        )
+        params["rsi_period"] = _int_field(
+            section, "rsi_period", params["rsi_period"]
+        )
+        params["rsi_max"] = _decimal_field(section, "rsi_max", params["rsi_max"])
+        params["close_range_max"] = _decimal_field(
+            section, "close_range_max", params["close_range_max"]
+        )
+    env_map = {
+        "MORNING_TAKE_PROFIT_PCT": ("take_profit_pct", Decimal),
+        "MORNING_AVERAGE_TRIGGER_PCT": ("average_trigger_pct", Decimal),
+        "MORNING_MAX_LAYERS": ("max_layers", int),
+        "MORNING_STOP_PCT": ("stop_pct", Decimal),
+        "MORNING_SMA_PERIOD": ("sma_period", int),
+        "MORNING_MAX_HOLD_BARS": ("max_hold_bars", int),
+        "MORNING_COOLDOWN_BARS": ("cooldown_bars", int),
+        "MORNING_MIN_DAY_DROP_PCT": ("min_day_drop_pct", Decimal),
+        "MORNING_RSI_PERIOD": ("rsi_period", int),
+        "MORNING_RSI_MAX": ("rsi_max", Decimal),
+        "MORNING_CLOSE_RANGE_MAX": ("close_range_max", Decimal),
+    }
+    for env_key, (name, caster) in env_map.items():
+        if env.get(env_key):
+            params[name] = caster(env[env_key])
+    return params
+
+
+def morning_from_config(
+    env: Mapping[str, str],
+    yaml_path: Path | None = DEFAULT_YAML,
+) -> MorningBounceStrategy:
+    return MorningBounceStrategy(**morning_params(env, _yaml_text(yaml_path)))
+
+
 def active_strategies(env: Mapping[str, str], yaml_path: Path | None = DEFAULT_YAML):
     return [
         sma_from_config(env, yaml_path),
@@ -268,6 +346,7 @@ def active_strategies(env: Mapping[str, str], yaml_path: Path | None = DEFAULT_Y
         rsi_from_config(env, yaml_path),
         scalp_from_config(env, yaml_path),
         overnight_from_config(env, yaml_path),
+        morning_from_config(env, yaml_path),
     ]
 
 
@@ -277,6 +356,7 @@ def daily_strategies(env: Mapping[str, str], yaml_path: Path | None = DEFAULT_YA
         donchian_from_config(env, yaml_path),
         rsi_from_config(env, yaml_path),
         overnight_from_config(env, yaml_path),
+        morning_from_config(env, yaml_path),
     ]
 
 

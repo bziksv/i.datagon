@@ -270,7 +270,13 @@ def run_backtest(
 
     for index, bar in enumerate(bars):
         evaluating = index >= evaluation_start
-        if evaluating and fill_at != "close":
+        if evaluating and fill_at == "morning":
+            if pending == "buy" and (qty == 0 or (pending_add and allow_add)):
+                buy(bar, pending_reason, add=pending_add and qty > 0)
+                note_entry = getattr(strategy, "note_entry", None)
+                if callable(note_entry):
+                    note_entry()
+        elif evaluating and fill_at != "close":
             if pending == "buy" and (qty == 0 or (pending_add and allow_add)):
                 buy(bar, pending_reason, add=pending_add and qty > 0)
             elif pending in {"sell", "exit"} and qty > 0:
@@ -347,6 +353,21 @@ def run_backtest(
                 )
             elif signal.kind in {"sell", "exit"} and qty > 0:
                 sell(bar, f"signal:{signal.kind}", raw_price=Decimal(bar.c))
+            continue
+        if fill_at == "morning":
+            if not evaluating:
+                continue
+            # Утро: buy в pending на следующий open; вечер: sell/exit по close.
+            if signal.kind in {"sell", "exit"} and qty > 0:
+                sell(bar, f"signal:{signal.kind}", raw_price=Decimal(bar.c))
+            elif (
+                signal.kind == "buy"
+                and not blocked_reentry
+                and (qty == 0 or allow_add)
+            ):
+                pending = "buy"
+                pending_reason = f"signal:{signal.kind}"
+                pending_add = qty > 0
             continue
         can_execute_next = index + 1 >= evaluation_start
         if not can_execute_next:

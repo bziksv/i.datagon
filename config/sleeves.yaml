@@ -41,3 +41,18 @@ overnight_bounce:
   name_share: 0.10
   sleeve_share: 0.40
   stop_pct: 0.035
+
+morning_bounce:
+  take_profit_pct: 0.035
+  average_trigger_pct: 0.04
+  max_layers: 2
+  sma_period: 5
+  max_hold_bars: 2
+  cooldown_bars: 5
+  min_day_drop_pct: 0.01
+  rsi_period: 14
+  rsi_max: 40
+  close_range_max: 0.40
+  name_share: 0.10
+  sleeve_share: 0.40
+  stop_pct: 0.035

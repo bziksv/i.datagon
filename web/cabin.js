@@ -2,7 +2,7 @@
   "use strict";
 
   /** Версия UI кабинета (этап 30+). Не путать с version API. */
-  var CABIN_UI_VERSION = "v3.0.9";
+  var CABIN_UI_VERSION = "v3.1.0";
 
   var ROUTES = [
     {
@@ -202,6 +202,7 @@
     "rsi_reversion",
     "ema_scalp",
     "overnight_bounce",
+    "morning_bounce",
   ];
   var SLEEVE_NAMES = {
     sma_cross: "Пересечение средних",
@@ -209,6 +210,7 @@
     rsi_reversion: "RSI-возврат",
     ema_scalp: "EMA-скальп",
     overnight_bounce: "Вечерний докуп",
+    morning_bounce: "Утренний докуп",
     fund_screener: "Фундамент-скринер",
   };
   var authed = false;
@@ -244,6 +246,8 @@
       "Скальп на M15: пересечение EMA 3/8. Короткий стоп 1.5%. Нужны свечи в CANDLE_M15_DIR (data/candles_m15).",
     overnight_bounce:
       "Защитный overnight: вход только после зелёного дня, на красном ≤−1%, close внизу диапазона, ≤SMA5 и RSI≤40. Тейк +3.5%, стоп 3.5% от первой цены, удержание 2 бара, редкое усреднение 2-м слоем, пауза 5 дней после стопа.",
+    morning_bounce:
+      "Зеркало вечернего: после слабого дня покупаем на следующем open, днём тейк/стоп 3.5%, под вечер продаём по close; если в минусе — утром докупаем 2-м слоем. Пауза 5 дней после стопа.",
   };
   var SIGNAL_KIND_RU = {
     buy: "покупка",
@@ -3285,10 +3289,10 @@
     return (
       renderStrategiesGuide() +
       '<section class="panel" data-tour="strategies-compare">' +
-      "<h3>Пять рукавов</h3>" +
+      "<h3>Шесть рукавов</h3>" +
       "<p>" +
       "SMA и Дончиан (дневки), RSI-возврат (дневки), EMA-скальп (M15), " +
-      "Вечерний докуп (дневки, тейк 3–6% и усреднение). " +
+      "Вечерний и Утренний докуп (зеркальные overnight/intraday). " +
       "Клик по строке — правила и сигналы рукава." +
       "</p>" +
       table +

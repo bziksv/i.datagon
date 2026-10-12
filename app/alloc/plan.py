@@ -11,6 +11,10 @@ from app.alloc.view import ACTIVE_SLEEVES
 from app.alloc.weights_store import load_weights
 from app.risk.sleeve import DEFAULT_SLEEVE_SHARE
 from app.strategy.donchian import DEFAULT_PERIOD, SLEEVE as DONCHIAN
+from app.strategy.morning import (
+    DEFAULT_MAX_HOLD_BARS as MORNING_MAX_HOLD,
+    SLEEVE as MORNING,
+)
 from app.strategy.overnight import (
     DEFAULT_AVERAGE_TRIGGER_PCT,
     DEFAULT_COOLDOWN_BARS,
@@ -106,6 +110,24 @@ SLEEVE_HOWTO = {
             "Защитный overnight: не покупает каждый вечер и не усредняет бесконечно. "
             "На выборке blue chips скорее около нуля, чем «печатный станок». "
             "Модель по дневному OHLC — не тиковый стакан."
+        ),
+    },
+    MORNING: {
+        "title": "Утренний докуп",
+        "horizon": "дневки",
+        "signal": (
+            f"После слабого дня (те же фильтры, что у вечернего) покупаем на "
+            f"следующем open. Днём тейк +{float(DEFAULT_TAKE_PROFIT_PCT)*100:g}% / "
+            f"стоп {float(OVERNIGHT_STOP)*100:g}% от первой цены. Под вечер "
+            f"продаём по close; если просадка ≥{float(DEFAULT_AVERAGE_TRIGGER_PCT)*100:g}% — "
+            f"держим ночь и утром докупаем (до {DEFAULT_MAX_LAYERS} слоёв). "
+            f"Макс. удержание {MORNING_MAX_HOLD} бара, пауза "
+            f"{DEFAULT_COOLDOWN_BARS} дней после стопа."
+        ),
+        "holds": (
+            "Зеркало вечернего рукава: вход утром, выход к вечеру. "
+            "Усреднение — только если к close всё ещё в минусе. "
+            "Модель open/close на днёвках."
         ),
     },
 }

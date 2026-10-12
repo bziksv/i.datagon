@@ -7,6 +7,7 @@ from app.alloc.capital import sleeve_capital
 from app.alloc.weights_store import load_weights
 from app.risk.sleeve import DEFAULT_SLEEVE_SHARE
 from app.strategy.donchian import SLEEVE as DONCHIAN_SLEEVE
+from app.strategy.morning import SLEEVE as MORNING_SLEEVE
 from app.strategy.overnight import SLEEVE as OVERNIGHT_SLEEVE
 from app.strategy.rsi import SLEEVE as RSI_SLEEVE
 from app.strategy.scalp import SLEEVE as SCALP_SLEEVE
@@ -18,6 +19,7 @@ ACTIVE_SLEEVES = (
     RSI_SLEEVE,
     SCALP_SLEEVE,
     OVERNIGHT_SLEEVE,
+    MORNING_SLEEVE,
 )
 
 
