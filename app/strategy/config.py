@@ -10,6 +10,7 @@ from app.strategy.abs_mom import (
     DEFAULT_MIN_ROC as ABS_MOM_MIN_ROC,
     DEFAULT_SMA_PERIOD as ABS_MOM_SMA,
     DEFAULT_STOP_PCT as ABS_MOM_STOP,
+    DEFAULT_TRAIL_PCT as ABS_MOM_TRAIL,
     AbsMomentumStrategy,
 )
 from app.strategy.donchian import DEFAULT_PERIOD, DonchianBreakoutStrategy
@@ -356,6 +357,7 @@ def abs_mom_params(
         "sma_period": ABS_MOM_SMA,
         "min_roc": ABS_MOM_MIN_ROC,
         "stop_pct": ABS_MOM_STOP,
+        "trail_pct": ABS_MOM_TRAIL,
         "backtest_position_share": ABS_MOM_SHARE,
     }
     if yaml_text:
@@ -366,6 +368,9 @@ def abs_mom_params(
         )
         params["min_roc"] = _decimal_field(section, "min_roc", params["min_roc"])
         params["stop_pct"] = _decimal_field(section, "stop_pct", params["stop_pct"])
+        params["trail_pct"] = _decimal_field(
+            section, "trail_pct", params["trail_pct"]
+        )
         params["backtest_position_share"] = _decimal_field(
             section,
             "backtest_position_share",
@@ -376,6 +381,7 @@ def abs_mom_params(
         "ABS_MOM_SMA_PERIOD": ("sma_period", int),
         "ABS_MOM_MIN_ROC": ("min_roc", Decimal),
         "ABS_MOM_STOP_PCT": ("stop_pct", Decimal),
+        "ABS_MOM_TRAIL_PCT": ("trail_pct", Decimal),
         "ABS_MOM_POSITION_SHARE": ("backtest_position_share", Decimal),
     }
     for env_key, (name, caster) in env_map.items():

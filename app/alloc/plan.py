@@ -14,6 +14,7 @@ from app.strategy.abs_mom import (
     DEFAULT_LOOKBACK as ABS_LOOKBACK,
     DEFAULT_MIN_ROC as ABS_MIN_ROC,
     DEFAULT_SMA_PERIOD as ABS_SMA,
+    DEFAULT_TRAIL_PCT as ABS_TRAIL,
     SLEEVE as ABS_MOM,
 )
 from app.strategy.donchian import DEFAULT_PERIOD, SLEEVE as DONCHIAN
@@ -142,10 +143,11 @@ SLEEVE_HOWTO = {
         "signal": (
             f"В рынке только при силе: close > SMA{ABS_SMA} и "
             f"ROC({ABS_LOOKBACK}) ≥ {float(ABS_MIN_ROC)*100:g}%. "
-            "Иначе кэш. Параметры — сетка на 14 MOEX 2024–2026."
+            f"Трейлинг {float(ABS_TRAIL)*100:g}% от пика позиции. "
+            "Иначе кэш. Параметры — сетка MOEX+S&P desk 2024–2026."
         ),
         "holds": (
-            "Тренд/кэш: не ловит дно, сидит в деньгах на слабых бумагах. "
+            "Тренд/кэш + трейлинг: не ловит дно, режет откат от пика. "
             "Desk-бэктест на полный кэш имени. In-sample — не гарантия вперёд."
         ),
     },
