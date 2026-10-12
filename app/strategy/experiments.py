@@ -34,6 +34,10 @@ def _code_hash() -> str:
     return digest.hexdigest()
 
 
+def current_strategy_code_hash() -> str:
+    return _code_hash()
+
+
 def experiment_fingerprint(report: dict) -> dict[str, str]:
     path = Path(str(report["path"]))
     data_hash = _sha256(path.read_bytes())

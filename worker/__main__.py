@@ -25,6 +25,7 @@ from worker.equity import (
     persist_valuation_snapshot,
     snapshot_due,
 )
+from worker.paper_forward import refresh_paper_forward
 from worker.persist import persist_signals_async
 
 
@@ -102,6 +103,12 @@ async def run_worker() -> None:
             except Exception:
                 last_fundamentals = now
                 log.exception("fundamentals refresh skipped")
+        try:
+            forward_saved = await refresh_paper_forward(now=now)
+            if forward_saved:
+                log.info("paper-forward observations saved=%s", forward_saved)
+        except Exception:
+            log.exception("paper-forward refresh failed")
         await asyncio.sleep(SNAPSHOT_INTERVAL_SEC)
 
 
