@@ -2,7 +2,7 @@
   "use strict";
 
   /** Версия UI кабинета (этап 30+). Не путать с version API. */
-  var CABIN_UI_VERSION = "v3.0.4";
+  var CABIN_UI_VERSION = "v3.0.5";
 
   var ROUTES = [
     {
@@ -133,6 +133,7 @@
   var lastAgentsFlash = null;
   var lastDeskBacktest = null;
   var lastDeskBatch = null;
+  var lastDeskBatchOpen = null;
   var lastDeskSleeve = "sma_cross";
   var lastDeskTicker = "SBER";
   var lastDeskTickers = [];
@@ -2981,6 +2982,8 @@
       });
       var batchBody = batchRows
         .map(function (row) {
+          var key = String(row.sleeve || "") + "|" + String(row.ticker || "");
+          var open = lastDeskBatchOpen === key;
           var statusLabel =
             row.status === "ok"
               ? row.capital_eligible
@@ -2989,14 +2992,58 @@
               : row.status === "skipped"
                 ? "нет данных"
                 : "ошибка";
+          var tradeRows = row.trade_rows || [];
+          var detail =
+            '<tr class="desk-batch-detail' +
+            (open ? " is-open" : "") +
+            '" data-batch-detail="' +
+            escapeHtml(key) +
+            '"><td colspan="7">' +
+            (tradeRows.length
+              ? '<div class="desk-batch-trades"><table class="data-table compact"><thead><tr>' +
+                "<th>вход</th><th>выход</th><th>шт</th><th>цена входа</th>" +
+                "<th>сумма</th><th>цена выхода</th><th>PnL</th>" +
+                "</tr></thead><tbody>" +
+                tradeRows
+                  .map(function (trade) {
+                    return (
+                      "<tr><td>" +
+                      deskDateLabel(trade.entry_ts) +
+                      "</td><td>" +
+                      deskDateLabel(trade.exit_ts) +
+                      "</td><td>" +
+                      escapeHtml(String(trade.qty != null ? trade.qty : "—")) +
+                      "</td><td>" +
+                      money(trade.entry_price) +
+                      "</td><td>" +
+                      money(trade.notional) +
+                      "</td><td>" +
+                      money(trade.exit_price) +
+                      "</td><td>" +
+                      money(trade.net_pnl) +
+                      "</td></tr>"
+                    );
+                  })
+                  .join("") +
+                "</tbody></table></div>"
+              : '<p class="empty">Закрытых сделок нет — разворачивать нечего.</p>') +
+            "</td></tr>";
           return (
-            "<tr>" +
-            "<td>" +
+            '<tr class="desk-batch-row' +
+            (open ? " is-open" : "") +
+            '" data-batch-key="' +
+            escapeHtml(key) +
+            '" tabindex="0" role="button" aria-expanded="' +
+            (open ? "true" : "false") +
+            '">' +
+            '<td><span class="desk-batch-caret" aria-hidden="true"></span>' +
             escapeHtml(SLEEVE_NAMES[row.sleeve] || row.sleeve || "—") +
             "</td><td>" +
             escapeHtml(row.ticker || "—") +
             "</td><td>" +
             escapeHtml(String(row.trades != null ? row.trades : "—")) +
+            "</td><td>" +
+            money(row.net_pnl) +
             "</td><td>" +
             escapeHtml(
               row.total_return == null
@@ -3012,7 +3059,8 @@
             "</td><td>" +
             escapeHtml(statusLabel) +
             (row.error ? " · " + escapeHtml(row.error) : "") +
-            "</td></tr>"
+            "</td></tr>" +
+            detail
           );
         })
         .join("");
@@ -3027,10 +3075,10 @@
         escapeHtml(String(lastDeskBatch.errors || 0)) +
         " ошибок · всего " +
         escapeHtml(String(lastDeskBatch.count || 0)) +
-        " (рукава × тикеры)</p>" +
+        " (рукава × тикеры). Клик по строке — сделки: штуки, сумма покупки, PnL.</p>" +
         wrapTableScroll(
           '<table class="data-table"><thead><tr>' +
-            "<th>рукав</th><th>тикер</th><th>сделки</th><th>доходность</th>" +
+            "<th>рукав</th><th>тикер</th><th>сделки</th><th>PnL</th><th>доходность</th>" +
             "<th>вне выборки</th><th>статус</th>" +
             "</tr></thead><tbody>" +
             batchBody +
@@ -3678,12 +3726,39 @@
         apiPost("/desk/backtests/batch", {}, { timeoutMs: FETCH_TIMEOUT_BATCH_MS })
           .then(function (data) {
             lastDeskBatch = data;
+            lastDeskBatchOpen = null;
             renderStrategies();
           })
           .catch(function (err) {
             lastDeskBatch = { error: err.message || "ошибка пакетного прогона" };
+            lastDeskBatchOpen = null;
             renderStrategies();
           });
+      });
+    }
+    var batchRoot = document.querySelector('[data-tour="strategies-desk-batch"]');
+    if (batchRoot) {
+      batchRoot.addEventListener("click", function (ev) {
+        var row = ev.target && ev.target.closest
+          ? ev.target.closest("tr.desk-batch-row")
+          : null;
+        if (!row) return;
+        var key = row.getAttribute("data-batch-key");
+        if (!key) return;
+        lastDeskBatchOpen = lastDeskBatchOpen === key ? null : key;
+        renderStrategies();
+      });
+      batchRoot.addEventListener("keydown", function (ev) {
+        if (ev.key !== "Enter" && ev.key !== " ") return;
+        var row = ev.target && ev.target.closest
+          ? ev.target.closest("tr.desk-batch-row")
+          : null;
+        if (!row) return;
+        ev.preventDefault();
+        var key = row.getAttribute("data-batch-key");
+        if (!key) return;
+        lastDeskBatchOpen = lastDeskBatchOpen === key ? null : key;
+        renderStrategies();
       });
     }
   }

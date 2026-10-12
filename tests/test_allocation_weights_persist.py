@@ -160,6 +160,15 @@ def test_desk_backtest_batch_api(tmp_path, monkeypatch) -> None:
     )
     assert scalp_gazp["status"] == "ok"
     assert scalp_gazp["bars"] == 9
+    sample = next(row for row in body["rows"] if row["status"] == "ok")
+    assert "trade_rows" in sample
+    assert isinstance(sample["trade_rows"], list)
+    if sample["trades"]:
+        trade = sample["trade_rows"][0]
+        assert "qty" in trade
+        assert "entry_price" in trade
+        assert "notional" in trade
+        assert "net_pnl" in trade
 
 
 def test_cabin_strategies_budget_and_desk_ui() -> None:
@@ -189,6 +198,9 @@ def test_cabin_strategies_budget_and_desk_ui() -> None:
     assert 'id="desk-run-all"' in js
     assert "Прогнать все" in js
     assert "strategies-desk-batch" in js
+    assert "desk-batch-row" in js
+    assert "trade_rows" in js
+    assert "сумма покупки" in js
     assert "Сохранить бюджеты" in js
     assert "Прогнать на истории" in js
     assert "Секторов нет" in js

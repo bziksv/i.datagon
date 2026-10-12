@@ -1563,6 +1563,49 @@ button.danger:hover {
 .data-table tr[data-href] { cursor: pointer; }
 .data-table tr[data-href]:hover td { color: #0f2a1c; background: #eef5f0; }
 
+.data-table tr.desk-batch-row {
+  cursor: pointer;
+}
+
+.data-table tr.desk-batch-row:hover td {
+  background: #eef5f0;
+}
+
+.data-table tr.desk-batch-row .desk-batch-caret::before {
+  content: "▸";
+  display: inline-block;
+  width: 1em;
+  color: var(--muted);
+}
+
+.data-table tr.desk-batch-row.is-open .desk-batch-caret::before {
+  content: "▾";
+}
+
+.data-table tr.desk-batch-detail {
+  display: none;
+}
+
+.data-table tr.desk-batch-detail.is-open {
+  display: table-row;
+}
+
+.data-table tr.desk-batch-detail > td {
+  background: #f5f8f6;
+  padding: 0.55rem 0.65rem 0.75rem;
+}
+
+.desk-batch-trades {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.desk-batch-trades .data-table.compact th,
+.desk-batch-trades .data-table.compact td {
+  font-size: 0.84rem;
+  padding: 0.28rem 0.4rem;
+}
+
 .tabs {
   display: flex;
   flex-wrap: wrap;

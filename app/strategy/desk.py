@@ -165,6 +165,64 @@ def desk_backtest(
     return report
 
 
+def _batch_trade_rows(report: dict) -> list[dict]:
+    raw = (report.get("backtest") or {}).get("trades") or []
+    rows: list[dict] = []
+    for trade in raw:
+        qty = int(trade.get("qty") or 0)
+        entry_price = trade.get("entry_price")
+        try:
+            notional = (
+                round(float(entry_price) * qty, 2)
+                if entry_price is not None
+                else None
+            )
+        except (TypeError, ValueError):
+            notional = None
+        rows.append(
+            {
+                "entry_ts": trade.get("entry_ts"),
+                "exit_ts": trade.get("exit_ts"),
+                "qty": qty,
+                "entry_price": entry_price,
+                "exit_price": trade.get("exit_price"),
+                "notional": notional,
+                "net_pnl": trade.get("net_pnl"),
+                "exit_reason": trade.get("exit_reason"),
+            }
+        )
+    return rows
+
+
+def _empty_batch_row(
+    *,
+    status: str,
+    sleeve: str,
+    ticker: str,
+    error: str | None,
+) -> dict:
+    return {
+        "status": status,
+        "sleeve": sleeve,
+        "ticker": ticker,
+        "tf": None,
+        "bars": None,
+        "from": None,
+        "to": None,
+        "trades": 0,
+        "trade_rows": [],
+        "net_pnl": None,
+        "total_return": None,
+        "max_drawdown": None,
+        "excess_return": None,
+        "oos_trades": None,
+        "oos_excess_return": None,
+        "capital_eligible": False,
+        "evidence_score": None,
+        "error": error,
+    }
+
+
 def _batch_row(report: dict) -> dict:
     summary = (report.get("backtest") or {}).get("summary") or {}
     oos = (report.get("walk_forward") or {}).get("oos_summary") or {}
@@ -178,6 +236,7 @@ def _batch_row(report: dict) -> dict:
         "from": report.get("from"),
         "to": report.get("to"),
         "trades": summary.get("trades"),
+        "trade_rows": _batch_trade_rows(report),
         "net_pnl": summary.get("net_pnl"),
         "total_return": summary.get("total_return"),
         "max_drawdown": summary.get("max_drawdown"),
@@ -225,47 +284,21 @@ def desk_backtest_batch(
                 rows.append(_batch_row(report))
             except FileNotFoundError:
                 rows.append(
-                    {
-                        "status": "skipped",
-                        "sleeve": sleeve,
-                        "ticker": ticker,
-                        "tf": None,
-                        "bars": None,
-                        "from": None,
-                        "to": None,
-                        "trades": None,
-                        "net_pnl": None,
-                        "total_return": None,
-                        "max_drawdown": None,
-                        "excess_return": None,
-                        "oos_trades": None,
-                        "oos_excess_return": None,
-                        "capital_eligible": False,
-                        "evidence_score": None,
-                        "error": "нет файла свечей",
-                    }
+                    _empty_batch_row(
+                        status="skipped",
+                        sleeve=sleeve,
+                        ticker=ticker,
+                        error="нет файла свечей",
+                    )
                 )
             except Exception as exc:  # noqa: BLE001 — сводка пакета fail-soft
                 rows.append(
-                    {
-                        "status": "error",
-                        "sleeve": sleeve,
-                        "ticker": ticker,
-                        "tf": None,
-                        "bars": None,
-                        "from": None,
-                        "to": None,
-                        "trades": None,
-                        "net_pnl": None,
-                        "total_return": None,
-                        "max_drawdown": None,
-                        "excess_return": None,
-                        "oos_trades": None,
-                        "oos_excess_return": None,
-                        "capital_eligible": False,
-                        "evidence_score": None,
-                        "error": str(exc) or "ошибка прогона",
-                    }
+                    _empty_batch_row(
+                        status="error",
+                        sleeve=sleeve,
+                        ticker=ticker,
+                        error=str(exc) or "ошибка прогона",
+                    )
                 )
 
     ok_rows = [row for row in rows if row["status"] == "ok"]
