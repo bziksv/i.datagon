@@ -61,8 +61,8 @@ abs_momentum:
   lookback: 20
   sma_period: 40
   min_roc: 0.02
-  exit_roc: 0
-  max_stretch: 1.12
+  exit_roc: -0.01
+  max_stretch: 1.14
   stop_pct: 0
   trail_pct: 0.10
   backtest_position_share: 1.0
