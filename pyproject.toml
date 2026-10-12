@@ -11,7 +11,7 @@ dependencies = [
     "fastapi>=0.115",
     "asyncpg>=0.30",
     "uvicorn[standard]>=0.32",
-    "protobuf>=5.28",
+    "protobuf>=4.25.1,<5",
     "tinkoff @ file:vendor/tinkoff-ns",
     "tinkoff-investments @ git+https://github.com/RussianInvestments/invest-python.git@0.2.0-beta117",
 ]
