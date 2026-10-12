@@ -65,6 +65,25 @@ def test_explicit_cash_reserve_is_not_renormalized(tmp_path, monkeypatch) -> Non
     assert sum(got.values()) == Decimal("0.5")
 
 
+def test_desk_candles_lists_local_csvs(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("APP_AUTH_TOKEN", "secret")
+    monkeypatch.setenv("CANDLE_DIR", str(tmp_path))
+    (tmp_path / "SBER.csv").write_text(
+        Path("tests/fixtures/sber_daily.csv").read_text()
+    )
+    (tmp_path / "GAZP.csv").write_text(
+        Path("tests/fixtures/sber_daily.csv").read_text()
+    )
+    client = TestClient(create_app())
+    response = client.get(
+        "/desk/candles?tf=1d",
+        headers={"X-App-Token": "secret"},
+    )
+    assert response.status_code == 200
+    assert response.json()["tickers"] == ["GAZP", "SBER"]
+    assert response.json()["count"] == 2
+
+
 def test_desk_backtest_api(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("APP_AUTH_TOKEN", "secret")
     src = Path("tests/fixtures/sber_daily.csv")
@@ -109,6 +128,8 @@ def test_cabin_strategies_budget_and_desk_ui() -> None:
     assert "strategies-whatif" in js
     assert "lastDeskSleeve" in js
     assert 'id === selectedSleeve ? " selected"' in js
+    assert 'apiGet("/desk/candles?tf=1d")' in js
+    assert 'id="desk-ticker"' in js
     assert "Период файла:" in js
     assert "deskDateLabel" in js
     assert "торг. лет" in js

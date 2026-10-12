@@ -97,7 +97,7 @@ from app.risk.params_store import (
     save_risk_policy,
 )
 from app.risk.universe import active_tickers
-from app.strategy.desk import desk_backtest
+from app.strategy.desk import desk_backtest, list_candle_tickers
 from app.strategy.experiments import (
     experiment_view,
     new_experiment,
@@ -802,6 +802,14 @@ def create_app() -> FastAPI:
                     "Положите CSV в CANDLE_DIR (например data/candles/SBER.csv)."
                 ),
             ) from exc
+
+    @app.get("/desk/candles")
+    def desk_candles(tf: str = "1d") -> dict:
+        frame = tf.strip().lower()
+        if frame not in {"1d", "15m"}:
+            raise HTTPException(status_code=422, detail="unsupported tf")
+        tickers = list_candle_tickers(tf=frame)
+        return {"tf": frame, "tickers": tickers, "count": len(tickers)}
 
     @app.post("/desk/backtest")
     def run_desk_backtest(body: DeskBacktestBody) -> dict:

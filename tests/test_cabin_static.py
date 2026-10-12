@@ -44,8 +44,8 @@ def test_cabin_shell_stage01_menu_and_router() -> None:
     css = CSS.read_text()
     js = JS.read_text()
     assert "<!DOCTYPE html>" in html
-    assert 'href="/cabin.css?v=3.0.1"' in html
-    assert 'src="/cabin.js?v=3.0.1"' in html
+    assert 'href="/cabin.css?v=3.0.2"' in html
+    assert 'src="/cabin.js?v=3.0.2"' in html
     assert "webpack" not in html.lower()
     assert "react" not in html.lower()
     assert "vite" not in html.lower()
@@ -362,8 +362,8 @@ def test_cabin_tour_engine_stage05() -> None:
     js = JS.read_text()
     tour_js = (ROOT / "web" / "tour.js").read_text()
     tour_css = (ROOT / "web" / "tour.css").read_text()
-    assert 'href="/tour.css?v=3.0.1"' in html
-    assert 'src="/tour.js?v=3.0.1"' in html
+    assert 'href="/tour.css?v=3.0.2"' in html
+    assert 'src="/tour.js?v=3.0.2"' in html
     assert "CabinTour" in tour_js
     assert "cabin_tour_v1:" in tour_js
     assert "resetAll" in tour_js

@@ -2,7 +2,7 @@
   "use strict";
 
   /** Версия UI кабинета (этап 30+). Не путать с version API. */
-  var CABIN_UI_VERSION = "v3.0.1";
+  var CABIN_UI_VERSION = "v3.0.2";
 
   var ROUTES = [
     {
@@ -134,6 +134,7 @@
   var lastDeskBacktest = null;
   var lastDeskSleeve = "sma_cross";
   var lastDeskTicker = "SBER";
+  var lastDeskTickers = [];
   var loadErrors = {};
   var blockLoading = {};
   var routeLoading = false;
@@ -2969,22 +2970,42 @@
         "</option>"
       );
     }).join("");
+    var tickers = lastDeskTickers && lastDeskTickers.length
+      ? lastDeskTickers.slice()
+      : [selectedTicker || "SBER"];
+    if (tickers.indexOf(selectedTicker) < 0 && selectedTicker) {
+      tickers = [selectedTicker].concat(tickers);
+    }
+    var tickerOpts = tickers
+      .map(function (ticker) {
+        return (
+          '<option value="' +
+          escapeHtml(ticker) +
+          '"' +
+          (ticker === selectedTicker ? " selected" : "") +
+          ">" +
+          escapeHtml(ticker) +
+          "</option>"
+        );
+      })
+      .join("");
     return (
       '<section class="panel" data-tour="strategies-desk">' +
       "<h3>Прогон на истории</h3>" +
       "<p>" +
       "<strong>Не путать с гарантией прибыли.</strong> Модель сделок по локальному файлу свечей (обычно с биржи MOEX, не из Тинькофф API): исполнение на открытии следующего бара, с комиссией и проскальзыванием, сравнение с «купить и держать». " +
-      "Даты не выбираются вручную — берётся весь файл тикера (по умолчанию ~2 года дневок). Нужен длиннее период — обновить CSV с большим --days. Депозит и % на бумагу — в " +
+      "Даты не выбираются вручную — берётся весь файл тикера (по умолчанию ~2 года дневок). Сейчас доступно тикеров: " +
+      escapeHtml(String(tickers.length)) +
+      ". Депозит и % на бумагу — в " +
       '<a class="panel-link" href="#/settings">Настройках</a>.' +
       "</p>" +
       '<div class="filters" data-tour="strategies-desk-form">' +
       '<label class="field compact">рукав<select id="desk-sleeve">' +
       sleeveOpts +
       "</select></label>" +
-      '<label class="field compact">тикер' +
-      '<input type="text" id="desk-ticker" value="' +
-      escapeHtml(selectedTicker) +
-      '" placeholder="SBER"></label>' +
+      '<label class="field compact">тикер<select id="desk-ticker">' +
+      tickerOpts +
+      "</select></label>" +
       '<button type="button" class="primary" id="desk-run">Прогнать на истории</button>' +
       "</div>" +
       resultHtml +
@@ -3613,11 +3634,26 @@
       .catch(function () {
         return null;
       });
+    var candlesPromise = apiGet("/desk/candles?tf=1d")
+      .then(function (data) {
+        lastDeskTickers = (data && data.tickers) || [];
+        if (
+          lastDeskTickers.length &&
+          lastDeskTickers.indexOf(lastDeskTicker) < 0
+        ) {
+          lastDeskTicker = lastDeskTickers[0];
+        }
+        return data;
+      })
+      .catch(function () {
+        return null;
+      });
     return Promise.all([
       listPromise,
       detailPromise,
       allocPromise,
       planPromise,
+      candlesPromise,
     ]).then(function () {
       sleeveDetailLoading = false;
       if (currentRoute === "strategies") renderStrategies();

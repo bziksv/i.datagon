@@ -36,6 +36,17 @@ def candle_m15_dir() -> Path:
     return Path(os.environ.get("CANDLE_M15_DIR", "data/candles_m15"))
 
 
+def list_candle_tickers(*, tf: str = "1d") -> list[str]:
+    root = candle_m15_dir() if tf == "15m" else candle_dir()
+    if not root.is_dir():
+        return []
+    return sorted(
+        path.stem.upper()
+        for path in root.glob("*.csv")
+        if path.is_file() and path.stat().st_size > 0
+    )
+
+
 def strategy_for(sleeve: str, env: dict[str, str] | None = None):
     env = env if env is not None else dict(os.environ)
     if sleeve == SMA_SLEEVE:
