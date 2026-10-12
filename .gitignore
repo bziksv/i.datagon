@@ -33,5 +33,6 @@ htmlcov/
 *.sql.gz
 *.dump
 dumps/
-data/*.csv
+data/
+!data/.gitkeep
 *.log

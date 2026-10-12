@@ -12,6 +12,9 @@ EnvironmentFile=/var/www/i_datagon_ru_usr/data/www/i.datagon.ru/.env
 ExecStart=/var/www/i_datagon_ru_usr/data/www/i.datagon.ru/.venv/bin/python -m worker
 Restart=always
 RestartSec=3
+SyslogIdentifier=idatagon-worker
+StandardOutput=append:/var/www/i_datagon_ru_usr/data/logs/idatagon-worker.log
+StandardError=append:/var/www/i_datagon_ru_usr/data/logs/idatagon-worker.log
 
 [Install]
 WantedBy=multi-user.target

@@ -38,7 +38,11 @@
 
 ## Следующая итерация
 
-**049** — HTTPS (сертификат панели)
+**Бэкенд-лист 001–156 закрыт.**  
+UI кабинета — отдельный лист: [TZ-CABIN.md](TZ-CABIN.md) (**30 этапов, 01–30 done**, кабинет **v1**).  
+Приёмка оператора: [CABIN-ACCEPTANCE.md](CABIN-ACCEPTANCE.md) (J1–J9).  
+Финальная фиксация: [CABIN-FINAL.md](CABIN-FINAL.md).  
+Персональный контур (фундамент → рекомендации): [TZ-ADVISORY.md](TZ-ADVISORY.md) (блок A+B).
 
 ---
 
@@ -142,164 +146,164 @@
 | 046 | Postgres на сервере (compose или системный) | **done** · системный PG 17, БД `idatagon`; `/ready` после 047 |
 | 047 | Systemd или compose-restart для api+worker | **done** · `idatagon-api`/`worker` enabled; `/health` и `/ready` 200 |
 | 048 | Nginx: `i.datagon.ru` → api :8000, статика из `web/` | **done** · `/` и `/index.html` 200 из `web/`, `/health` 200 через :8000 |
-| 049 | HTTPS (существующий сертификат хостинга / let’s encrypt как есть у панели) | HTTP либо редирект, либо зафиксирован факт |
-| 050 | Скрипт `deploy/release.sh`: git pull, migrate, restart | Один вызов обновляет код |
-| 051 | Логи api/worker в journald или файлы под путём хостинга | Можно прочитать последние 100 строк |
-| 052 | Не слушать 5432 с `0.0.0.0` | Проверка `ss`/`lsof` на сервере |
+| 049 | HTTPS (существующий сертификат хостинга / let’s encrypt как есть у панели) | **done** · LE панели до 2027-01-09; HTTP `301` → HTTPS |
+| 050 | Скрипт `deploy/release.sh`: git pull, migrate, restart | **done** · pull + alembic + restart; `/health` 200 |
+| 051 | Логи api/worker в journald или файлы под путём хостинга | **done** · `tail -n 100` `data/logs/idatagon-{api,worker}.log` |
+| 052 | Не слушать 5432 с `0.0.0.0` | **done** · `ss`/`lsof`: только `127.0.0.1:5432` |
 
 ### F. Адаптер T-Invest sandbox
 
 | # | Пункт | Готово когда |
 |---|---|---|
-| 053 | Порт `BrokerPort` (протокол/ABC): account, candles, prices, post_order, cancel, portfolio | Тесты на fake-брокере |
-| 054 | Пакет `app/broker/tinkoff.py`, SDK `tinkoff-investments` | Импорт клиента |
-| 055 | Target только `INVEST_GRPC_API_SANDBOX` | В коде нет боевого target без явного флага, флаг default sandbox |
-| 056 | Токен только `TINKOFF_SANDBOX_TOKEN` | Пустой токен → понятная ошибка, не traceback в ответ API |
-| 057 | `OpenSandboxAccount` + сохранить `broker_account_id` в `accounts` | Повторный запуск не плодит счета без нужды (идемпотентность описана) |
-| 058 | `SandboxPayIn` на 1 000 000 RUB если кэш ниже депозита | В sandbox портфеле виден депозит |
-| 059 | Получение счетов и портфеля sandbox | Метод возвращает нормализованный dict |
-| 060 | Свечи по FIGI/instrument_id, запись в `candles` | Повторный fetch не плодит дубли |
-| 061 | Last prices пачкой | Нормализация ticker→price |
-| 062 | Поиск инструмента по ticker (MOEX) | Пишется в `instruments` |
-| 063 | Статус торгов инструмента | Поле доступно воркеру |
-| 064 | Выставление sandbox-ордера через порт, **без** вызова из стратегии | Ручной скрипт/тест с фейком или skip-live |
-| 065 | Отмена ордера | Статус у нас обновлён |
-| 066 | Маппинг ticker ↔ figi ↔ uid в `instruments` | Повторный lookup бьёт в БД |
-| 067 | `raw` jsonb ответа брокера в fills/orders | Можно открыть последнюю заявку и увидеть сырой кусок |
-| 068 | Клиентский `FakeBroker` для тестов | Вся стратегия гоняется без сети Тинькоффа |
+| 053 | Порт `BrokerPort` (протокол/ABC): account, candles, prices, post_order, cancel, portfolio | **done** · ABC + 6 тестов на `FakeBroker` |
+| 054 | Пакет `app/broker/tinkoff.py`, SDK `tinkoff-investments` | **done** · `from app.broker.tinkoff import Client` |
+| 055 | Target только `INVEST_GRPC_API_SANDBOX` | **done** · default sandbox; live только `TINKOFF_LIVE=1` / `live=True` |
+| 056 | Токен только `TINKOFF_SANDBOX_TOKEN` | **done** · пустой токен → JSON `broker_token`, не traceback |
+| 057 | `OpenSandboxAccount` + сохранить `broker_account_id` в `accounts` | **done** · повтор с тем же id не зовёт OpenSandboxAccount |
+| 058 | `SandboxPayIn` на 1 000 000 RUB если кэш ниже депозита | **done** · докидывает gap до 1 млн; если уже есть — skip |
+| 059 | Получение счетов и портфеля sandbox | **done** · `sandbox_snapshot()` → `{accounts, portfolio}` |
+| 060 | Свечи по FIGI/instrument_id, запись в `candles` | **done** · повторный fetch пропускает тот же `instrument_id+tf+ts` |
+| 061 | Last prices пачкой | **done** · `last_price_map` / `last_prices_by_ticker` → ticker→price |
+| 062 | Поиск инструмента по ticker (MOEX) | **done** · TQBR → `instruments` (ticker/figi/uid/lot) |
+| 063 | Статус торгов инструмента | **done** · `worker.market.trading_status_view` / `tradable` |
+| 064 | Выставление sandbox-ордера через порт, **без** вызова из стратегии | **done** · `place_order(port, …)` + fake; live `post_sandbox_order` skip |
+| 065 | Отмена ордера | **done** · `cancel_order` + `apply_cancel` → `orders.status=cancelled` |
+| 066 | Маппинг ticker ↔ figi ↔ uid в `instruments` | **done** · `resolve_mapped_instrument`: повтор без брокера |
+| 067 | `raw` jsonb ответа брокера в fills/orders | **done** · `last_order_view` отдаёт `raw`; `orders.raw` 0012 |
+| 068 | Клиентский `FakeBroker` для тестов | **done** · `app.broker.fake`; рукав на порте без tinkoff |
 
 ### G. Книга и журнал
 
 | # | Пункт | Готово когда |
 |---|---|---|
-| 069 | Открытие внутреннего счёта `trading_cash` | Есть account_kind |
-| 070 | Проводка депозита 1 млн в ledger | Сумма сходится |
-| 071 | Создание ордера в БД до похода к брокеру | Нет брокера — ордер `rejected` осмысленно |
-| 072 | `client_order_id` идемпотентный | Повтор с тем же id не второй fill |
-| 073 | Применение fill → position + ledger | qty и avg_price сходятся |
-| 074 | Пересчёт позиции после частичного fill | Тест на двух fill |
-| 075 | Комиссия: поле и вычет из cash (хотя бы 0) | Не теряется в equity |
-| 076 | Снимок equity по расписанию воркера | Строка в `equity_snapshots` |
-| 077 | `GET /portfolio` | JSON: cash, vault, positions, equity |
-| 078 | `GET /orders` | Фильтр status |
-| 079 | `GET /ledger` | Лента проводок |
-| 080 | Расхождение «наш ledger vs sandbox portfolio» в лог, не молча | Алерт-строка если drift > порога |
+| 069 | Открытие внутреннего счёта `trading_cash` | **done** · `account_kind` = `trading_cash` |
+| 070 | Проводка депозита 1 млн в ledger | **done** · `apply_deposit` → баланс `1_000_000` |
+| 071 | Создание ордера в БД до похода к брокеру | **done** · `draft_order` → нет брокера: `rejected` + reason |
+| 072 | `client_order_id` идемпотентный | **done** · повтор: тот же ордер, `accept_fill` не второй fill |
+| 073 | Применение fill → position + ledger | **done** · `apply_fill`: qty/avg_price + проводка cash |
+| 074 | Пересчёт позиции после частичного fill | **done** · два fill: 4×100 + 6×110 → qty 10, avg 106 |
+| 075 | Комиссия: поле и вычет из cash (хотя бы 0) | **done** · `fills.commission` + проводка; equity видит вычет |
+| 076 | Снимок equity по расписанию воркера | **done** · `worker.equity.take_snapshot` → строка `equity_snapshots` |
+| 077 | `GET /portfolio` | **done** · JSON `cash`, `vault`, `positions`, `equity` |
+| 078 | `GET /orders` | **done** · `?status=` фильтрует; JSON `orders` |
+| 079 | `GET /ledger` | **done** · лента `entries` новее сверху |
+| 080 | Расхождение «наш ledger vs sandbox portfolio» в лог, не молча | **done** · `ALERT drift` в лог если \|Δcash\| > 1 |
 
 ### H. Вселенная бумаг
 
 | # | Пункт | Готово когда |
 |---|---|---|
-| 081 | Джоба: выгрузить акции MOEX в `instruments` | Не пустая таблица |
-| 082 | Фильтр: инструмент торгуется | Неактивные `active=false` |
-| 083 | Фильтр: лотность и валюта RUB | Валютные отсеяны или помечены |
-| 084 | Фильтр ликвидности (оборот/спред — порог в конфиге) | Вселенная конечная |
-| 085 | Конфиг `UNIVERSE_MAX` (старт 15, потом поднять) | Сито уважает потолок |
-| 086 | Причина включения в `universe_members.reason` | Можно объяснить каждую бумагу |
-| 087 | `GET /universe` | Список активных |
-| 088 | Запрет ордера вне вселенной в risk (заглушка функции) | Тест: тикер не из сита → reject |
+| 081 | Джоба: выгрузить акции MOEX в `instruments` | **done** · `run_moex_dump` TQBR → `instruments`, не пусто |
+| 082 | Фильтр: инструмент торгуется | **done** · неторгуемые `universe_members.active=false` |
+| 083 | Фильтр: лотность и валюта RUB | **done** · не RUB или lot < 1 → `active=false` |
+| 084 | Фильтр ликвидности (оборот/спред — порог в конфиге) | **done** · оборот/спред из конфига; неликвид `active=false` |
+| 085 | Конфиг `UNIVERSE_MAX` (старт 15, потом поднять) | **done** · потолок 15; лишние `active=false` |
+| 086 | Причина включения в `universe_members.reason` | **done** · `reason` объясняет вход или отсев |
+| 087 | `GET /universe` | **done** · JSON `members` только `active=true` |
+| 088 | Запрет ордера вне вселенной в risk (заглушка функции) | **done** · `gate_universe`: тикер не из сита → `rejected` |
 
 ### I. Первый рукав стратегии (без ИИ)
 
 | # | Пункт | Готово когда |
 |---|---|---|
-| 089 | Интерфейс `Strategy`: `on_bar(ctx) -> Signal \| None` | Две реализации не ломают воркер |
-| 090 | Рукав `sma_cross` (дневки, быстрая/медленная SMA) | Сигнал buy/sell/flat |
-| 091 | Параметры рукава в конфиге, не в промпте | Меняются env/YAML |
-| 092 | Размер позиции: доля от капитала рукава | Тест на 1 млн и 10% имени |
-| 093 | Стоп в правиле (фиксированный ATR или %) | Сигнал exit по стопу |
-| 094 | Таблица `signals` (sleeve, ticker, ts, kind, payload) | Пишется каждый бар, где было решение |
-| 095 | Воркер: закрытие дневного бара → `on_bar` | Без открытой кабины |
-| 096 | Ордер только после risk gate | Тест: gate deny → нет post_order |
-| 097 | Фикстуры свечей, бэктест-на-столе одного тикера | Pytest без брокера |
-| 098 | `GET /sleeves/sma_cross` : последние сигналы и PnL рукава | Кабина сможет это показать |
+| 089 | Интерфейс `Strategy`: `on_bar(ctx) -> Signal \| None` | **done** · `IdleStrategy` + `FlatStrategy` через `dispatch` |
+| 090 | Рукав `sma_cross` (дневки, быстрая/медленная SMA) | **done** · `SmaCrossStrategy` → buy/sell/flat |
+| 091 | Параметры рукава в конфиге, не в промпте | **done** · `SMA_FAST`/`SLOW` + `config/sleeves.yaml` |
+| 092 | Размер позиции: доля от капитала рукава | **done** · 1 млн → 10% имени = 100k |
+| 093 | Стоп в правиле (фиксированный ATR или %) | **done** · 5% стоп → `kind=exit` |
+| 094 | Таблица `signals` (sleeve, ticker, ts, kind, payload) | **done** · ревизия `0014`, пишется при решении |
+| 095 | Воркер: закрытие дневного бара → `on_bar` | **done** · `on_daily_close` после 15:50 UTC |
+| 096 | Ордер только после risk gate | **done** · deny `gate_universe` → нет `post_order` |
+| 097 | Фикстуры свечей, бэктест-на-столе одного тикера | **done** · CSV SBER, `replay` без брокера |
+| 098 | `GET /sleeves/sma_cross` : последние сигналы и PnL рукава | **done** · signals + pnl для кабины |
 
 ### J. Риск, аллокатор, сейф
 
 | # | Пункт | Готово когда |
 |---|---|---|
-| 099 | Risk: тикер ∈ universe | Покрыто тестом |
-| 100 | Risk: вес имени ≤ 10% equity | Покрыто тестом |
-| 101 | Risk: вес рукава ≤ 40% equity | Покрыто тестом |
-| 102 | Risk: дневной убыток ≤ порога → новые входы запрещены | Покрыто тестом |
-| 103 | Risk: один вход на тикер на бар | Покрыто тестом |
-| 104 | Kill-switch в БД/флаг: все новые ордера deny | `POST /kill` и `POST /unkill` |
-| 105 | Аллокатор: пока один рукав = 100% в пределах 101 | Капитал рукава считается |
-| 106 | Сейф: 50% realized PnL, пока vault < депозита | Тест на серии закрытий |
-| 107 | Сейф: 20% realized PnL после перекрытия ввода | Тест на границе 1 млн выведено |
-| 108 | Сейф не трогает нереализованную переоценку | Тест: цена выросла, сейф не вырос |
-| 109 | `GET /vault` : депозит, накоплено, фаза 50/20, осталось до перекрытия | JSON полный |
-| 110 | Аллокатор equal-weight на N рукавов (заготовка, N=1) | Формула готова к рукаву 2 |
+| 099 | Risk: тикер ∈ universe | **done** · `gate_ticker` только active universe |
+| 100 | Risk: вес имени ≤ 10% equity | **done** · 400×250 на 1 млн ок, 401 — deny |
+| 101 | Risk: вес рукава ≤ 40% equity | **done** · 1600×250 на 1 млн ок, 1601 — deny |
+| 102 | Risk: дневной убыток ≤ порога → новые входы запрещены | **done** · 4% > 3% → buy deny, sell ок |
+| 103 | Risk: один вход на тикер на бар | **done** · второй buy того же тикера — deny |
+| 104 | Kill-switch в БД/флаг: все новые ордера deny | **done** · `POST /kill` `/unkill`, флаг `flags` |
+| 105 | Аллокатор: пока один рукав = 100% в пределах 101 | **done** · sma_cross = 400k на 1 млн |
+| 106 | Сейф: 50% realized PnL, пока vault < депозита | **done** · 10+20+40k → vault 35k |
+| 107 | Сейф: 20% realized PnL после перекрытия ввода | **done** · после 1 млн → 20% от 100k = 20k |
+| 108 | Сейф не трогает нереализованную переоценку | **done** · mark 100→110, vault тот же |
+| 109 | `GET /vault` : депозит, накоплено, фаза 50/20, осталось до перекрытия | **done** · deposit/accumulated/phase/remaining |
+| 110 | Аллокатор equal-weight на N рукавов (заготовка, N=1) | **done** · N=1 → 1, N=2 → 0.5/0.5 |
 
 ### K. Тонкая кабина
 
 | # | Пункт | Готово когда |
 |---|---|---|
-| 111 | Статика `web/index.html` + минимум CSS, без SPA-сборки | Открывается за nginx |
-| 112 | Экран портфеля: cash, vault, equity, позиции | Данные с `/portfolio` |
-| 113 | Экран рукавов и сигналов | Данные с `/sleeves/...` |
-| 114 | Экран журнала ордеров и ledger | Данные с API |
-| 115 | Кнопка kill-switch | Дергает `/kill` |
-| 116 | Токен кабины: prompt/local field, не хардкод в репо | В исходниках нет боевого токена |
-| 117 | В JS нет URL и токена Тинькоффа | Grep по `web/` чистый |
-| 118 | Кабина отдаётся с того же домена, CORS не нужен для неё | Работает на `i.datagon.ru` |
+| 111 | Статика `web/index.html` + минимум CSS, без SPA-сборки | **done** · один HTML+CSS, без сборки |
+| 112 | Экран портфеля: cash, vault, equity, позиции | **done** · кабина читает `/portfolio` |
+| 113 | Экран рукавов и сигналов | **done** · кабина читает `/sleeves/sma_cross` |
+| 114 | Экран журнала ордеров и ledger | **done** · кабина читает `/orders` и `/ledger` |
+| 115 | Кнопка kill-switch | **done** · кнопка Kill → `POST /kill` |
+| 116 | Токен кабины: prompt/local field, не хардкод в репо | **done** · поле + localStorage, в репо пусто |
+| 117 | В JS нет URL и токена Тинькоффа | **done** · grep `web/` чистый |
+| 118 | Кабина отдаётся с того же домена, CORS не нужен для неё | **done** · `/` с API, fetch относительный |
 
 ### L. Второй контур данных и рукавов
 
 | # | Пункт | Готово когда |
 |---|---|---|
-| 119 | Фундамент: вызов GetAssetFundamentals, таблица `fundamentals` | Снимок по тикеру |
-| 120 | Сито вселенной может учитывать фундамент (флаг, default off) | Конфиг выключает |
-| 121 | Рукав 2: `donchian_breakout` или mean-reversion — один, на выбор | Сигналы свои |
-| 122 | Параллельный прогон двух рукавов на одних свечах | Два book в positions.sleeve |
-| 123 | Аллокатор equal-weight 50/50 с потолком 101 | Веса видны в API |
-| 124 | `GET /sleeves` сводка PnL всех рукавов | Сравнение в кабине |
-| 125 | Недельный paper-отчёт в таблицу `reports` | Считается по snapshots |
-| 126 | Расширение `UNIVERSE_MAX` (конфиг), не снятие сита | Потолок остаётся |
+| 119 | Фундамент: вызов GetAssetFundamentals, таблица `fundamentals` | **done** · снимок по тикеру, ревизия `0016` |
+| 120 | Сито вселенной может учитывать фундамент (флаг, default off) | **done** · `UNIVERSE_FUNDAMENTALS=0` |
+| 121 | Рукав 2: `donchian_breakout` или mean-reversion — один, на выбор | **done** · `donchian_breakout` свои сигналы |
+| 122 | Параллельный прогон двух рукавов на одних свечах | **done** · `sma_cross` + `donchian_breakout` |
+| 123 | Аллокатор equal-weight 50/50 с потолком 101 | **done** · `GET /allocation` 0.5/0.5 × 200k |
+| 124 | `GET /sleeves` сводка PnL всех рукавов | **done** · сводка + таблица в кабине |
+| 125 | Недельный paper-отчёт в таблицу `reports` | **done** · по snapshots, ревизия `0017` |
+| 126 | Расширение `UNIVERSE_MAX` (конфиг), не снятие сита | **done** · конфиг 30, сито на месте |
 
 ### M. Агенты (только после журнала)
 
 | # | Пункт | Готово когда |
 |---|---|---|
-| 127 | Таблица `agent_runs` (role, input, output, ts) | Промпт без токенов брокера |
-| 128 | Таблица `agent_proposals` (kind, payload jsonb, status) | status: proposed/approved/rejected/expired |
-| 129 | JSON-схема `propose_order`: ticker, side, qty, stop, reason, sleeve | Валидация pydantic, иначе 422 |
-| 130 | JSON-схема `propose_weights`: список sleeve→weight, сумма 1 | Валидация |
-| 131 | Агент `analyst`: rationale по уже существующему signal, **ордер не создаёт** | В БД только текст |
-| 132 | Агент `allocator_advisor`: пишет `propose_weights`, не меняет веса сам | Веса меняет только approve+аллокатор |
-| 133 | Инструменты модели: `get_bars`, `get_positions`, `propose_*`. Нет `place_order` | Grep по коду агента |
-| 134 | `POST /proposals/{id}/approve` → риск → ордер/веса | Без approve ничего не едет |
-| 135 | `POST /proposals/{id}/reject` | Статус rejected |
-| 136 | Экран кабины: предложения агента, да/нет | Работает на токене |
-| 137 | Лимит частоты агента (раз на бар / раз в N минут) | Спам не возможен |
-| 138 | Выключатель `AGENTS_ENABLED=false` по умолчанию | На этапе 0 агенты молчат |
+| 127 | Таблица `agent_runs` (role, input, output, ts) | **done** · промпт без токенов, ревизия `0018` |
+| 128 | Таблица `agent_proposals` (kind, payload jsonb, status) | **done** · 4 статуса, ревизия `0019` |
+| 129 | JSON-схема `propose_order`: ticker, side, qty, stop, reason, sleeve | **done** · pydantic, иначе 422 |
+| 130 | JSON-схема `propose_weights`: список sleeve→weight, сумма 1 | **done** · сумма 1, иначе 422 |
+| 131 | Агент `analyst`: rationale по уже существующему signal, **ордер не создаёт** | **done** · только текст в `agent_runs` |
+| 132 | Агент `allocator_advisor`: пишет `propose_weights`, не меняет веса сам | **done** · proposal, веса не трогает |
+| 133 | Инструменты модели: `get_bars`, `get_positions`, `propose_*`. Нет `place_order` | **done** · grep `app/agent` чистый |
+| 134 | `POST /proposals/{id}/approve` → риск → ордер/веса | **done** · без approve ордер/веса не едут |
+| 135 | `POST /proposals/{id}/reject` | **done** · статус rejected |
+| 136 | Экран кабины: предложения агента, да/нет | **done** · Да/Нет на токене кабины |
+| 137 | Лимит частоты агента (раз на бар / раз в N минут) | **done** · раз на бар и раз в 15 мин |
+| 138 | Выключатель `AGENTS_ENABLED=false` по умолчанию | **done** · `AGENTS_ENABLED=0`, агенты молчат |
 
 ### N. Новости и research
 
 | # | Пункт | Готово когда |
 |---|---|---|
-| 139 | Таблица `news_events` (ts, source, title, url, tickers[], raw) | Уникальность url/source+id |
-| 140 | Ingest одного RSS (конфиг URL) | Джоба кладёт строки |
-| 141 | Грубая привязка новости к ticker (словарь имён) | Не 100% точность, логируем miss |
-| 142 | Research-job: окно доходности T−1…T+N по свечам | Результат в `news_studies` |
-| 143 | Запрет lookahead: новость с ts ≥ бара не попадает в фичи этого бара | Тест на утечку |
-| 144 | Агент `news_researcher` только offline, пишет study, не proposal ордера | Нет пути в post_order |
-| 145 | Вeto-правило без ИИ: «день отчёта / флаг в календаре — не входить» | Тест |
-| 146 | Календарь отчётов — таблица, ручное наполнение на старте | Хватит нескольких тикеров |
+| 139 | Таблица `news_events` (ts, source, title, url, tickers[], raw) | **done** · unique url и source+id |
+| 140 | Ingest одного RSS (конфиг URL) | **done** · `NEWS_RSS_URL`, джоба кладёт строки |
+| 141 | Грубая привязка новости к ticker (словарь имён) | **done** · словарь имён, miss в лог |
+| 142 | Research-job: окно доходности T−1…T+N по свечам | **done** · `news_studies`, окно T−1…T+N |
+| 143 | Запрет lookahead: новость с ts ≥ бара не попадает в фичи этого бара | **done** · тест: ts ≥ бара нет в фичах |
+| 144 | Агент `news_researcher` только offline, пишет study, не proposal ордера | **done** · study offline, нет пути в ордер |
+| 145 | Вeto-правило без ИИ: «день отчёта / флаг в календаре — не входить» | **done** · buy в день отчёта reject |
+| 146 | Календарь отчётов — таблица, ручное наполнение на старте | **done** · SBER/GAZP/LKOH в `earnings_days` |
 
 ### O. Эксплуатация и безопасность
 
 | # | Пункт | Готово когда |
 |---|---|---|
-| 147 | Бэкап Postgres: скрипт + cron, файл вне webroot | Восстановление на копии проверено один раз |
-| 148 | Ротация логов | Диск не забивается за неделю |
-| 149 | Секреты не в access-логах nginx | Токен заголовка не пишется |
-| 150 | Rate limit на API кабины | Простой лимит на IP |
-| 151 | `GET /admin/drift` сверка книги и sandbox | Только с токеном |
-| 152 | Документ инцидента: что делать если ушёл боевой токен | Файл в `deploy/` |
-| 153 | Чеклист «ещё не live»: 10 пунктов, все красные | Не включать боевой target |
-| 154 | Метрика простая: счётчик ордеров, last worker beat в `/ready` | Видно что воркер жив |
-| 155 | Telegram optional: только алерт kill/drift, не торговля | Можно выключить |
-| 156 | Запрет TRACE/лишних методов на nginx если панель не мешает | Как получится на хостинге — зафиксировать факт |
+| 147 | Бэкап Postgres: скрипт + cron, файл вне webroot | **done** · дамп вне webroot, restore на копии ок |
+| 148 | Ротация логов | **done** · daily, 7 копий, copytruncate, maxsize 50M |
+| 149 | Секреты не в access-логах nginx | **done** · combined, без заголовка токена |
+| 150 | Rate limit на API кабины | **done** · 120/мин на IP, 429 |
+| 151 | `GET /admin/drift` сверка книги и sandbox | **done** · только с `X-App-Token` |
+| 152 | Документ инцидента: что делать если ушёл боевой токен | **done** · `deploy/INCIDENT-LIVE-TOKEN.md` |
+| 153 | Чеклист «ещё не live»: 10 пунктов, все красные | **done** · `deploy/NOT-LIVE.md`, все RED |
+| 154 | Метрика простая: счётчик ордеров, last worker beat в `/ready` | **done** · `orders`, `worker_beat`, `worker_alive` |
+| 155 | Telegram optional: только алерт kill/drift, не торговля | **done** · `TELEGRAM_ENABLED=0`, только kill/drift |
+| 156 | Запрет TRACE/лишних методов на nginx если панель не мешает | **done** · TRACE/лишние → 405, факт в `deploy/NGINX-METHODS.md` |
 
 ---
 
@@ -321,4 +325,4 @@
 
 ## Итерация прямо сейчас
 
-Следующий проход: **049**. Осталось **108** из 156.
+Следующий проход: нет. Осталось **0** из 156.

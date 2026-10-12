@@ -1,18 +1,20 @@
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 
 from sqlalchemy import (
     Boolean,
+    Date,
     DateTime,
     ForeignKey,
     Index,
     Integer,
     Numeric,
     String,
+    Text,
     UniqueConstraint,
     func,
 )
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -107,6 +109,7 @@ class Order(Base):
     client_order_id: Mapped[str] = mapped_column(
         String(64), nullable=False, unique=True
     )
+    raw: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -123,6 +126,7 @@ class Fill(Base):
     )
     qty: Mapped[int] = mapped_column(Integer, nullable=False)
     price: Mapped[float] = mapped_column(Numeric(18, 6), nullable=False)
+    commission: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, default=0)
     ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     raw: Mapped[dict] = mapped_column(JSONB, nullable=False)
 
@@ -158,6 +162,154 @@ class LedgerEntry(Base):
     reason: Mapped[str] = mapped_column(String(128), nullable=False)
     ref: Mapped[str | None] = mapped_column(String(64), nullable=True)
     ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class SignalRow(Base):
+    __tablename__ = "signals"
+    __table_args__ = (Index("ix_signals_sleeve_ts", "sleeve", "ts"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    sleeve: Mapped[str] = mapped_column(String(64), nullable=False)
+    ticker: Mapped[str] = mapped_column(String(32), nullable=False)
+    ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    payload: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+
+
+class Flag(Base):
+    __tablename__ = "flags"
+
+    key: Mapped[str] = mapped_column(String(32), primary_key=True)
+    value: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+
+class Fundamental(Base):
+    __tablename__ = "fundamentals"
+    __table_args__ = (UniqueConstraint("ticker", name="uq_fundamentals_ticker"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    ticker: Mapped[str] = mapped_column(String(32), nullable=False)
+    asset_uid: Mapped[str] = mapped_column(String(64), nullable=False)
+    ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    pe_ratio_ttm: Mapped[float | None] = mapped_column(Numeric(18, 6), nullable=True)
+    price_to_book_ttm: Mapped[float | None] = mapped_column(
+        Numeric(18, 6), nullable=True
+    )
+    eps_ttm: Mapped[float | None] = mapped_column(Numeric(18, 6), nullable=True)
+    market_capitalization: Mapped[float | None] = mapped_column(
+        Numeric(20, 4), nullable=True
+    )
+    raw: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+
+
+class Report(Base):
+    __tablename__ = "reports"
+    __table_args__ = (
+        UniqueConstraint("kind", "period_start", name="uq_reports_kind_period"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    period_start: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    period_end: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    equity_start: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False)
+    equity_end: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False)
+    pnl: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False)
+    payload: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+
+
+class AgentRun(Base):
+    __tablename__ = "agent_runs"
+    __table_args__ = (Index("ix_agent_runs_role_ts", "role", "ts"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    role: Mapped[str] = mapped_column(String(64), nullable=False)
+    input: Mapped[str] = mapped_column(Text, nullable=False)
+    output: Mapped[str] = mapped_column(Text, nullable=False)
+    ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class AgentProposal(Base):
+    __tablename__ = "agent_proposals"
+    __table_args__ = (Index("ix_agent_proposals_status", "status"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    payload: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+
+
+class NewsEvent(Base):
+    __tablename__ = "news_events"
+    __table_args__ = (
+        UniqueConstraint("url", name="uq_news_events_url"),
+        UniqueConstraint("source", "source_id", name="uq_news_events_source_id"),
+        Index("ix_news_events_ts", "ts"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    source: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    url: Mapped[str] = mapped_column(String(1024), nullable=False)
+    tickers: Mapped[list[str]] = mapped_column(
+        ARRAY(String(32)), nullable=False, default=list
+    )
+    raw: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+
+
+class NewsStudy(Base):
+    __tablename__ = "news_studies"
+    __table_args__ = (
+        UniqueConstraint(
+            "news_event_id", "ticker", "horizon_n", name="uq_news_studies_event_ticker_n"
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    news_event_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("news_events.id"), nullable=False
+    )
+    ticker: Mapped[str] = mapped_column(String(32), nullable=False)
+    horizon_n: Mapped[int] = mapped_column(Integer, nullable=False)
+    t_minus_ts: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    t_plus_ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    ret: Mapped[float] = mapped_column(Numeric(18, 8), nullable=False)
+    payload: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+
+
+class EarningsDay(Base):
+    __tablename__ = "earnings_days"
+    __table_args__ = (
+        UniqueConstraint("ticker", "day", name="uq_earnings_days_ticker_day"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    ticker: Mapped[str] = mapped_column(String(32), nullable=False)
+    day: Mapped[date] = mapped_column(Date, nullable=False)
 
 
 class EquitySnapshot(Base):

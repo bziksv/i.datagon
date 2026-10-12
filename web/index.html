@@ -3,9 +3,195 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>i.datagon</title>
+  <title>i.datagon · Вход</title>
+  <link rel="stylesheet" href="/cabin.css">
+  <link rel="stylesheet" href="/tour.css">
+  <!-- критичный каркас входа: если cabin.css не загрузился (старый API / 401), страница всё равно читаема -->
+  <style>
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      background: #e8eee9;
+      color: #152018;
+      font: 16px/1.5 "Avenir Next", "Segoe UI", "Helvetica Neue", sans-serif;
+    }
+    .gate {
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 1.25rem;
+      background:
+        radial-gradient(900px 420px at 10% -10%, #d5e4da 0%, transparent 55%),
+        #e8eee9;
+    }
+    .gate-card {
+      width: min(26rem, 100%);
+      background: #ffffff;
+      border: 1px solid #b7c4bb;
+      border-radius: 12px;
+      padding: 1.35rem;
+      box-shadow: 0 12px 32px rgba(21, 32, 24, 0.08);
+    }
+    .gate-card h1 { margin: 0; font-size: 1.55rem; letter-spacing: -0.02em; }
+    .gate-card h2 { margin: 0.85rem 0 0.45rem; font-size: 1.2rem; }
+    .gate-lead { color: #4a5c50; margin: 0 0 1rem; }
+    .gate .field { display: flex; flex-direction: column; gap: 0.35rem; margin-bottom: 0.75rem; color: #4a5c50; font-size: 0.85rem; }
+    .gate input[type="password"],
+    .gate input[type="text"] {
+      width: 100%; box-sizing: border-box;
+      background: #f3f6f4; color: #152018;
+      border: 1px solid #b7c4bb; border-radius: 8px;
+      padding: 0.55rem 0.65rem; font: 0.92rem Menlo, Consolas, monospace;
+    }
+    .gate .check { display: flex; align-items: center; gap: 0.45rem; color: #4a5c50; font-size: 0.9rem; margin-bottom: 0.85rem; }
+    .gate-actions { display: flex; flex-wrap: wrap; gap: 0.45rem; }
+    .gate button {
+      border-radius: 8px; border: 1px solid #25553e;
+      background: #2f6b4f; color: #ffffff; padding: 0.5rem 0.85rem; cursor: pointer;
+      font-weight: 600;
+    }
+    .gate button.ghost { background: transparent; color: #152018; border-color: #b7c4bb; font-weight: 500; }
+    .gate .badge {
+      display: inline-block; margin-left: 0.45rem;
+      padding: 0.15rem 0.45rem; border-radius: 999px;
+      border: 1px solid #b7c4bb; color: #2f6b4f; font-size: 0.72rem;
+    }
+    .gate .err { color: #b33333; }
+  </style>
 </head>
 <body>
-  <p>i.datagon</p>
+  <a class="skip-link" href="#page-body">К содержимому</a>
+  <div id="gate" class="gate">
+    <div class="gate-card">
+      <div class="brand gate-brand">
+        <h1>i.datagon</h1>
+        <span class="badge">песочница</span>
+      </div>
+      <h2>Вход в кабинет</h2>
+      <p class="gate-lead">
+        Нужен токен кабины из вашего файла <code>.env</code>
+        (ключ <code>APP_AUTH_TOKEN</code>). Это не токен Тинькоффа и не пароль брокера.
+      </p>
+      <form id="gate-form" novalidate>
+        <label class="field" for="app-token">
+          Токен кабины
+          <input
+            id="app-token"
+            name="app-token"
+            type="password"
+            autocomplete="off"
+            spellcheck="false"
+            placeholder="APP_AUTH_TOKEN"
+            data-tour="gate-token"
+          >
+        </label>
+        <label class="check" for="remember-token">
+          <input id="remember-token" type="checkbox" checked>
+          Запомнить на этом устройстве
+        </label>
+        <p id="gate-error" class="err" hidden></p>
+        <div class="gate-actions">
+          <button type="submit" class="primary" id="gate-submit" data-tour="gate-submit">
+            Войти в кабинет
+          </button>
+          <button type="button" class="ghost" id="gate-tour">Обучение</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div id="app" class="shell" hidden>
+    <header class="top">
+      <div class="brand">
+        <h1>i.datagon</h1>
+        <span class="badge" id="env-badge">песочница</span>
+      </div>
+      <div class="top-actions">
+        <a
+          href="#/agents?tab=proposed"
+          id="queue-badge"
+          class="queue-badge"
+          data-tour="queue-badge"
+          hidden
+          aria-live="polite"
+        >0 ждут решения</a>
+        <button type="button" class="danger" id="btn-kill" data-tour="btn-kill" hidden>Стоп торговлю</button>
+        <button type="button" class="primary" id="btn-unkill" data-tour="btn-unkill" hidden>Снять стоп</button>
+        <button type="button" class="ghost" id="btn-refresh" data-tour="status-refresh">Обновить</button>
+        <button type="button" class="ghost" id="btn-change-token">Сменить токен</button>
+        <button type="button" class="primary" id="btn-tour">Обучение</button>
+        <button type="button" class="ghost" id="btn-reset-tour">Сбросить обучение</button>
+      </div>
+    </header>
+
+    <section
+      class="status-strip"
+      id="status-strip"
+      aria-label="Статус контура"
+      data-tour="status-strip"
+    ></section>
+
+    <div
+      id="kill-banner"
+      class="kill-banner"
+      hidden
+      data-tour="kill-banner"
+      role="status"
+    >
+      <strong>Торговля остановлена.</strong>
+      Новые ордера отклоняются риск-правилами. Уже открытые позиции этим действием автоматически не закрываются.
+      <button type="button" class="ghost" id="banner-unkill">Снять стоп…</button>
+    </div>
+
+    <div class="body">
+      <nav class="nav" id="nav" aria-label="Разделы кабинета"></nav>
+      <main class="main">
+        <div class="page-head">
+          <div>
+            <h2 id="page-title">Обзор</h2>
+            <p class="intro" id="page-intro"></p>
+          </div>
+          <div class="panel-actions">
+            <button type="button" class="ghost" id="btn-tour-page">Обучение</button>
+          </div>
+        </div>
+        <div id="page-body" data-tour="page-body"></div>
+      </main>
+    </div>
+
+    <div id="confirm-modal" class="modal" hidden>
+      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+        <h3 id="confirm-title"></h3>
+        <p id="confirm-text"></p>
+        <div class="modal-actions">
+          <button type="button" class="ghost" id="confirm-cancel">Отмена</button>
+          <button type="button" class="danger" id="confirm-ok">Подтвердить</button>
+        </div>
+      </div>
+    </div>
+
+    <nav class="mobile-nav" id="mobile-nav" aria-label="Основные разделы"></nav>
+    <div id="mobile-more" class="mobile-more" hidden>
+      <button type="button" class="mobile-more-backdrop" id="mobile-more-backdrop" aria-label="Закрыть меню"></button>
+      <div
+        class="mobile-more-sheet"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="mobile-more-title"
+      >
+        <div class="mobile-more-head">
+          <strong id="mobile-more-title">Ещё разделы</strong>
+          <button type="button" class="ghost" id="mobile-more-close">Закрыть</button>
+        </div>
+        <div class="mobile-more-links" id="mobile-more-links"></div>
+      </div>
+    </div>
+    <footer class="footer" id="app-footer">
+      Данные paper-книги лаборатории · обновление статуса ещё не выполнялось
+    </footer>
+  </div>
+
+  <script src="/tour.js"></script>
+  <script src="/cabin.js"></script>
 </body>
 </html>

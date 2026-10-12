@@ -39,7 +39,10 @@ make down
 
 ## Документы
 
+- **Функционал и интерфейс кабинета:** [docs/PRODUCT.md](docs/PRODUCT.md)
 - Как поднять у себя: [deploy/LOCAL.md](deploy/LOCAL.md)
 - Сервер: [deploy/SERVER.md](deploy/SERVER.md)
-- Техническое задание и лист внедрения: [TZ.md](TZ.md)
+- ТЗ лаборатории: [TZ.md](TZ.md)
+- ТЗ кабинета: [TZ-CABIN.md](TZ-CABIN.md)
+- ТЗ рекомендаций (фундамент): [TZ-ADVISORY.md](TZ-ADVISORY.md)
 - Правило работ: один пункт ТЗ = одна итерация

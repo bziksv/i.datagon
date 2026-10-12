@@ -11,6 +11,9 @@ dependencies = [
     "fastapi>=0.115",
     "asyncpg>=0.30",
     "uvicorn[standard]>=0.32",
+    "protobuf>=5.28",
+    "tinkoff @ file:vendor/tinkoff-ns",
+    "tinkoff-investments @ git+https://github.com/RussianInvestments/invest-python.git@0.2.0-beta117",
 ]
 
 [build-system]
@@ -24,7 +27,7 @@ dev = ["ruff>=0.8", "pytest>=8.0", "httpx>=0.28"]
 testpaths = ["tests"]
 
 [tool.setuptools]
-packages = ["app", "worker"]
+packages = ["app", "app.agent", "app.broker", "app.news", "app.ops", "worker"]
 
 [tool.setuptools.dynamic]
 version = {attr = "app.__version__"}

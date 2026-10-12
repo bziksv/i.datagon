@@ -37,7 +37,30 @@ make logs
 
 ## 4. Если Docker нет
 
-Каркас ставится и тестируется через venv (шаг 2). Образ и compose на этой машине разработки могут отсутствовать — тогда контур крутится на сервере.
+Нужен локальный Postgres (Homebrew / Postgres.app). Один раз:
+
+```bash
+createuser -h localhost idatagon
+createdb -h localhost -O idatagon idatagon
+psql -h localhost -d postgres -c "ALTER USER idatagon WITH PASSWORD 'idatagon';"
+cp .env.example .env
+# обязательное для кабине:
+#   APP_AUTH_TOKEN=local-cabin
+# локальные пути (Mac):
+#   WORKER_BEAT_PATH=data/logs/idatagon-worker.beat
+#   PROPOSALS_PATH=data/proposals.json
+#   CANDLE_DIR=data/candles
+#   SANDBOX_DEPOSIT=1000000
+.venv/bin/python -m app.ops.migrate
+mkdir -p data/candles data/logs
+# положить дневки TICKER.csv в data/candles (или сгенерировать демо)
+.venv/bin/python -m app          # http://127.0.0.1:8000/
+# в другом терминале:
+.venv/bin/python -m worker
+```
+
+В кабине в поле «токен кабины» вставить тот же `APP_AUTH_TOKEN`, затем «Обновить».  
+При старте API заливает депозит в ledger; воркер пишет heartbeat и сигналы в БД.
 
 ## Не делать
 

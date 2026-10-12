@@ -1,0 +1,2 @@
+# Дамп вне webroot, от пользователя сайта. .env не выполнять как shell.
+15 3 * * * i_datagon_ru_usr WEBROOT=/var/www/i_datagon_ru_usr/data/www/i.datagon.ru BACKUP_DIR=/var/www/i_datagon_ru_usr/data/backups ENV_FILE=/var/www/i_datagon_ru_usr/data/www/i.datagon.ru/.env /var/www/i_datagon_ru_usr/data/www/i.datagon.ru/deploy/backup-postgres.sh

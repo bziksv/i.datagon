@@ -1,0 +1,28 @@
+sma_cross:
+  fast: 5
+  slow: 20
+  name_share: 0.10
+  sleeve_share: 0.40
+  stop_pct: 0.05
+
+donchian_breakout:
+  period: 20
+  name_share: 0.10
+  sleeve_share: 0.40
+  stop_pct: 0.05
+
+rsi_reversion:
+  period: 14
+  oversold: 30
+  overbought: 70
+  name_share: 0.10
+  sleeve_share: 0.40
+  stop_pct: 0.05
+
+ema_scalp:
+  fast: 3
+  slow: 8
+  timeframe: 15m
+  name_share: 0.10
+  sleeve_share: 0.40
+  stop_pct: 0.015

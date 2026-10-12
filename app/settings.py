@@ -13,8 +13,26 @@ class Settings(BaseSettings):
 
     database_url: str
     tinkoff_sandbox_token: str
+    tinkoff_live: bool = False
     app_auth_token: str
     sandbox_deposit: int = 1_000_000
+    liquidity_min_turnover: int = 10_000_000
+    liquidity_max_spread_bps: int = 50
+    universe_max: int = 30
+    universe_fundamentals: bool = False
+    sma_fast: int = 5
+    sma_slow: int = 20
+    name_share: float = 0.10
+    sleeve_share: float = 0.40
+    daily_loss_pct: float = 0.03
+    stop_pct: float = 0.05
+    agent_interval_min: int = 15
+    agents_enabled: bool = False
+    news_rss_url: str = ""
+    cabin_rate_per_min: int = 120
+    telegram_enabled: bool = False
+    telegram_bot_token: str = ""
+    telegram_chat_id: str = ""
 
 
 @lru_cache

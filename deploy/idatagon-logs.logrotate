@@ -1,0 +1,14 @@
+# Ротация логов api/worker. copytruncate — systemd держит fd.
+# Сутки + 7 копий: диск не забивается за неделю.
+/var/www/i_datagon_ru_usr/data/logs/idatagon-api.log
+/var/www/i_datagon_ru_usr/data/logs/idatagon-worker.log
+{
+    daily
+    rotate 7
+    maxsize 50M
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+}
