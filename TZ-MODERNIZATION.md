@@ -280,10 +280,10 @@ signal → proposal → risk decision → order → fills → ledger → PnL.
 
 | ID | Задача | Готово когда | Статус |
 |---|---|---|---|
-| M501 | Strategy evidence score | OOS, paper-forward, costs, DD и uncertainty объяснимы | todo |
-| M502 | Correlation/risk budgets | Веса учитывают совокупный риск, а не только equal-weight | todo |
+| M501 | Strategy evidence score | OOS, paper-forward, costs, DD и uncertainty объяснимы | done |
+| M502 | Correlation/risk budgets | Веса учитывают совокупный риск, а не только equal-weight | done |
 | M503 | Cash fallback | Недоказанный edge даёт 0% стратегии и остаток в cash | done |
-| M504 | Режим рекомендаций | Веса меняются только после approve; есть cap/floor/cooldown | todo |
+| M504 | Режим рекомендаций | Веса меняются только после approve; есть cap/floor/cooldown | done |
 
 ### M6. Кабина и наблюдаемость — P1
 

@@ -1,4 +1,5 @@
 import inspect
+from datetime import UTC, datetime, timedelta
 
 from app.agent import allocator
 from app.agent.allocator import advise_weights
@@ -42,9 +43,9 @@ def test_advisor_allocates_only_to_oos_qualified_sleeves() -> None:
         row["sleeve"]: row["weight"] for row in proposal.payload["weights"]
     }
     assert weights == {
-        ACTIVE_SLEEVES[0]: 0.5,
+        ACTIVE_SLEEVES[0]: 0.3,
         **{sleeve: 0.0 for sleeve in ACTIVE_SLEEVES[1:]},
-        "cash": 0.5,
+        "cash": 0.7,
     }
 
 
@@ -55,3 +56,33 @@ def test_advisor_does_not_apply_weights() -> None:
     assert "set_status" not in source
     assert "approved" not in source
     assert "allocate(" not in source
+
+
+def test_advisor_uses_risk_budgets_for_qualified_sleeves() -> None:
+    evidence = {
+        ACTIVE_SLEEVES[0]: {"capital_eligible": True},
+        ACTIVE_SLEEVES[1]: {"capital_eligible": True},
+    }
+    returns = {
+        ACTIVE_SLEEVES[0]: [0.01, -0.01, 0.01, -0.01],
+        ACTIVE_SLEEVES[1]: [0.05, -0.05, 0.05, -0.05],
+    }
+    _, proposal = advise_weights(
+        enabled=True,
+        evidence=evidence,
+        returns=returns,
+    )
+    weights = {
+        row["sleeve"]: row["weight"] for row in proposal.payload["weights"]
+    }
+    assert weights[ACTIVE_SLEEVES[0]] > weights[ACTIVE_SLEEVES[1]]
+    assert weights["cash"] == 0.5
+
+
+def test_advisor_observes_rebalance_cooldown() -> None:
+    run, proposal = advise_weights(
+        enabled=True,
+        last_rebalance_at=datetime.now(UTC) - timedelta(days=1),
+    )
+    assert proposal is None
+    assert "cooldown" in run.output

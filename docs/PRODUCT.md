@@ -46,6 +46,10 @@
 - план капитала: equity → торговый потолок → бюджет рукава → лимит на имя → пример qty;
 - paper-бэктест по локальному CSV: next-bar исполнение, комиссия,
   проскальзывание, PnL, просадка, сделки, benchmark и anchored walk-forward OOS;
+- evidence score 0–100 раскрывает вклад OOS edge, выборки, просадки,
+  расходов, paper-forward и покрытия walk-forward;
+- рекомендации весов используют inverse-volatility и correlation penalty,
+  сохраняют cash reserve и ограничены floor/cap/step/cooldown;
 - карточка рукава: правила, позиции, лента сигналов.
 
 ### 2.3. Фундамент и рекомендации

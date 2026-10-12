@@ -21,6 +21,7 @@ from app.strategy.config import (
     sma_from_config,
 )
 from app.strategy.donchian import SLEEVE as DONCHIAN_SLEEVE
+from app.strategy.evidence import strategy_evidence
 from app.strategy.rsi import SLEEVE as RSI_SLEEVE
 from app.strategy.scalp import SLEEVE as SCALP_SLEEVE
 from app.strategy.sma import SLEEVE as SMA_SLEEVE
@@ -121,7 +122,7 @@ def desk_backtest(
         kinds[row.kind] = kinds.get(row.kind, 0) + 1
     actionable = [row for row in signals if row.kind != "flat"]
     tail = actionable[-12:] if actionable else signals[-12:]
-    return {
+    report = {
         "sleeve": name,
         "ticker": symbol,
         "tf": tf,
@@ -140,3 +141,5 @@ def desk_backtest(
             for row in tail
         ],
     }
+    report["evidence"] = strategy_evidence(report)
+    return report

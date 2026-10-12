@@ -2564,15 +2564,57 @@
       var summary = backtest.summary || {};
       var walkForward = result.walk_forward || {};
       var oos = walkForward.oos_summary || {};
+      var evidence = result.evidence || null;
       var buys = Number(kinds.buy || 0);
       var sells = Number(kinds.sell || 0);
       var flats = Number(kinds.flat || 0);
       var exits = Number(kinds.exit || 0);
       var trades = buys + sells + exits;
-      var qualified =
-        !oos.insufficient_statistics &&
-        Number(oos.trades || 0) >= 5 &&
-        Number(oos.excess_return || 0) > 0;
+      var qualified = evidence
+        ? evidence.capital_eligible === true
+        : !oos.insufficient_statistics &&
+          Number(oos.trades || 0) >= 5 &&
+          Number(oos.excess_return || 0) > 0;
+      var evidenceNames = {
+        oos_edge: "OOS-преимущество",
+        sample: "Объём выборки",
+        drawdown: "Просадка",
+        cost_resilience: "Устойчивость к расходам",
+        paper_forward: "Paper-forward",
+        walk_forward_coverage: "Покрытие walk-forward",
+      };
+      var evidenceHtml = evidence
+        ? '<div class="evidence-score"><div class="evidence-score__total"><span>Доказательность</span><strong>' +
+          escapeHtml(String(evidence.score)) +
+          '<small>/ 100</small><em>' +
+          escapeHtml(evidence.rating || "") +
+          "</em></strong></div><div class=\"evidence-score__components\">" +
+          Object.keys(evidence.components || {})
+            .map(function (key) {
+              var item = evidence.components[key] || {};
+              var width = item.max
+                ? Math.round((Number(item.points || 0) / Number(item.max)) * 100)
+                : 0;
+              return (
+                '<div class="evidence-component"><div><span>' +
+                escapeHtml(evidenceNames[key] || key) +
+                "</span><strong>" +
+                escapeHtml(String(item.points || 0)) +
+                " / " +
+                escapeHtml(String(item.max || 0)) +
+                '</strong></div><i><b style="width:' +
+                escapeHtml(String(width)) +
+                '%"></b></i></div>'
+              );
+            })
+            .join("") +
+          "</div></div>" +
+          ((evidence.blockers || []).length
+            ? '<p class="warning-text">Блокирует капитал: ' +
+              escapeHtml((evidence.blockers || []).join(" · ")) +
+              ".</p>"
+            : "")
+        : "";
       var verdict =
         trades === 0
           ? "На этом отрезке торговых сигналов нет — стратегия всё время в плоскости."
@@ -2677,6 +2719,7 @@
           ? "≥5 OOS trades and positive excess"
           : "qualification gate not passed") +
         "</small></div></div>" +
+        evidenceHtml +
         (summary.insufficient_statistics
           ? '<p class="warning-text">Сделок мало: статистики недостаточно для вывода о преимуществе стратегии.</p>'
           : "") +
