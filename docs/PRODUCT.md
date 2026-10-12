@@ -227,6 +227,7 @@
 | GET/PUT | `/allocation/risk` | Версионированная risk policy и история изменений |
 | GET | `/sleeves`, `/sleeves/{name}` | PnL и сигналы |
 | POST | `/desk/backtest` | Прогон CSV |
+| POST | `/desk/backtests/batch` | Пакетный прогон рукавов × тикеров |
 | GET | `/fundamentals` | Метрики + скор |
 | POST | `/fundamentals/demo` | Демо-снимки |
 | POST | `/fundamentals/refresh` | Синк с брокером |

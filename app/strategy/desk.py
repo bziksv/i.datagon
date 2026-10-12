@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Sequence
 from decimal import Decimal
 from pathlib import Path
 
@@ -162,3 +163,127 @@ def desk_backtest(
     report["admission"] = backtest_admission(report)
     report["evidence"] = strategy_evidence(report)
     return report
+
+
+def _batch_row(report: dict) -> dict:
+    summary = (report.get("backtest") or {}).get("summary") or {}
+    oos = (report.get("walk_forward") or {}).get("oos_summary") or {}
+    evidence = report.get("evidence") or {}
+    return {
+        "status": "ok",
+        "sleeve": report.get("sleeve"),
+        "ticker": report.get("ticker"),
+        "tf": report.get("tf"),
+        "bars": report.get("bars"),
+        "from": report.get("from"),
+        "to": report.get("to"),
+        "trades": summary.get("trades"),
+        "net_pnl": summary.get("net_pnl"),
+        "total_return": summary.get("total_return"),
+        "max_drawdown": summary.get("max_drawdown"),
+        "excess_return": summary.get("excess_return"),
+        "oos_trades": oos.get("trades"),
+        "oos_excess_return": oos.get("excess_return"),
+        "capital_eligible": evidence.get("capital_eligible"),
+        "evidence_score": evidence.get("score"),
+        "error": None,
+    }
+
+
+def desk_backtest_batch(
+    *,
+    sleeves: Sequence[str] | None = None,
+    tickers: Sequence[str] | None = None,
+    env: dict[str, str] | None = None,
+) -> dict:
+    """Прогон всех выбранных рукавов по всем доступным тикерам."""
+    selected_sleeves = [
+        name.strip()
+        for name in (sleeves if sleeves is not None else ACTIVE_SLEEVES)
+        if name and name.strip()
+    ]
+    unknown = [name for name in selected_sleeves if name not in ACTIVE_SLEEVES]
+    if unknown:
+        raise ValueError(f"unknown sleeve: {unknown[0]}")
+    selected_tickers = [
+        ticker.strip().upper()
+        for ticker in (
+            tickers if tickers is not None else list_candle_tickers(tf="1d")
+        )
+        if ticker and ticker.strip()
+    ]
+    if not selected_sleeves:
+        raise ValueError("sleeves")
+    if not selected_tickers:
+        raise ValueError("tickers")
+
+    rows: list[dict] = []
+    for sleeve in selected_sleeves:
+        for ticker in selected_tickers:
+            try:
+                report = desk_backtest(sleeve=sleeve, ticker=ticker, env=env)
+                rows.append(_batch_row(report))
+            except FileNotFoundError:
+                rows.append(
+                    {
+                        "status": "skipped",
+                        "sleeve": sleeve,
+                        "ticker": ticker,
+                        "tf": None,
+                        "bars": None,
+                        "from": None,
+                        "to": None,
+                        "trades": None,
+                        "net_pnl": None,
+                        "total_return": None,
+                        "max_drawdown": None,
+                        "excess_return": None,
+                        "oos_trades": None,
+                        "oos_excess_return": None,
+                        "capital_eligible": False,
+                        "evidence_score": None,
+                        "error": "нет файла свечей",
+                    }
+                )
+            except Exception as exc:  # noqa: BLE001 — сводка пакета fail-soft
+                rows.append(
+                    {
+                        "status": "error",
+                        "sleeve": sleeve,
+                        "ticker": ticker,
+                        "tf": None,
+                        "bars": None,
+                        "from": None,
+                        "to": None,
+                        "trades": None,
+                        "net_pnl": None,
+                        "total_return": None,
+                        "max_drawdown": None,
+                        "excess_return": None,
+                        "oos_trades": None,
+                        "oos_excess_return": None,
+                        "capital_eligible": False,
+                        "evidence_score": None,
+                        "error": str(exc) or "ошибка прогона",
+                    }
+                )
+
+    ok_rows = [row for row in rows if row["status"] == "ok"]
+    ranked = sorted(
+        ok_rows,
+        key=lambda row: (
+            0 if row.get("capital_eligible") else 1,
+            -(row.get("oos_excess_return") or -999),
+            -(row.get("total_return") or -999),
+        ),
+    )
+    return {
+        "sleeves": selected_sleeves,
+        "tickers": selected_tickers,
+        "count": len(rows),
+        "ok": len(ok_rows),
+        "skipped": sum(1 for row in rows if row["status"] == "skipped"),
+        "errors": sum(1 for row in rows if row["status"] == "error"),
+        "rows": rows,
+        "top": ranked[:10],
+    }

@@ -2,7 +2,7 @@
   "use strict";
 
   /** Версия UI кабинета (этап 30+). Не путать с version API. */
-  var CABIN_UI_VERSION = "v3.0.2";
+  var CABIN_UI_VERSION = "v3.0.3";
 
   var ROUTES = [
     {
@@ -132,6 +132,7 @@
   var agentsFocusProposed = false;
   var lastAgentsFlash = null;
   var lastDeskBacktest = null;
+  var lastDeskBatch = null;
   var lastDeskSleeve = "sma_cross";
   var lastDeskTicker = "SBER";
   var lastDeskTickers = [];
@@ -2957,7 +2958,80 @@
         "</div>";
     } else {
       resultHtml =
-        '<p class="empty">Выберите рукав и тикер, затем «Прогнать». Ордера не ставятся — только модель по локальному файлу свечей. Диапазон дат берётся из всего файла (для SBER обычно ~2 года дневок).</p>';
+        '<p class="empty">Выберите рукав и тикер, затем «Прогнать» — или сразу «Прогнать все». Ордера не ставятся — только модель по локальному файлу свечей. Диапазон дат берётся из всего файла (для дневных обычно ~2 года).</p>';
+    }
+    var batchHtml = "";
+    if (lastDeskBatch && lastDeskBatch.error) {
+      batchHtml =
+        '<div class="desk-batch" data-tour="strategies-desk-batch">' +
+        '<p class="empty">Пакетный прогон не удался: ' +
+        escapeHtml(lastDeskBatch.error) +
+        "</p></div>";
+    } else if (lastDeskBatch && lastDeskBatch.rows) {
+      var batchRows = (lastDeskBatch.rows || []).slice().sort(function (a, b) {
+        var aq = a.capital_eligible ? 0 : 1;
+        var bq = b.capital_eligible ? 0 : 1;
+        if (aq !== bq) return aq - bq;
+        return (Number(b.oos_excess_return) || -999) - (Number(a.oos_excess_return) || -999);
+      });
+      var batchBody = batchRows
+        .map(function (row) {
+          var statusLabel =
+            row.status === "ok"
+              ? row.capital_eligible
+                ? "можно капитал"
+                : "только кэш"
+              : row.status === "skipped"
+                ? "нет данных"
+                : "ошибка";
+          return (
+            "<tr>" +
+            "<td>" +
+            escapeHtml(SLEEVE_NAMES[row.sleeve] || row.sleeve || "—") +
+            "</td><td>" +
+            escapeHtml(row.ticker || "—") +
+            "</td><td>" +
+            escapeHtml(String(row.trades != null ? row.trades : "—")) +
+            "</td><td>" +
+            escapeHtml(
+              row.total_return == null
+                ? "—"
+                : (Number(row.total_return) * 100).toFixed(1) + "%"
+            ) +
+            "</td><td>" +
+            escapeHtml(
+              row.oos_excess_return == null
+                ? "—"
+                : (Number(row.oos_excess_return) * 100).toFixed(1) + " п.п."
+            ) +
+            "</td><td>" +
+            escapeHtml(statusLabel) +
+            (row.error ? " · " + escapeHtml(row.error) : "") +
+            "</td></tr>"
+          );
+        })
+        .join("");
+      batchHtml =
+        '<div class="desk-batch" data-tour="strategies-desk-batch">' +
+        "<h4>Сводка по всем прогонам</h4>" +
+        "<p>" +
+        escapeHtml(String(lastDeskBatch.ok || 0)) +
+        " успешно · " +
+        escapeHtml(String(lastDeskBatch.skipped || 0)) +
+        " без данных · " +
+        escapeHtml(String(lastDeskBatch.errors || 0)) +
+        " ошибок · всего " +
+        escapeHtml(String(lastDeskBatch.count || 0)) +
+        " (рукава × тикеры)</p>" +
+        wrapTableScroll(
+          '<table class="data-table"><thead><tr>' +
+            "<th>рукав</th><th>тикер</th><th>сделки</th><th>доходность</th>" +
+            "<th>вне выборки</th><th>статус</th>" +
+            "</tr></thead><tbody>" +
+            batchBody +
+            "</tbody></table>"
+        ) +
+        "</div>";
     }
     var sleeveOpts = ACTIVE_SLEEVE_IDS.map(function (id) {
       return (
@@ -2996,7 +3070,9 @@
       "<strong>Не путать с гарантией прибыли.</strong> Модель сделок по локальному файлу свечей (обычно с биржи MOEX, не из Тинькофф API): исполнение на открытии следующего бара, с комиссией и проскальзыванием, сравнение с «купить и держать». " +
       "Даты не выбираются вручную — берётся весь файл тикера (по умолчанию ~2 года дневок). Сейчас доступно тикеров: " +
       escapeHtml(String(tickers.length)) +
-      ". Депозит и % на бумагу — в " +
+      ". «Прогнать все» прогоняет 4 рукава × все тикеры (~" +
+      escapeHtml(String(tickers.length * ACTIVE_SLEEVE_IDS.length)) +
+      " прогонов). Депозит и % на бумагу — в " +
       '<a class="panel-link" href="#/settings">Настройках</a>.' +
       "</p>" +
       '<div class="filters" data-tour="strategies-desk-form">' +
@@ -3007,7 +3083,9 @@
       tickerOpts +
       "</select></label>" +
       '<button type="button" class="primary" id="desk-run">Прогнать на истории</button>' +
+      '<button type="button" id="desk-run-all">Прогнать все</button>' +
       "</div>" +
+      batchHtml +
       resultHtml +
       "</section>"
     );
@@ -3562,6 +3640,7 @@
       });
     }
     var runBtn = byId("desk-run");
+    var runAllBtn = byId("desk-run-all");
     if (runBtn) {
       runBtn.addEventListener("click", function () {
         var sleeve = sleeveEl ? sleeveEl.value : lastDeskSleeve || "sma_cross";
@@ -3571,6 +3650,7 @@
         lastDeskSleeve = sleeve;
         lastDeskTicker = ticker || "SBER";
         runBtn.disabled = true;
+        if (runAllBtn) runAllBtn.disabled = true;
         apiPost("/backtests", { sleeve: sleeve, ticker: lastDeskTicker })
           .then(function (data) {
             lastDeskBacktest = data.result || data;
@@ -3581,6 +3661,22 @@
           })
           .catch(function (err) {
             lastDeskBacktest = { error: err.message || "ошибка прогона" };
+            renderStrategies();
+          });
+      });
+    }
+    if (runAllBtn) {
+      runAllBtn.addEventListener("click", function () {
+        runAllBtn.disabled = true;
+        if (runBtn) runBtn.disabled = true;
+        runAllBtn.textContent = "Прогоняю…";
+        apiPost("/desk/backtests/batch", {})
+          .then(function (data) {
+            lastDeskBatch = data;
+            renderStrategies();
+          })
+          .catch(function (err) {
+            lastDeskBatch = { error: err.message || "ошибка пакетного прогона" };
             renderStrategies();
           });
       });

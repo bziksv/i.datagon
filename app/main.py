@@ -97,7 +97,7 @@ from app.risk.params_store import (
     save_risk_policy,
 )
 from app.risk.universe import active_tickers
-from app.strategy.desk import desk_backtest, list_candle_tickers
+from app.strategy.desk import desk_backtest, desk_backtest_batch, list_candle_tickers
 from app.strategy.experiments import (
     experiment_view,
     new_experiment,
@@ -645,6 +645,10 @@ def create_app() -> FastAPI:
         sleeve: str = Field(..., min_length=1)
         ticker: str = Field(default="SBER", min_length=1)
 
+    class DeskBacktestBatchBody(BaseModel):
+        sleeves: list[str] | None = None
+        tickers: list[str] | None = None
+
     async def _book_equity(session: AsyncSession) -> Decimal:
         book = await portfolio_valuation(session)
         equity = Decimal(str(book["equity"] or 0))
@@ -814,6 +818,13 @@ def create_app() -> FastAPI:
     @app.post("/desk/backtest")
     def run_desk_backtest(body: DeskBacktestBody) -> dict:
         return _run_desk_backtest(body)
+
+    @app.post("/desk/backtests/batch")
+    def run_desk_backtest_batch(body: DeskBacktestBatchBody) -> dict:
+        try:
+            return desk_backtest_batch(sleeves=body.sleeves, tickers=body.tickers)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     @app.post("/backtests")
     async def create_backtest(

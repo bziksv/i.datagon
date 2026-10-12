@@ -120,6 +120,48 @@ def test_desk_backtest_api(tmp_path, monkeypatch) -> None:
     assert scalp["bars"] == 12
 
 
+def test_desk_backtest_batch_api(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("APP_AUTH_TOKEN", "secret")
+    src = Path("tests/fixtures/sber_daily.csv")
+    (tmp_path / "SBER.csv").write_text(src.read_text())
+    (tmp_path / "GAZP.csv").write_text(src.read_text())
+    monkeypatch.setenv("CANDLE_DIR", str(tmp_path))
+    m15 = tmp_path / "m15"
+    m15.mkdir()
+    (m15 / "SBER.csv").write_text(Path("tests/fixtures/sber_m15.csv").read_text())
+    monkeypatch.setenv("CANDLE_M15_DIR", str(m15))
+    client = TestClient(create_app())
+    response = client.post(
+        "/desk/backtests/batch",
+        headers={"X-App-Token": "secret"},
+        json={},
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["count"] == 8  # 4 sleeves × 2 daily tickers
+    assert body["ok"] == 8
+    assert body["skipped"] == 0
+    assert len(body["rows"]) == 8
+    assert "top" in body
+    sleeves = {row["sleeve"] for row in body["rows"]}
+    tickers = {row["ticker"] for row in body["rows"]}
+    assert sleeves == {
+        "sma_cross",
+        "donchian_breakout",
+        "rsi_reversion",
+        "ema_scalp",
+    }
+    assert tickers == {"SBER", "GAZP"}
+    # без m15 для GAZP скальп падает на дневки (как одиночный desk_backtest)
+    scalp_gazp = next(
+        row
+        for row in body["rows"]
+        if row["sleeve"] == "ema_scalp" and row["ticker"] == "GAZP"
+    )
+    assert scalp_gazp["status"] == "ok"
+    assert scalp_gazp["bars"] == 9
+
+
 def test_cabin_strategies_budget_and_desk_ui() -> None:
     js = Path("web/cabin.js").read_text()
     assert "strategies-budgets" in js
@@ -142,6 +184,10 @@ def test_cabin_strategies_budget_and_desk_ui() -> None:
     assert "/allocation/plan" in js
     assert 'apiPut("/allocation/weights"' in js
     assert 'apiPost("/backtests"' in js
+    assert 'apiPost("/desk/backtests/batch"' in js
+    assert 'id="desk-run-all"' in js
+    assert "Прогнать все" in js
+    assert "strategies-desk-batch" in js
     assert "Сохранить бюджеты" in js
     assert "Прогнать на истории" in js
     assert "Секторов нет" in js
