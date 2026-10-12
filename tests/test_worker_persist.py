@@ -36,3 +36,6 @@ def test_worker_uses_one_event_loop_for_all_database_writes() -> None:
     assert "asyncio.run(run_worker())" in source
     assert "await persist_valuation_snapshot" in source
     assert "await persist_signals_async" in source
+    assert "CANDLE_REFRESH_INTERVAL_SEC" in source
+    assert "await asyncio.to_thread(" in source
+    assert "refresh_candles" in source
