@@ -154,6 +154,14 @@ def test_desk_backtest_batch_api(tmp_path, monkeypatch) -> None:
     assert body["skipped"] == 0
     assert len(body["rows"]) == 12
     assert "top" in body
+    assert "by_sleeve" in body
+    assert len(body["by_sleeve"]) == 6
+    sample_sum = body["by_sleeve"][0]
+    assert "net_pnl" in sample_sum
+    assert "max_drawdown" in sample_sum
+    assert "peak_equity" in sample_sum
+    assert "equity_curve" in sample_sum
+    assert isinstance(sample_sum["equity_curve"], list)
     sleeves = {row["sleeve"] for row in body["rows"]}
     tickers = {row["ticker"] for row in body["rows"]}
     assert sleeves == {
@@ -241,3 +249,7 @@ def test_cabin_strategies_budget_and_desk_ui() -> None:
     assert "morning_bounce" in js
     assert "Вечерний докуп" in js
     assert "Утренний докуп" in js
+    assert "renderDeskBatchSummaries" in js
+    assert "by_sleeve" in js
+    assert "пик капитала" in js
+    assert "макс. просадка" in js

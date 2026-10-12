@@ -2,7 +2,7 @@
   "use strict";
 
   /** Версия UI кабинета (этап 30+). Не путать с version API. */
-  var CABIN_UI_VERSION = "v3.1.0";
+  var CABIN_UI_VERSION = "v3.2.0";
 
   var ROUTES = [
     {
@@ -2826,6 +2826,243 @@
     );
   }
 
+  function pctSigned(value) {
+    var n = Number(value);
+    if (!isFinite(n)) return "—";
+    var sign = n > 0 ? "+" : "";
+    return sign + (n * 100).toFixed(1) + "%";
+  }
+
+  function toneClass(value) {
+    var n = Number(value);
+    if (!isFinite(n) || n === 0) return "";
+    return n > 0 ? " is-up" : " is-down";
+  }
+
+  function renderDeskBatchEquityChart(curve, initialCash) {
+    if (!curve || curve.length < 2) {
+      return '<p class="empty">Кривой капитала нет — мало точек по истории.</p>';
+    }
+    var values = curve.map(function (point) {
+      return Number(point.equity);
+    });
+    var initial = Number(initialCash);
+    if (!isFinite(initial) || initial <= 0) initial = values[0];
+    var minV = Math.min.apply(null, values.concat([initial]));
+    var maxV = Math.max.apply(null, values.concat([initial]));
+    var pad = (maxV - minV) * 0.08 || Math.abs(initial) * 0.01 || 1;
+    minV -= pad;
+    maxV += pad;
+    var span = maxV - minV || 1;
+    var w = 640;
+    var h = 180;
+    var left = 8;
+    var right = 8;
+    var top = 14;
+    var bottom = 22;
+    var iw = w - left - right;
+    var ih = h - top - bottom;
+    function xAt(index) {
+      return left + (index / (values.length - 1)) * iw;
+    }
+    function yAt(value) {
+      return top + (1 - (value - minV) / span) * ih;
+    }
+    var path = values
+      .map(function (value, index) {
+        return (
+          (index ? "L" : "M") +
+          xAt(index).toFixed(1) +
+          "," +
+          yAt(value).toFixed(1)
+        );
+      })
+      .join(" ");
+    var baseY = yAt(initial);
+    var peak = Math.max.apply(null, values);
+    var peakIdx = values.indexOf(peak);
+    var final = values[values.length - 1];
+    var stroke = final >= initial ? "#1f6b45" : "#b33333";
+    var area =
+      path +
+      " L" +
+      xAt(values.length - 1).toFixed(1) +
+      "," +
+      baseY.toFixed(1) +
+      " L" +
+      xAt(0).toFixed(1) +
+      "," +
+      baseY.toFixed(1) +
+      " Z";
+    var firstTs = deskDateLabel(curve[0].ts);
+    var lastTs = deskDateLabel(curve[curve.length - 1].ts);
+    return (
+      '<div class="desk-batch-chart" role="img" aria-label="Кривая капитала портфеля">' +
+      '<svg viewBox="0 0 ' +
+      w +
+      " " +
+      h +
+      '" preserveAspectRatio="none">' +
+      '<line class="desk-batch-chart__base" x1="' +
+      left +
+      '" y1="' +
+      baseY.toFixed(1) +
+      '" x2="' +
+      (w - right) +
+      '" y2="' +
+      baseY.toFixed(1) +
+      '" />' +
+      '<path class="desk-batch-chart__area" d="' +
+      area +
+      '" fill="' +
+      stroke +
+      '" />' +
+      '<path class="desk-batch-chart__line" d="' +
+      path +
+      '" stroke="' +
+      stroke +
+      '" />' +
+      '<circle class="desk-batch-chart__peak" cx="' +
+      xAt(peakIdx).toFixed(1) +
+      '" cy="' +
+      yAt(peak).toFixed(1) +
+      '" r="3.5" />' +
+      "</svg>" +
+      '<div class="desk-batch-chart__meta">' +
+      "<span>" +
+      escapeHtml(firstTs) +
+      "</span>" +
+      "<span>пик " +
+      escapeHtml(money(peak)) +
+      "</span>" +
+      "<span>" +
+      escapeHtml(lastTs) +
+      "</span>" +
+      "</div></div>"
+    );
+  }
+
+  function renderDeskBatchBarsChart(names) {
+    var rows = (names || [])
+      .slice()
+      .filter(function (row) {
+        return row && row.total_return != null;
+      })
+      .sort(function (a, b) {
+        return Number(b.total_return) - Number(a.total_return);
+      });
+    if (!rows.length) {
+      return '<p class="empty">Нет доходностей по тикерам для графика.</p>';
+    }
+    var maxAbs = 0;
+    rows.forEach(function (row) {
+      maxAbs = Math.max(maxAbs, Math.abs(Number(row.total_return) || 0));
+    });
+    if (!maxAbs) maxAbs = 0.01;
+    var bars = rows
+      .map(function (row) {
+        var ret = Number(row.total_return) || 0;
+        var width = Math.max(2, Math.round((Math.abs(ret) / maxAbs) * 100));
+        return (
+          '<div class="desk-batch-bar' +
+          toneClass(ret) +
+          '">' +
+          '<span class="desk-batch-bar__name">' +
+          escapeHtml(row.ticker || "—") +
+          "</span>" +
+          '<span class="desk-batch-bar__track"><span class="desk-batch-bar__fill" style="width:' +
+          width +
+          '%"></span></span>' +
+          '<span class="desk-batch-bar__val">' +
+          escapeHtml(pctSigned(ret)) +
+          "</span></div>"
+        );
+      })
+      .join("");
+    return '<div class="desk-batch-bars">' + bars + "</div>";
+  }
+
+  function renderDeskBatchSummaries(bySleeve) {
+    if (!bySleeve || !bySleeve.length) return "";
+    return bySleeve
+      .map(function (summary) {
+        var name = SLEEVE_NAMES[summary.sleeve] || summary.sleeve || "рукав";
+        var ret = summary.total_return;
+        var pnl = summary.net_pnl;
+        var verdict =
+          ret == null && pnl == null
+            ? "Итога нет — нет успешных прогонов."
+            : Number(pnl) > 0 || Number(ret) > 0
+              ? "В плюсе на корзине тикеров"
+              : Number(pnl) < 0 || Number(ret) < 0
+                ? "В минусе на корзине тикеров"
+                : "Около нуля на корзине тикеров";
+        return (
+          '<article class="desk-batch-summary">' +
+          "<h4>" +
+          escapeHtml(name) +
+          " · итог по всем тикерам</h4>" +
+          '<p class="desk-batch-summary__verdict' +
+          toneClass(ret != null ? ret : pnl) +
+          '">' +
+          escapeHtml(verdict) +
+          ": " +
+          '<strong>' +
+          escapeHtml(money(pnl)) +
+          "</strong> · " +
+          '<strong>' +
+          escapeHtml(pctSigned(ret)) +
+          "</strong>" +
+          " (равный кэш на каждый тикер, сумма кривых).</p>" +
+          '<div class="desk-batch-kpis">' +
+          '<div class="metric"><div class="k">стартовый кэш</div><div class="v">' +
+          escapeHtml(money(summary.initial_cash)) +
+          "</div></div>" +
+          '<div class="metric"><div class="k">финал</div><div class="v' +
+          toneClass(ret) +
+          '">' +
+          escapeHtml(money(summary.final_equity)) +
+          "</div></div>" +
+          '<div class="metric"><div class="k">пик капитала</div><div class="v">' +
+          escapeHtml(money(summary.peak_equity)) +
+          " · " +
+          escapeHtml(pctSigned(summary.peak_return)) +
+          "</div></div>" +
+          '<div class="metric"><div class="k">макс. просадка</div><div class="v is-down">' +
+          escapeHtml(
+            summary.max_drawdown == null
+              ? "—"
+              : "−" + (Number(summary.max_drawdown) * 100).toFixed(1) + "%"
+          ) +
+          "</div></div>" +
+          '<div class="metric"><div class="k">плюсовых тикеров</div><div class="v">' +
+          escapeHtml(
+            String(summary.win_tickers != null ? summary.win_tickers : "—")
+          ) +
+          " / " +
+          escapeHtml(
+            String(summary.ticker_count != null ? summary.ticker_count : "—")
+          ) +
+          "</div></div>" +
+          '<div class="metric"><div class="k">сделок</div><div class="v">' +
+          escapeHtml(String(summary.trades != null ? summary.trades : "—")) +
+          "</div></div>" +
+          "</div>" +
+          '<div class="desk-batch-visuals">' +
+          '<div><h5>Капитал корзины</h5>' +
+          renderDeskBatchEquityChart(
+            summary.equity_curve,
+            summary.initial_cash
+          ) +
+          "</div>" +
+          "<div><h5>Доходность по тикерам</h5>" +
+          renderDeskBatchBarsChart(summary.names) +
+          "</div></div></article>"
+        );
+      })
+      .join("");
+  }
+
   function renderStrategiesDesk() {
     var result = lastDeskBacktest;
     var selectedSleeve = lastDeskSleeve || "sma_cross";
@@ -3067,7 +3304,7 @@
             (open ? " is-open" : "") +
             '" data-batch-detail="' +
             escapeHtml(key) +
-            '"><td colspan="7">' +
+            '"><td colspan="8">' +
             (tradeRows.length
               ? '<div class="desk-batch-trades"><table class="data-table compact"><thead><tr>' +
                 "<th>вход</th><th>выход</th><th>шт</th><th>цена входа</th>" +
@@ -3111,13 +3348,21 @@
             escapeHtml(row.ticker || "—") +
             "</td><td>" +
             escapeHtml(String(row.trades != null ? row.trades : "—")) +
-            "</td><td>" +
+            '</td><td class="' +
+            toneClass(row.net_pnl).trim() +
+            '">' +
             money(row.net_pnl) +
-            "</td><td>" +
+            '</td><td class="' +
+            toneClass(row.total_return).trim() +
+            '">' +
             escapeHtml(
-              row.total_return == null
+              row.total_return == null ? "—" : pctSigned(row.total_return)
+            ) +
+            '</td><td class="is-down">' +
+            escapeHtml(
+              row.max_drawdown == null
                 ? "—"
-                : (Number(row.total_return) * 100).toFixed(1) + "%"
+                : "−" + (Number(row.max_drawdown) * 100).toFixed(1) + "%"
             ) +
             "</td><td>" +
             escapeHtml(
@@ -3135,6 +3380,7 @@
         .join("");
       batchHtml =
         '<div class="desk-batch" data-tour="strategies-desk-batch">' +
+        renderDeskBatchSummaries(lastDeskBatch.by_sleeve) +
         "<h4>Сводка по всем прогонам</h4>" +
         "<p>" +
         escapeHtml(String(lastDeskBatch.ok || 0)) +
@@ -3144,11 +3390,11 @@
         escapeHtml(String(lastDeskBatch.errors || 0)) +
         " ошибок · всего " +
         escapeHtml(String(lastDeskBatch.count || 0)) +
-        " (рукава × тикеры). Клик по строке — сделки: штуки, сумма покупки, PnL.</p>" +
+        " (рукава × тикеры). Сверху — итог корзины, пик и макс. просадка; клик по строке — сделки: штуки, сумма покупки, PnL.</p>" +
         wrapTableScroll(
           '<table class="data-table"><thead><tr>' +
             "<th>рукав</th><th>тикер</th><th>сделки</th><th>PnL</th><th>доходность</th>" +
-            "<th>вне выборки</th><th>статус</th>" +
+            "<th>просадка</th><th>вне выборки</th><th>статус</th>" +
             "</tr></thead><tbody>" +
             batchBody +
             "</tbody></table>"

@@ -1606,6 +1606,152 @@ button.danger:hover {
   padding: 0.28rem 0.4rem;
 }
 
+.desk-batch-summary {
+  margin: 0 0 1.1rem;
+  padding: 0.85rem 0.95rem 1rem;
+  border: 1px solid #d5e0d8;
+  background: #f7faf8;
+}
+
+.desk-batch-summary h4 {
+  margin: 0 0 0.35rem;
+  font-size: 1.02rem;
+}
+
+.desk-batch-summary h5 {
+  margin: 0 0 0.4rem;
+  font-size: 0.86rem;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.desk-batch-summary__verdict {
+  margin: 0 0 0.75rem;
+  font-size: 0.95rem;
+  line-height: 1.35;
+}
+
+.desk-batch-summary__verdict.is-up,
+.desk-batch .is-up {
+  color: #1f6b45;
+}
+
+.desk-batch-summary__verdict.is-down,
+.desk-batch .is-down {
+  color: var(--bad);
+}
+
+.desk-batch-kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
+  gap: 0.55rem;
+  margin-bottom: 0.85rem;
+}
+
+.desk-batch-kpis .metric {
+  padding: 0.45rem 0.55rem;
+  background: #fff;
+  border: 1px solid #e2ebe4;
+}
+
+.desk-batch-visuals {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+  gap: 0.9rem 1.1rem;
+}
+
+@media (max-width: 900px) {
+  .desk-batch-visuals {
+    grid-template-columns: 1fr;
+  }
+}
+
+.desk-batch-chart {
+  width: 100%;
+}
+
+.desk-batch-chart svg {
+  display: block;
+  width: 100%;
+  height: 180px;
+  background: #fff;
+  border: 1px solid #e2ebe4;
+}
+
+.desk-batch-chart__base {
+  stroke: #c5d2c9;
+  stroke-width: 1;
+  stroke-dasharray: 4 3;
+}
+
+.desk-batch-chart__area {
+  opacity: 0.12;
+}
+
+.desk-batch-chart__line {
+  fill: none;
+  stroke-width: 2;
+}
+
+.desk-batch-chart__peak {
+  fill: #152018;
+}
+
+.desk-batch-chart__meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-top: 0.3rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.desk-batch-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 0.28rem;
+  max-height: 220px;
+  overflow: auto;
+  padding-right: 0.15rem;
+}
+
+.desk-batch-bar {
+  display: grid;
+  grid-template-columns: 3.2rem minmax(0, 1fr) 3.6rem;
+  gap: 0.4rem;
+  align-items: center;
+  font-size: 0.8rem;
+}
+
+.desk-batch-bar__name {
+  font-variant-numeric: tabular-nums;
+}
+
+.desk-batch-bar__track {
+  height: 0.55rem;
+  background: #e7eee9;
+  overflow: hidden;
+}
+
+.desk-batch-bar__fill {
+  display: block;
+  height: 100%;
+  background: #7a8c82;
+}
+
+.desk-batch-bar.is-up .desk-batch-bar__fill {
+  background: #1f6b45;
+}
+
+.desk-batch-bar.is-down .desk-batch-bar__fill {
+  background: var(--bad);
+}
+
+.desk-batch-bar__val {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
 .tabs {
   display: flex;
   flex-wrap: wrap;
