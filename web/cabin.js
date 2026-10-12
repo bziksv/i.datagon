@@ -24,7 +24,7 @@
       title: "Стратегии",
       hint: "Что делают рукава",
       intro:
-        "Сначала деньги и лимиты (Настройки), потом доли рукавов, затем карточка «как торгует». Прогон моделирует paper-сделки по CSV с исполнением на следующем баре и расходами.",
+        "Сначала деньги и лимиты (Настройки), потом доли рукавов, затем карточка «как торгует». Прогон моделирует бумажные сделки по файлу свечей с исполнением на следующем баре и расходами.",
     },
     {
       id: "companies",
@@ -132,6 +132,8 @@
   var agentsFocusProposed = false;
   var lastAgentsFlash = null;
   var lastDeskBacktest = null;
+  var lastDeskSleeve = "sma_cross";
+  var lastDeskTicker = "SBER";
   var loadErrors = {};
   var blockLoading = {};
   var routeLoading = false;
@@ -2705,14 +2707,33 @@
       "<li><strong>Таблица рукавов</strong> — кто сколько заработал и какой бюджет.</li>" +
       "<li><strong>Бюджеты</strong> — раздайте % / ₽ между четырьмя стратегиями.</li>" +
       "<li><strong>Как держит портфель</strong> — формула: сколько акций купит при вашем бюджете.</li>" +
-      "<li><strong>Прогон на истории</strong> — paper-бэктест по CSV: сделки на следующем баре, расходы, PnL и просадка. " +
+      "<li><strong>Прогон на истории</strong> — модель по файлу свечей: даты берутся из всего файла, сделки на следующем баре, расходы и просадка. " +
       "<em>Это модель, не обещание результата и не рекомендация.</em></li>" +
       "</ol></section>"
     );
   }
 
+  function deskPeriodLabel(fromIso, toIso, bars, tf) {
+    var from = fromIso ? formatSignalTime(fromIso) : "—";
+    var to = toIso ? formatSignalTime(toIso) : "—";
+    var tfLabel = tf === "15m" ? "15 минут" : "дневки";
+    var count = bars != null ? String(bars) : "—";
+    return (
+      "Период файла: " +
+      from +
+      " — " +
+      to +
+      " · " +
+      count +
+      " баров · " +
+      tfLabel
+    );
+  }
+
   function renderStrategiesDesk() {
     var result = lastDeskBacktest;
+    var selectedSleeve = lastDeskSleeve || "sma_cross";
+    var selectedTicker = lastDeskTicker || "SBER";
     var resultHtml = "";
     if (result && result.error) {
       resultHtml =
@@ -2737,12 +2758,12 @@
           Number(oos.trades || 0) >= 5 &&
           Number(oos.excess_return || 0) > 0;
       var evidenceNames = {
-        oos_edge: "OOS-преимущество",
+        oos_edge: "Преимущество вне выборки",
         sample: "Объём выборки",
         drawdown: "Просадка",
         cost_resilience: "Устойчивость к расходам",
         paper_forward: "Проверка на новых данных",
-        walk_forward_coverage: "Покрытие walk-forward",
+        walk_forward_coverage: "Покрытие скользящих окон",
       };
       var evidenceHtml = evidence
         ? '<div class="evidence-score"><div class="evidence-score__total"><span>Доказательность</span><strong>' +
@@ -2803,22 +2824,36 @@
           );
         })
         .join("");
+      var periodLine = deskPeriodLabel(
+        result.from,
+        result.to,
+        result.bars,
+        result.tf
+      );
+      var evalStart = result.evaluation_start
+        ? formatSignalTime(result.evaluation_start)
+        : "—";
       resultHtml =
         '<div class="experiment-report">' +
-        '<div class="experiment-report__head"><div><span class="section-kicker">EXPERIMENT ' +
+        '<div class="experiment-report__head"><div><span class="section-kicker">Прогон ' +
         escapeHtml(shortId(result.experiment_id)) +
-        "</span><h4>Strategy evidence report</h4></div>" +
+        "</span><h4>Отчёт по стратегии</h4></div>" +
         '<span class="qualification ' +
         (qualified ? "is-qualified" : "is-rejected") +
         '">' +
-        (qualified ? "OOS QUALIFIED" : "CASH FALLBACK") +
+        (qualified ? "Допущена к капиталу" : "Только кэш") +
         "</span></div>" +
-        '<div class="callout" data-tour="strategies-desk-verdict"><strong>Paper-бэктест.</strong> ' +
+        '<p class="source-line" data-tour="strategies-desk-period">' +
+        escapeHtml(periodLine) +
+        ". Торговля считается с " +
+        escapeHtml(evalStart) +
+        " (после прогрева индикаторов).</p>" +
+        '<div class="callout" data-tour="strategies-desk-verdict"><strong>Исторический прогон.</strong> ' +
         escapeHtml(verdict) +
-        " Сигнал исполняется не раньше открытия следующего бара; учтены комиссия и проскальзывание из конфигурации." +
+        " Сигнал исполняется не раньше открытия следующего бара; учтены комиссия и проскальзывание." +
         "</div>" +
         '<div class="metrics" data-tour="strategies-desk-result">' +
-        '<div class="metric hero"><div class="k">чистый PnL</div><div class="v">' +
+        '<div class="metric hero"><div class="k">чистый результат</div><div class="v">' +
         escapeHtml(money(summary.net_pnl)) +
         "</div></div>" +
         '<div class="metric"><div class="k">итоговый капитал</div><div class="v">' +
@@ -2841,56 +2876,56 @@
             : (Number(summary.total_return) * 100).toFixed(2) + "%"
         ) +
         "</div></div>" +
-        '<div class="metric"><div class="k">против buy & hold</div><div class="v">' +
+        '<div class="metric"><div class="k">против «купить и держать»</div><div class="v">' +
         escapeHtml(
           summary.excess_return === null || summary.excess_return === undefined
             ? "—"
             : (Number(summary.excess_return) * 100).toFixed(2) + " п.п."
         ) +
         "</div></div></div>" +
-        '<div class="callout"><strong>Вневыборочная проверка.</strong> ' +
+        '<div class="callout"><strong>Проверка на хвосте данных.</strong> ' +
         escapeHtml(
           oos.folds
             ? String(oos.folds) +
                 " окон, доходность " +
                 (Number(oos.total_return) * 100).toFixed(2) +
-                "%, преимущество к buy & hold " +
+                "%, преимущество к «купить и держать» " +
                 (Number(oos.excess_return) * 100).toFixed(2) +
                 " п.п."
-            : "Недостаточно данных для OOS-окна."
+            : "Недостаточно данных для окна вне выборки."
         ) +
         "</div>" +
         '<div class="evidence-lanes">' +
-        '<div><span>IN-SAMPLE</span><strong>' +
+        "<div><span>На обучающем отрезке</span><strong>" +
         escapeHtml(String(summary.trades || 0)) +
-        ' trades</strong><small>return ' +
+        " сделок</strong><small>доходность " +
         escapeHtml(pctLabel(summary.total_return)) +
         "</small></div>" +
-        '<div><span>OUT-OF-SAMPLE</span><strong>' +
+        "<div><span>Вне выборки</span><strong>" +
         escapeHtml(String(oos.trades || 0)) +
-        ' trades / ' +
+        " сделок / " +
         escapeHtml(String(oos.folds || 0)) +
-        ' folds</strong><small>excess ' +
+        " окон</strong><small>преимущество " +
         escapeHtml(pctLabel(oos.excess_return)) +
         "</small></div>" +
-        '<div><span>CAPITAL DECISION</span><strong>' +
-        (qualified ? "eligible" : "cash only") +
+        "<div><span>Решение по капиталу</span><strong>" +
+        (qualified ? "можно выделять" : "только кэш") +
         "</strong><small>" +
         (qualified
-          ? "≥5 OOS trades and positive excess"
-          : "qualification gate not passed") +
+          ? "≥5 сделок вне выборки и положительное преимущество"
+          : "порог допуска не пройден") +
         "</small></div></div>" +
         evidenceHtml +
         (summary.insufficient_statistics
           ? '<p class="warning-text">Сделок мало: статистики недостаточно для вывода о преимуществе стратегии.</p>'
           : "") +
         (oos.insufficient_statistics
-          ? '<p class="warning-text">OOS-сделок мало: стратегия пока не квалифицирована для выделения капитала.</p>'
+          ? '<p class="warning-text">Сделок вне выборки мало: стратегия пока не допущена к выделению капитала.</p>'
           : "") +
         '<p class="source-line">файл ' +
         escapeHtml(result.path || "") +
         (result.experiment_id
-          ? " · experiment " + escapeHtml(result.experiment_id)
+          ? " · номер прогона " + escapeHtml(result.experiment_id)
           : "") +
         "</p>" +
         (lastRows
@@ -2904,31 +2939,35 @@
         "</div>";
     } else {
       resultHtml =
-        '<p class="empty">Необязательный тест: рукав + тикер CSV → сколько раз стратегия хотела купить/продать. Ордера не ставит.</p>';
+        '<p class="empty">Выберите рукав и тикер, затем «Прогнать». Ордера не ставятся — только модель по локальному файлу свечей. Диапазон дат берётся из всего файла (для SBER обычно ~2 года дневок).</p>';
     }
     var sleeveOpts = ACTIVE_SLEEVE_IDS.map(function (id) {
       return (
         '<option value="' +
         escapeHtml(id) +
-        '">' +
+        '"' +
+        (id === selectedSleeve ? " selected" : "") +
+        ">" +
         escapeHtml(SLEEVE_NAMES[id] || id) +
         "</option>"
       );
     }).join("");
     return (
       '<section class="panel" data-tour="strategies-desk">' +
-      "<h3>Paper-бэктест на истории</h3>" +
+      "<h3>Прогон на истории</h3>" +
       "<p>" +
-      "<strong>Не путать с гарантией прибыли.</strong> Это модель сделок по локальному CSV с next-bar исполнением, комиссией, проскальзыванием и benchmark. " +
-      "Депозит и % на бумагу — в " +
+      "<strong>Не путать с гарантией прибыли.</strong> Модель сделок по локальному файлу свечей: исполнение на открытии следующего бара, с комиссией и проскальзыванием, сравнение с «купить и держать». " +
+      "Даты не выбираются вручную — берётся весь доступный файл тикера. Депозит и % на бумагу — в " +
       '<a class="panel-link" href="#/settings">Настройках</a>.' +
       "</p>" +
       '<div class="filters" data-tour="strategies-desk-form">' +
       '<label class="field compact">рукав<select id="desk-sleeve">' +
       sleeveOpts +
       "</select></label>" +
-      '<label class="field compact">тикер CSV' +
-      '<input type="text" id="desk-ticker" value="SBER" placeholder="SBER"></label>' +
+      '<label class="field compact">тикер' +
+      '<input type="text" id="desk-ticker" value="' +
+      escapeHtml(selectedTicker) +
+      '" placeholder="SBER"></label>' +
       '<button type="button" class="primary" id="desk-run">Прогнать на истории</button>' +
       "</div>" +
       resultHtml +
@@ -3465,15 +3504,36 @@
           });
       });
     }
+    var sleeveEl = byId("desk-sleeve");
+    var tickerEl = byId("desk-ticker");
+    if (sleeveEl) {
+      sleeveEl.addEventListener("change", function () {
+        lastDeskSleeve = sleeveEl.value || "sma_cross";
+      });
+    }
+    if (tickerEl) {
+      tickerEl.addEventListener("change", function () {
+        lastDeskTicker = String(tickerEl.value || "SBER")
+          .trim()
+          .toUpperCase() || "SBER";
+      });
+      tickerEl.addEventListener("input", function () {
+        lastDeskTicker = String(tickerEl.value || "")
+          .trim()
+          .toUpperCase() || "SBER";
+      });
+    }
     var runBtn = byId("desk-run");
     if (runBtn) {
       runBtn.addEventListener("click", function () {
-        var sleeveEl = byId("desk-sleeve");
-        var tickerEl = byId("desk-ticker");
-        var sleeve = sleeveEl ? sleeveEl.value : "sma_cross";
-        var ticker = tickerEl ? tickerEl.value : "SBER";
+        var sleeve = sleeveEl ? sleeveEl.value : lastDeskSleeve || "sma_cross";
+        var ticker = tickerEl
+          ? String(tickerEl.value || "SBER").trim().toUpperCase()
+          : lastDeskTicker || "SBER";
+        lastDeskSleeve = sleeve;
+        lastDeskTicker = ticker || "SBER";
         runBtn.disabled = true;
-        apiPost("/backtests", { sleeve: sleeve, ticker: ticker })
+        apiPost("/backtests", { sleeve: sleeve, ticker: lastDeskTicker })
           .then(function (data) {
             lastDeskBacktest = data.result || data;
             if (data.id && lastDeskBacktest) {
@@ -3484,9 +3544,6 @@
           .catch(function (err) {
             lastDeskBacktest = { error: err.message || "ошибка прогона" };
             renderStrategies();
-          })
-          .finally(function () {
-            runBtn.disabled = false;
           });
       });
     }

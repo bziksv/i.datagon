@@ -123,11 +123,17 @@ def desk_backtest(
         kinds[row.kind] = kinds.get(row.kind, 0) + 1
     actionable = [row for row in signals if row.kind != "flat"]
     tail = actionable[-12:] if actionable else signals[-12:]
+    period_from = bars[0].ts.isoformat() if bars else None
+    period_to = bars[-1].ts.isoformat() if bars else None
+    evaluation_start = (report.get("config") or {}).get("evaluation_start")
     report = {
         "sleeve": name,
         "ticker": symbol,
         "tf": tf,
         "bars": len(bars),
+        "from": period_from,
+        "to": period_to,
+        "evaluation_start": evaluation_start,
         "signals": len(signals),
         "kinds": kinds,
         "path": str(path),

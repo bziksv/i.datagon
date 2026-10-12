@@ -86,6 +86,9 @@ def test_desk_backtest_api(tmp_path, monkeypatch) -> None:
     result = desk_backtest(sleeve="donchian_breakout", ticker="SBER")
     assert result["ticker"] == "SBER"
     assert result["bars"] == 9
+    assert result["from"]
+    assert result["to"]
+    assert result["evaluation_start"]
     rsi = desk_backtest(sleeve="rsi_reversion", ticker="SBER")
     assert rsi["sleeve"] == "rsi_reversion"
     m15 = tmp_path / "m15"
@@ -104,6 +107,15 @@ def test_cabin_strategies_budget_and_desk_ui() -> None:
     assert "strategies-desk" in js
     assert "strategies-plan" in js
     assert "strategies-whatif" in js
+    assert "lastDeskSleeve" in js
+    assert 'id === selectedSleeve ? " selected"' in js
+    assert "Период файла:" in js
+    assert "Прогон на истории" in js
+    assert "Strategy evidence report" not in js
+    assert "OOS QUALIFIED" not in js
+    assert "next-bar" not in js.split("function renderStrategiesDesk")[1].split(
+        "function renderStrategiesCompare"
+    )[0]
     assert "/allocation/plan" in js
     assert 'apiPut("/allocation/weights"' in js
     assert 'apiPost("/backtests"' in js
