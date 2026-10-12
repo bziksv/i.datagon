@@ -2,7 +2,7 @@
   "use strict";
 
   /** Версия UI кабинета (этап 30+). Не путать с version API. */
-  var CABIN_UI_VERSION = "v3.0";
+  var CABIN_UI_VERSION = "v3.0.1";
 
   var ROUTES = [
     {
