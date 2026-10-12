@@ -1934,7 +1934,11 @@
       var el = byId("agents-waiting");
       if (el && el.scrollIntoView) {
         window.setTimeout(function () {
-          el.scrollIntoView({ behavior: "smooth", block: "start" });
+          el.scrollIntoView({
+            behavior: "smooth",
+            block: "start",
+            inline: "nearest",
+          });
         }, 40);
       }
     }

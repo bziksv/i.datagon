@@ -77,3 +77,13 @@ def test_gate_skip_link_and_ru_labels() -> None:
     assert "MARK_QUALITY_RU" in JS
     assert "help-cabin-version" in JS
     assert "Одиннадцать разделов" in JS
+
+
+def test_wide_tables_do_not_expand_the_page_grid() -> None:
+    assert "grid-template-columns: minmax(0, 1fr)" in CSS
+    assert "#page-body > *" in CSS
+    table_scroll = CSS.split(".table-scroll {", 1)[1].split("}", 1)[0]
+    assert "overflow-x: auto" in table_scroll
+    assert "width: 100%" in table_scroll
+    assert "min-width: 0" in table_scroll
+    assert 'inline: "nearest"' in JS
