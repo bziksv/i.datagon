@@ -247,9 +247,9 @@ signal → proposal → risk decision → order → fills → ledger → PnL.
 | ID | Задача | Готово когда | Статус |
 |---|---|---|---|
 | M201 | Идентичность fill | Повтор execution_id no-op, новый partial fill применяется | done |
-| M202 | Статусы ордера | Поддержаны partial/cancel_pending/unknown/reconciled | todo |
+| M202 | Статусы ордера | Поддержаны partial/cancel_pending/unknown/reconciled | done |
 | M203 | Персистентный approve | Risk decision и order записаны до отправки | done |
-| M204 | Reconciliation | Рестарт/timeout восстанавливает фактическое состояние без дубля | todo |
+| M204 | Reconciliation | Рестарт/timeout восстанавливает фактическое состояние без дубля | done |
 | M205 | Immutable audit | Коррекция — компенсирующая запись, история не удаляется | todo |
 
 ### M3. Risk engine — P0
@@ -262,7 +262,7 @@ signal → proposal → risk decision → order → fills → ledger → PnL.
 | M304 | Data/broker health gates | stale/missing/unknown блокируют увеличение риска | done |
 | M305 | Portfolio limits | Daily loss, max DD, gross/net exposure, concentration | done |
 | M306 | Decision audit | Каждый check имеет code, inputs, allow/deny и explanation | done |
-| M307 | Версионированные лимиты | Изменение через единый API и попадает в audit trail | todo |
+| M307 | Версионированные лимиты | Изменение через единый API и попадает в audit trail | done |
 
 ### M4. Доказательный бэктест — P0
 
@@ -273,7 +273,7 @@ signal → proposal → risk decision → order → fills → ledger → PnL.
 | M403 | Метрики | PnL/CAGR/DD/Sharpe/Sortino/PF/expectancy/turnover/exposure | done |
 | M404 | Benchmark | Та же выборка и капитал; показан excess return | done |
 | M405 | IS/OOS/walk-forward | Периоды раздельны, future leakage тестируется | done |
-| M406 | Reproducible experiments | Data/config/code hashes и результат сохранены | todo |
+| M406 | Reproducible experiments | Data/config/code hashes и результат сохранены | done |
 | M407 | Qualification gate | Без достаточной статистики стратегия не получает капитал | done |
 
 ### M5. Аллокация — P1

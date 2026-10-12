@@ -106,7 +106,7 @@ def test_cabin_strategies_budget_and_desk_ui() -> None:
     assert "strategies-whatif" in js
     assert "/allocation/plan" in js
     assert 'apiPut("/allocation/weights"' in js
-    assert 'apiPost("/desk/backtest"' in js
+    assert 'apiPost("/backtests"' in js
     assert "Сохранить бюджеты" in js
     assert "Прогнать на истории" in js
     assert "Секторов нет" in js

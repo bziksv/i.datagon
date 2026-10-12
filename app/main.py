@@ -2,6 +2,7 @@ import logging
 import os
 import time
 from contextlib import asynccontextmanager
+from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -31,7 +32,13 @@ from app.alloc.weights_store import save_weights
 from app.book.accounts import TRADING_CASH
 from app.book.drift import drift_view
 from app.book.ledger import ensure_deposit, ledger_balance, ledger_view
-from app.book.orders import STATUS_REJECTED, order_item, orders_view, submit_order
+from app.book.orders import (
+    STATUS_REJECTED,
+    order_item,
+    orders_view,
+    reconcile_order,
+    submit_order,
+)
 from app.book.portfolio import portfolio_from_book
 from app.book.valuation import PriceMark, value_portfolio
 from app.book.vault import vault_view
@@ -41,6 +48,7 @@ from app.broker.sandbox_payin import DEFAULT_DEPOSIT
 from app.broker.tinkoff import BrokerTokenError
 from app.db import get_db, get_sessionmaker, ping_session
 from app.models import (
+    BacktestExperiment,
     Candle,
     EarningsDay,
     EquitySnapshot,
@@ -67,11 +75,17 @@ from app.risk.kill import apply_kill, is_killed, kill_view
 from app.risk.params_store import (
     MAX_NAME_SHARE,
     MIN_NAME_SHARE,
-    load_name_share,
-    save_name_share,
+    load_risk_policy,
+    load_risk_policy_history,
+    save_risk_policy,
 )
 from app.risk.universe import active_tickers
 from app.strategy.desk import desk_backtest
+from app.strategy.experiments import (
+    experiment_view,
+    new_experiment,
+    result_is_intact,
+)
 from app.strategy.view import sleeve_view, sleeves_view
 from app.universe.cap import resolve_universe_max
 from app.universe.view import universe_view
@@ -327,6 +341,35 @@ def create_app() -> FastAPI:
         rows = list(await session.scalars(stmt))
         return orders_view(rows, status=status)
 
+    class ReconcileOrderBody(BaseModel):
+        broker_status: str = Field(..., min_length=1)
+        filled_qty: int = Field(..., ge=0)
+        reconciliation_id: str = Field(..., min_length=1)
+        source: str = Field(default="broker", min_length=1)
+
+    @app.post("/orders/{order_id}/reconcile")
+    async def reconcile_order_route(
+        order_id: UUID,
+        body: ReconcileOrderBody,
+        session: AsyncSession = Depends(get_db),
+    ) -> dict:
+        row = await session.get(Order, order_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="not found")
+        try:
+            row, changed = reconcile_order(
+                row,
+                broker_status=body.broker_status,
+                filled_qty=body.filled_qty,
+                reconciliation_id=body.reconciliation_id,
+                source=body.source,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        if changed:
+            await session.commit()
+        return {**order_item(row), "reconciled": changed}
+
     @app.get("/ledger")
     async def ledger(session: AsyncSession = Depends(get_db)) -> dict:
         stmt = select(LedgerEntry).order_by(LedgerEntry.ts.desc())
@@ -472,13 +515,20 @@ def create_app() -> FastAPI:
         return allocation_view(ACTIVE_SLEEVES, equity=equity, weights=weights)
 
     class RiskParamsBody(BaseModel):
-        name_share: float = Field(..., gt=0, le=0.5)
+        name_share: float | None = Field(default=None, gt=0, le=0.5)
+        trade_risk_share: float | None = Field(default=None, gt=0, le=1)
+        gross_limit: float | None = Field(default=None, gt=0, le=1)
+        max_drawdown: float | None = Field(default=None, gt=0, le=1)
+        daily_loss: float | None = Field(default=None, gt=0, le=1)
+        expected_version: int | None = Field(default=None, ge=1)
 
     @app.get("/allocation/risk")
     def get_allocation_risk() -> dict:
-        share = load_name_share()
+        policy = load_risk_policy()
+        share = policy.name_share
         return {
-            "name_share": float(share),
+            **policy.snapshot(),
+            "history": load_risk_policy_history(),
             "min_name_share": float(MIN_NAME_SHARE),
             "max_name_share": float(MAX_NAME_SHARE),
             "max_concurrent_names": int(Decimal("1") // share) if share > 0 else 0,
@@ -486,7 +536,12 @@ def create_app() -> FastAPI:
 
     @app.put("/allocation/risk")
     def put_allocation_risk(body: RiskParamsBody) -> dict:
-        share = Decimal(str(body.name_share))
+        current = load_risk_policy()
+        share = (
+            Decimal(str(body.name_share))
+            if body.name_share is not None
+            else current.name_share
+        )
         if share < MIN_NAME_SHARE or share > MAX_NAME_SHARE:
             raise HTTPException(
                 status_code=422,
@@ -494,11 +549,41 @@ def create_app() -> FastAPI:
                     f"name_share must be between {MIN_NAME_SHARE} and {MAX_NAME_SHARE}"
                 ),
             )
-        save_name_share(share)
+        candidate = replace(
+            current,
+            name_share=share,
+            trade_risk_share=(
+                Decimal(str(body.trade_risk_share))
+                if body.trade_risk_share is not None
+                else current.trade_risk_share
+            ),
+            gross_limit=(
+                Decimal(str(body.gross_limit))
+                if body.gross_limit is not None
+                else current.gross_limit
+            ),
+            max_drawdown=(
+                Decimal(str(body.max_drawdown))
+                if body.max_drawdown is not None
+                else current.max_drawdown
+            ),
+            daily_loss=(
+                Decimal(str(body.daily_loss))
+                if body.daily_loss is not None
+                else current.daily_loss
+            ),
+        )
+        try:
+            save_risk_policy(
+                candidate,
+                expected_version=body.expected_version,
+            )
+        except ValueError as exc:
+            status = 409 if str(exc) == "risk_policy_version_conflict" else 422
+            raise HTTPException(status_code=status, detail=str(exc)) from exc
         return get_allocation_risk()
 
-    @app.post("/desk/backtest")
-    def run_desk_backtest(body: DeskBacktestBody) -> dict:
+    def _run_desk_backtest(body: DeskBacktestBody) -> dict:
         try:
             return desk_backtest(sleeve=body.sleeve, ticker=body.ticker)
         except ValueError as exc:
@@ -511,6 +596,57 @@ def create_app() -> FastAPI:
                     "Положите CSV в CANDLE_DIR (например data/candles/SBER.csv)."
                 ),
             ) from exc
+
+    @app.post("/desk/backtest")
+    def run_desk_backtest(body: DeskBacktestBody) -> dict:
+        return _run_desk_backtest(body)
+
+    @app.post("/backtests")
+    async def create_backtest(
+        body: DeskBacktestBody,
+        session: AsyncSession = Depends(get_db),
+    ) -> dict:
+        candidate = new_experiment(_run_desk_backtest(body))
+        existing = await session.scalar(
+            select(BacktestExperiment).where(
+                BacktestExperiment.data_hash == candidate.data_hash,
+                BacktestExperiment.config_hash == candidate.config_hash,
+                BacktestExperiment.code_hash == candidate.code_hash,
+            )
+        )
+        if existing is not None:
+            return {**experiment_view(existing), "deduplicated": True}
+        session.add(candidate)
+        await session.commit()
+        await session.refresh(candidate)
+        return {**experiment_view(candidate), "deduplicated": False}
+
+    @app.get("/backtests/{experiment_id}")
+    async def get_backtest(
+        experiment_id: UUID,
+        session: AsyncSession = Depends(get_db),
+    ) -> dict:
+        row = await session.get(BacktestExperiment, experiment_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="not found")
+        if not result_is_intact(row):
+            raise HTTPException(status_code=409, detail="result hash mismatch")
+        return experiment_view(row)
+
+    @app.get("/backtests/{experiment_id}/trades")
+    async def get_backtest_trades(
+        experiment_id: UUID,
+        session: AsyncSession = Depends(get_db),
+    ) -> dict:
+        row = await session.get(BacktestExperiment, experiment_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="not found")
+        if not result_is_intact(row):
+            raise HTTPException(status_code=409, detail="result hash mismatch")
+        return {
+            "id": str(row.id),
+            "trades": (row.result.get("backtest") or {}).get("trades", []),
+        }
 
     @app.get("/fundamentals")
     async def fundamentals(session: AsyncSession = Depends(get_db)) -> dict:

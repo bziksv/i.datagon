@@ -339,3 +339,30 @@ class EquitySnapshot(Base):
     vault: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False)
     positions_value: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False)
     equity: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False)
+
+
+class BacktestExperiment(Base):
+    __tablename__ = "backtest_experiments"
+    __table_args__ = (
+        UniqueConstraint(
+            "data_hash",
+            "config_hash",
+            "code_hash",
+            name="uq_backtest_experiment_fingerprint",
+        ),
+        Index("ix_backtest_experiments_created_at", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    sleeve: Mapped[str] = mapped_column(String(64), nullable=False)
+    ticker: Mapped[str] = mapped_column(String(32), nullable=False)
+    data_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    config_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    code_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    result_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    result: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )

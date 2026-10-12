@@ -1,6 +1,7 @@
 """Ордер сначала в нашей книге, потом к брокеру."""
 
 from collections.abc import Sequence
+from datetime import UTC, datetime
 from uuid import uuid4
 
 from sqlalchemy import select
@@ -16,7 +17,21 @@ STATUS_FILLED = "filled"
 STATUS_CANCEL_PENDING = "cancel_pending"
 STATUS_UNKNOWN = "unknown"
 STATUS_RECONCILED = "reconciled"
+STATUS_CANCELLED = "cancelled"
 BROKER_UNAVAILABLE = "broker_unavailable"
+RECONCILABLE_STATUSES = frozenset(
+    {
+        STATUS_NEW,
+        "submitted",
+        "acknowledged",
+        STATUS_PARTIALLY_FILLED,
+        STATUS_FILLED,
+        STATUS_CANCEL_PENDING,
+        STATUS_CANCELLED,
+        STATUS_REJECTED,
+        STATUS_UNKNOWN,
+    }
+)
 
 
 def draft_order(request: OrderRequest, *, sleeve: str) -> Order:
@@ -125,6 +140,65 @@ def accept_fill(
         STATUS_FILLED if int(fill.qty) == int(order.qty) else STATUS_PARTIALLY_FILLED
     )
     return fill
+
+
+def mark_cancel_pending(order: Order) -> Order:
+    if order.status not in {STATUS_FILLED, STATUS_CANCELLED, STATUS_REJECTED}:
+        order.status = STATUS_CANCEL_PENDING
+    return order
+
+
+def reconcile_order(
+    order: Order,
+    *,
+    broker_status: str,
+    filled_qty: int,
+    reconciliation_id: str,
+    source: str = "broker",
+    observed_at: datetime | None = None,
+) -> tuple[Order, bool]:
+    """Append one broker observation and resolve ambiguous local state."""
+    status = broker_status.strip().lower()
+    if status not in RECONCILABLE_STATUSES:
+        raise ValueError("unsupported broker status")
+    if not reconciliation_id.strip():
+        raise ValueError("reconciliation_id")
+    if filled_qty < 0 or filled_qty > order.qty:
+        raise ValueError("filled_qty")
+    raw = dict(order.raw or {})
+    events = list(raw.get("reconciliation") or [])
+    if any(row.get("id") == reconciliation_id for row in events):
+        return order, False
+
+    previous = order.status
+    resolved = status
+    if filled_qty == order.qty:
+        resolved = STATUS_FILLED
+    elif filled_qty > 0 and status not in {
+        STATUS_CANCELLED,
+        STATUS_REJECTED,
+    }:
+        resolved = STATUS_PARTIALLY_FILLED
+    order.status = resolved
+    events.append(
+        {
+            "id": reconciliation_id,
+            "source": source,
+            "observed_at": (observed_at or datetime.now(UTC)).isoformat(),
+            "previous_status": previous,
+            "broker_status": status,
+            "filled_qty": filled_qty,
+            "resolved_status": resolved,
+            "outcome": (
+                STATUS_RECONCILED
+                if previous == STATUS_UNKNOWN and resolved != STATUS_UNKNOWN
+                else "observed"
+            ),
+        }
+    )
+    raw["reconciliation"] = events
+    order.raw = raw
+    return order, True
 
 
 async def load_order_by_client_id(

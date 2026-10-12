@@ -193,10 +193,13 @@
 | GET | `/status` | Сводка контура + portfolio |
 | GET | `/portfolio` | Книга |
 | GET | `/capital/summary` | Рыночная оценка, PnL, просадка и качество цен |
+| POST/GET | `/backtests`, `/backtests/{id}` | Сохранённый эксперимент с data/config/code hash |
+| GET | `/backtests/{id}/trades` | Сделки сохранённого эксперимента |
+| POST | `/orders/{id}/reconcile` | Идемпотентная сверка неоднозначного ордера |
 | POST | `/ledger/deposit` | Дотянуть кэш до цели |
 | GET/PUT | `/allocation`, `/allocation/weights` | Веса рукавов |
 | GET | `/allocation/plan` | Прозрачный план капитала |
-| GET/PUT | `/allocation/risk` | `name_share` |
+| GET/PUT | `/allocation/risk` | Версионированная risk policy и история изменений |
 | GET | `/sleeves`, `/sleeves/{name}` | PnL и сигналы |
 | POST | `/desk/backtest` | Прогон CSV |
 | GET | `/fundamentals` | Метрики + скор |

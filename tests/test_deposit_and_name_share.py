@@ -28,16 +28,37 @@ def test_allocation_risk_api(tmp_path, monkeypatch) -> None:
     headers = {"X-App-Token": "secret"}
     got = client.get("/allocation/risk", headers=headers)
     assert got.status_code == 200
+    assert got.json()["version"] == 1
     put = client.put(
         "/allocation/risk",
         headers=headers,
-        json={"name_share": 0.08},
+        json={
+            "name_share": 0.08,
+            "trade_risk_share": 0.01,
+            "gross_limit": 0.8,
+            "max_drawdown": 0.15,
+            "daily_loss": 0.02,
+            "expected_version": 1,
+        },
     )
     assert put.status_code == 200, put.text
     body = put.json()
     assert body["name_share"] == 0.08
+    assert body["version"] == 2
+    assert body["trade_risk_share"] == 0.01
+    assert body["gross_limit"] == 0.8
+    assert body["max_drawdown"] == 0.15
+    assert body["daily_loss"] == 0.02
+    assert body["history"][-1]["version"] == 2
+    assert body["history"][-1]["previous_version"] == 1
     assert body["max_concurrent_names"] == 12
     assert load_name_share() == Decimal("0.08")
+    conflict = client.put(
+        "/allocation/risk",
+        headers=headers,
+        json={"name_share": 0.09, "expected_version": 1},
+    )
+    assert conflict.status_code == 409
 
 
 def test_allocation_risk_rejects_out_of_range(tmp_path, monkeypatch) -> None:

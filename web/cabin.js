@@ -2544,6 +2544,9 @@
           : "") +
         '<p class="source-line">файл ' +
         escapeHtml(result.path || "") +
+        (result.experiment_id
+          ? " · experiment " + escapeHtml(result.experiment_id)
+          : "") +
         "</p>" +
         (lastRows
           ? "<h4>Последние покупки / продажи</h4>" +
@@ -3109,9 +3112,12 @@
         var sleeve = sleeveEl ? sleeveEl.value : "sma_cross";
         var ticker = tickerEl ? tickerEl.value : "SBER";
         runBtn.disabled = true;
-        apiPost("/desk/backtest", { sleeve: sleeve, ticker: ticker })
+        apiPost("/backtests", { sleeve: sleeve, ticker: ticker })
           .then(function (data) {
-            lastDeskBacktest = data;
+            lastDeskBacktest = data.result || data;
+            if (data.id && lastDeskBacktest) {
+              lastDeskBacktest.experiment_id = data.id;
+            }
             renderStrategies();
           })
           .catch(function (err) {

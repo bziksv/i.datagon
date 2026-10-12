@@ -10,6 +10,8 @@ from app.book.orders import (
     STATUS_UNKNOWN,
     accept_fill,
     draft_order,
+    mark_cancel_pending,
+    reconcile_order,
     record_and_submit,
     submit_order,
 )
@@ -145,3 +147,64 @@ def test_distinct_partial_executions_are_accepted_once() -> None:
     assert order.status == STATUS_FILLED
     assert accept_fill(order, [first, second], duplicate) is None
     assert accept_fill(order, [first, second], overflow) is None
+
+
+def test_cancel_pending_and_reconciliation_are_idempotent() -> None:
+    order = draft_order(
+        OrderRequest(
+            ticker="SBER",
+            side="buy",
+            qty=10,
+            type="market",
+            client_order_id="c-reconcile",
+        ),
+        sleeve="manual",
+    )
+    mark_cancel_pending(order)
+    assert order.status == "cancel_pending"
+    order.status = STATUS_UNKNOWN
+
+    row, changed = reconcile_order(
+        order,
+        broker_status="acknowledged",
+        filled_qty=4,
+        reconciliation_id="poll-1",
+        observed_at=datetime(2026, 10, 12, 11, 0, tzinfo=UTC),
+    )
+    assert changed is True
+    assert row.status == STATUS_PARTIALLY_FILLED
+    assert row.raw["reconciliation"][0]["outcome"] == "reconciled"
+
+    _, repeated = reconcile_order(
+        order,
+        broker_status="acknowledged",
+        filled_qty=4,
+        reconciliation_id="poll-1",
+    )
+    assert repeated is False
+    assert len(order.raw["reconciliation"]) == 1
+
+    row, changed = reconcile_order(
+        order,
+        broker_status="filled",
+        filled_qty=10,
+        reconciliation_id="poll-2",
+    )
+    assert changed is True
+    assert row.status == STATUS_FILLED
+    assert len(order.raw["reconciliation"]) == 2
+
+
+def test_reconciliation_rejects_impossible_fill_quantity() -> None:
+    order = draft_order(_req(), sleeve="manual")
+    try:
+        reconcile_order(
+            order,
+            broker_status="filled",
+            filled_qty=2,
+            reconciliation_id="bad",
+        )
+    except ValueError as exc:
+        assert str(exc) == "filled_qty"
+    else:
+        raise AssertionError("expected filled_qty validation")
