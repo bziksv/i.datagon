@@ -11,6 +11,11 @@ from app.models import Fill, Order
 
 STATUS_NEW = "new"
 STATUS_REJECTED = "rejected"
+STATUS_PARTIALLY_FILLED = "partially_filled"
+STATUS_FILLED = "filled"
+STATUS_CANCEL_PENDING = "cancel_pending"
+STATUS_UNKNOWN = "unknown"
+STATUS_RECONCILED = "reconciled"
 BROKER_UNAVAILABLE = "broker_unavailable"
 
 
@@ -46,6 +51,12 @@ def submit_order(
         return reject_order(order, BROKER_UNAVAILABLE)
     try:
         ack = port.post_order(request)
+    except TimeoutError as exc:
+        order.status = STATUS_UNKNOWN
+        raw = dict(order.raw or {})
+        raw["broker_error"] = str(exc) or "broker_timeout"
+        order.raw = raw
+        return order
     except Exception as exc:
         return reject_order(order, str(exc) or "broker_error")
     order.status = ack.status
@@ -78,9 +89,41 @@ def accept_fill(
     existing_fills: Sequence[Fill],
     fill: Fill,
 ) -> Fill | None:
-    """Повтор с тем же client_order_id не даёт второй fill."""
+    """Применяет каждый внешний execution ровно один раз.
+
+    Legacy-события без execution_id сохраняют старое безопасное поведение:
+    один fill на ордер. Новые события поддерживают сколько угодно partial fills.
+    """
+    execution_id = getattr(fill, "execution_id", None) or (fill.raw or {}).get(
+        "execution_id"
+    )
+    if execution_id:
+        if any(
+            (
+                getattr(row, "execution_id", None)
+                or (row.raw or {}).get("execution_id")
+            )
+            == execution_id
+            for row in existing_fills
+        ):
+            return None
+        filled_qty = sum(
+            int(row.qty) for row in existing_fills if row.order_id == order.id
+        )
+        if filled_qty + int(fill.qty) > int(order.qty):
+            return None
+        fill.execution_id = str(execution_id)
+        order.status = (
+            STATUS_FILLED
+            if filled_qty + int(fill.qty) == int(order.qty)
+            else STATUS_PARTIALLY_FILLED
+        )
+        return fill
     if any(row.order_id == order.id for row in existing_fills):
         return None
+    order.status = (
+        STATUS_FILLED if int(fill.qty) == int(order.qty) else STATUS_PARTIALLY_FILLED
+    )
     return fill
 
 

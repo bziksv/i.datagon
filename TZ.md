@@ -43,6 +43,8 @@ UI кабинета — отдельный лист: [TZ-CABIN.md](TZ-CABIN.md) 
 Приёмка оператора: [CABIN-ACCEPTANCE.md](CABIN-ACCEPTANCE.md) (J1–J9).  
 Финальная фиксация: [CABIN-FINAL.md](CABIN-FINAL.md).  
 Персональный контур (фундамент → рекомендации): [TZ-ADVISORY.md](TZ-ADVISORY.md) (блок A+B).
+Модернизация финансового контура, бэктеста, риска и кабины:
+[TZ-MODERNIZATION.md](TZ-MODERNIZATION.md) (M0–M7).
 
 ---
 

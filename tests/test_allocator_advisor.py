@@ -17,7 +17,35 @@ def test_advisor_writes_propose_weights() -> None:
     assert proposal.status == STATUS_PROPOSED
     parsed = ProposeWeights.model_validate(proposal.payload)
     assert sum(row.weight for row in parsed.weights) == 1
+    assert {row.sleeve: row.weight for row in parsed.weights} == {
+        **{sleeve: 0.0 for sleeve in ACTIVE_SLEEVES},
+        "cash": 1.0,
+    }
     assert before == after
+
+
+def test_advisor_allocates_only_to_oos_qualified_sleeves() -> None:
+    evidence = {
+        ACTIVE_SLEEVES[0]: {
+            "trades": 8,
+            "excess_return": 0.04,
+            "insufficient_statistics": False,
+        },
+        ACTIVE_SLEEVES[1]: {
+            "trades": 2,
+            "excess_return": 0.20,
+            "insufficient_statistics": True,
+        },
+    }
+    _, proposal = advise_weights(enabled=True, evidence=evidence)
+    weights = {
+        row["sleeve"]: row["weight"] for row in proposal.payload["weights"]
+    }
+    assert weights == {
+        ACTIVE_SLEEVES[0]: 0.5,
+        **{sleeve: 0.0 for sleeve in ACTIVE_SLEEVES[1:]},
+        "cash": 0.5,
+    }
 
 
 def test_advisor_does_not_apply_weights() -> None:

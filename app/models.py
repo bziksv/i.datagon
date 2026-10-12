@@ -117,6 +117,9 @@ class Order(Base):
 
 class Fill(Base):
     __tablename__ = "fills"
+    __table_args__ = (
+        UniqueConstraint("execution_id", name="uq_fills_execution_id"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
@@ -124,9 +127,18 @@ class Fill(Base):
     order_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("orders.id"), nullable=False
     )
+    execution_id: Mapped[str | None] = mapped_column(
+        String(128), nullable=True
+    )
     qty: Mapped[int] = mapped_column(Integer, nullable=False)
     price: Mapped[float] = mapped_column(Numeric(18, 6), nullable=False)
     commission: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, default=0)
+    realized_gross_pnl: Mapped[float | None] = mapped_column(
+        Numeric(18, 2), nullable=True
+    )
+    realized_net_pnl: Mapped[float | None] = mapped_column(
+        Numeric(18, 2), nullable=True
+    )
     ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     raw: Mapped[dict] = mapped_column(JSONB, nullable=False)
 
@@ -148,6 +160,7 @@ class Position(Base):
     )
     qty: Mapped[int] = mapped_column(Integer, nullable=False)
     avg_price: Mapped[float] = mapped_column(Numeric(18, 6), nullable=False)
+    avg_cost: Mapped[float | None] = mapped_column(Numeric(18, 6), nullable=True)
 
 
 class LedgerEntry(Base):
@@ -279,7 +292,10 @@ class NewsStudy(Base):
     __tablename__ = "news_studies"
     __table_args__ = (
         UniqueConstraint(
-            "news_event_id", "ticker", "horizon_n", name="uq_news_studies_event_ticker_n"
+            "news_event_id",
+            "ticker",
+            "horizon_n",
+            name="uq_news_studies_event_ticker_n",
         ),
     )
 

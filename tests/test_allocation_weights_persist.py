@@ -3,12 +3,11 @@
 from decimal import Decimal
 from pathlib import Path
 
-from fastapi.testclient import TestClient
-
 from app.alloc.view import ACTIVE_SLEEVES, allocation_view
 from app.alloc.weights_store import load_weights, save_weights
 from app.main import create_app
 from app.strategy.desk import desk_backtest
+from fastapi.testclient import TestClient
 
 
 def test_weights_roundtrip(tmp_path, monkeypatch) -> None:
@@ -48,6 +47,22 @@ def test_put_allocation_weights_persists(tmp_path, monkeypatch) -> None:
     by = {row["sleeve"]: row for row in view["sleeves"]}
     assert by["sma_cross"]["weight"] == 0.25
     assert by["ema_scalp"]["weight"] == 0.25
+
+
+def test_explicit_cash_reserve_is_not_renormalized(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("SLEEVE_WEIGHTS_PATH", str(tmp_path / "cash.json"))
+    save_weights(
+        {
+            "sma_cross": 0.5,
+            "donchian_breakout": 0,
+            "rsi_reversion": 0,
+            "ema_scalp": 0,
+            "cash": 0.5,
+        }
+    )
+    got = load_weights(ACTIVE_SLEEVES)
+    assert got["sma_cross"] == Decimal("0.5")
+    assert sum(got.values()) == Decimal("0.5")
 
 
 def test_desk_backtest_api(tmp_path, monkeypatch) -> None:

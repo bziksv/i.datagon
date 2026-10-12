@@ -2,7 +2,7 @@
   "use strict";
 
   /** Версия UI кабинета (этап 30+). Не путать с version API. */
-  var CABIN_UI_VERSION = "v1.2";
+  var CABIN_UI_VERSION = "v1.4";
 
   var ROUTES = [
     {
@@ -24,7 +24,7 @@
       title: "Стратегии",
       hint: "Что делают рукава",
       intro:
-        "Сначала деньги и лимиты (Настройки), потом доли рукавов, затем карточка «как торгует». Прогон на истории — только проверка сигналов по CSV, не сделки.",
+        "Сначала деньги и лимиты (Настройки), потом доли рукавов, затем карточка «как торгует». Прогон моделирует paper-сделки по CSV с исполнением на следующем баре и расходами.",
     },
     {
       id: "companies",
@@ -195,6 +195,7 @@
   var authed = false;
   var lastStatus = null;
   var lastStatusAt = null;
+  var lastCapital = null;
   var lastProposals = [];
   var lastSleeves = [];
   var lastVault = null;
@@ -1021,11 +1022,12 @@
   }
 
   function loadOverviewData(silent) {
-    // Параллельно: proposals и sleeves. Капитал берётся из статуса.
+    // Параллельно: proposals, sleeves и рыночная оценка капитала.
     // Чужие endpoint (лента новостей и т.п.) сюда не входят и Обзор не роняют.
     if (!silent) {
       setBlockLoading("proposals", true);
       setBlockLoading("sleeves", true);
+      setBlockLoading("capital", true);
       if (currentRoute === "overview") renderOverview();
     }
     return Promise.all([
@@ -1044,8 +1046,21 @@
         .finally(function () {
           setBlockLoading("sleeves", false);
         }),
+      apiGet("/capital/summary")
+        .then(function (data) {
+          clearLoadError("capital");
+          return data;
+        })
+        .catch(function (err) {
+          setLoadError("capital", err);
+          return lastCapital;
+        })
+        .finally(function () {
+          setBlockLoading("capital", false);
+        }),
     ]).then(function (parts) {
       lastSleeves = (parts[1] && parts[1].sleeves) || lastSleeves;
+      lastCapital = parts[2] || lastCapital;
       if (currentRoute === "overview") renderOverview();
       return parts;
     });
@@ -1053,9 +1068,7 @@
 
   function renderOverview() {
     var body = byId("page-body");
-    var book = (lastStatus && lastStatus.portfolio) || null;
     var vault = (lastStatus && lastStatus.vault) || {};
-    var bookMissing = !book;
     var waiting = proposedList(lastProposals).slice(0, 3);
     var agentsOn = !!(lastStatus && lastStatus.agents_enabled);
     var killed = !!(lastStatus && lastStatus.killed);
@@ -1153,26 +1166,72 @@
         : '<p class="empty">Пока нет сводки рукавов.</p>';
     }
 
-    var capitalBlock = bookMissing
-      ? '<p class="empty" data-tour="overview-capital-empty">Капитал ещё не пришёл со статуса. Это не «0 ₽» — обновите статус или откройте Портфель.</p>'
+    var capital = lastCapital;
+    var quality = (capital && capital.data_quality) || {};
+    var capitalBlock = isBlockLoading("capital") && !capital
+      ? skeletonHtml(2)
+      : !capital
+      ? '<p class="empty" data-tour="overview-capital-empty">Рыночная оценка ещё не пришла. Это не «0 ₽» — обновите статус.</p>'
       : '<div class="metrics">' +
-        '<div class="metric hero"><div class="k">стоимость счёта</div><div class="v">' +
-        money(book.equity) +
+        '<div class="metric hero"><div class="k">рыночная стоимость счёта</div><div class="v">' +
+        money(capital.equity) +
         '</div></div>' +
         '<div class="metric"><div class="k">свободный кэш</div><div class="v">' +
-        money(book.cash) +
+        money(capital.cash) +
         '</div></div>' +
         '<div class="metric"><div class="k">сейф прибыли</div><div class="v">' +
-        money(book.vault != null ? book.vault : vault.accumulated) +
-        "</div></div></div>";
+        money(capital.vault != null ? capital.vault : vault.accumulated) +
+        '</div></div>' +
+        '<div class="metric"><div class="k">нереализованный PnL</div><div class="v">' +
+        money(capital.unrealized_pnl) +
+        '</div></div>' +
+        '<div class="metric"><div class="k">реализованный PnL net</div><div class="v">' +
+        money(capital.realized_net_pnl) +
+        '</div></div>' +
+        '<div class="metric"><div class="k">торговые расходы</div><div class="v">' +
+        money(capital.trading_costs) +
+        '</div></div>' +
+        '<div class="metric"><div class="k">макс. просадка</div><div class="v">' +
+        (capital.max_drawdown == null
+          ? "—"
+          : escapeHtml((Number(capital.max_drawdown) * 100).toFixed(2) + "%")) +
+        '</div></div>' +
+        '<div class="metric"><div class="k">TWR без пополнений</div><div class="v">' +
+        (capital.twr == null
+          ? "—"
+          : escapeHtml((Number(capital.twr) * 100).toFixed(2) + "%")) +
+        '</div></div>' +
+        '<div class="metric"><div class="k">качество цен</div><div class="v">' +
+        escapeHtml(
+          String(quality.fresh_marks || 0) +
+            "/" +
+            String(quality.positions || 0) +
+            " свежих"
+        ) +
+        "</div></div></div>" +
+        (capital.status !== "complete"
+          ? '<p class="warning-text">Точная equity скрыта: есть устаревшие или отсутствующие цены (' +
+            escapeHtml(
+              String(quality.stale_marks || 0) +
+                " stale, " +
+                String(quality.missing_marks || 0) +
+                " missing"
+            ) +
+            ").</p>"
+          : '<p class="source-line">Оценка ' +
+            escapeHtml(capital.version || "") +
+            " · " +
+            escapeHtml(formatSignalTime(capital.as_of)) +
+            "</p>");
 
     body.innerHTML =
       attention +
       blockErrorHtml("proposals") +
       blockErrorHtml("sleeves") +
+      blockErrorHtml("capital") +
       '<section class="panel" data-tour="overview-capital">' +
       "<h3>Капитал</h3>" +
-      '<p>Paper-книга лаборатории, не баланс приложения брокера.</p>' +
+      '<p>Рыночная paper-оценка. При stale/missing цене точная equity не показывается.</p>' +
       capitalBlock +
       '<a class="panel-link" href="#/portfolio">Подробнее в Портфеле</a>' +
       "</section>" +
@@ -2377,8 +2436,8 @@
       "<li><strong>Таблица рукавов</strong> — кто сколько заработал и какой бюджет.</li>" +
       "<li><strong>Бюджеты</strong> — раздайте % / ₽ между четырьмя стратегиями.</li>" +
       "<li><strong>Как держит портфель</strong> — формула: сколько акций купит при вашем бюджете.</li>" +
-      "<li><strong>Прогон на истории</strong> — внизу, необязательно: проверка сигналов по CSV. " +
-      "<em>Это не сделки и не рекомендации.</em> «Плоско» = день без входа/выхода.</li>" +
+      "<li><strong>Прогон на истории</strong> — paper-бэктест по CSV: сделки на следующем баре, расходы, PnL и просадка. " +
+      "<em>Это модель, не обещание результата и не рекомендация.</em></li>" +
       "</ol></section>"
     );
   }
@@ -2393,6 +2452,10 @@
         "</p>";
     } else if (result) {
       var kinds = result.kinds || {};
+      var backtest = result.backtest || {};
+      var summary = backtest.summary || {};
+      var walkForward = result.walk_forward || {};
+      var oos = walkForward.oos_summary || {};
       var buys = Number(kinds.buy || 0);
       var sells = Number(kinds.sell || 0);
       var flats = Number(kinds.flat || 0);
@@ -2426,22 +2489,59 @@
         })
         .join("");
       resultHtml =
-        '<div class="callout" data-tour="strategies-desk-verdict"><strong>Итог прогона.</strong> ' +
+        '<div class="callout" data-tour="strategies-desk-verdict"><strong>Paper-бэктест.</strong> ' +
         escapeHtml(verdict) +
+        " Сигнал исполняется не раньше открытия следующего бара; учтены комиссия и проскальзывание из конфигурации." +
         "</div>" +
         '<div class="metrics" data-tour="strategies-desk-result">' +
-        '<div class="metric"><div class="k">дней в файле</div><div class="v">' +
-        escapeHtml(String(result.bars)) +
+        '<div class="metric hero"><div class="k">чистый PnL</div><div class="v">' +
+        escapeHtml(money(summary.net_pnl)) +
         "</div></div>" +
-        '<div class="metric hero"><div class="k">покупок</div><div class="v">' +
-        escapeHtml(String(buys)) +
+        '<div class="metric"><div class="k">итоговый капитал</div><div class="v">' +
+        escapeHtml(money(summary.final_equity)) +
         "</div></div>" +
-        '<div class="metric hero"><div class="k">продаж</div><div class="v">' +
-        escapeHtml(String(sells)) +
+        '<div class="metric"><div class="k">макс. просадка</div><div class="v">' +
+        escapeHtml(
+          summary.max_drawdown === null || summary.max_drawdown === undefined
+            ? "—"
+            : (Number(summary.max_drawdown) * 100).toFixed(2) + "%"
+        ) +
         "</div></div>" +
-        '<div class="metric"><div class="k">плоско (шум)</div><div class="v">' +
-        escapeHtml(String(flats)) +
+        '<div class="metric"><div class="k">сделки / расходы</div><div class="v">' +
+        escapeHtml(String(summary.trades || 0) + " / " + money(summary.costs)) +
+        "</div></div>" +
+        '<div class="metric"><div class="k">доходность стратегии</div><div class="v">' +
+        escapeHtml(
+          summary.total_return === null || summary.total_return === undefined
+            ? "—"
+            : (Number(summary.total_return) * 100).toFixed(2) + "%"
+        ) +
+        "</div></div>" +
+        '<div class="metric"><div class="k">против buy & hold</div><div class="v">' +
+        escapeHtml(
+          summary.excess_return === null || summary.excess_return === undefined
+            ? "—"
+            : (Number(summary.excess_return) * 100).toFixed(2) + " п.п."
+        ) +
         "</div></div></div>" +
+        '<div class="callout"><strong>Вневыборочная проверка.</strong> ' +
+        escapeHtml(
+          oos.folds
+            ? String(oos.folds) +
+                " окон, доходность " +
+                (Number(oos.total_return) * 100).toFixed(2) +
+                "%, преимущество к buy & hold " +
+                (Number(oos.excess_return) * 100).toFixed(2) +
+                " п.п."
+            : "Недостаточно данных для OOS-окна."
+        ) +
+        "</div>" +
+        (summary.insufficient_statistics
+          ? '<p class="warning-text">Сделок мало: статистики недостаточно для вывода о преимуществе стратегии.</p>'
+          : "") +
+        (oos.insufficient_statistics
+          ? '<p class="warning-text">OOS-сделок мало: стратегия пока не квалифицирована для выделения капитала.</p>'
+          : "") +
         '<p class="source-line">файл ' +
         escapeHtml(result.path || "") +
         "</p>" +
@@ -2468,9 +2568,9 @@
     }).join("");
     return (
       '<section class="panel" data-tour="strategies-desk">' +
-      "<h3>Прогон на истории (проверка сигналов)</h3>" +
+      "<h3>Paper-бэктест на истории</h3>" +
       "<p>" +
-      "<strong>Не путать с настройками капитала.</strong> Это прогон по локальному CSV: сколько раз рукав дал покупку/продажу. " +
+      "<strong>Не путать с гарантией прибыли.</strong> Это модель сделок по локальному CSV с next-bar исполнением, комиссией, проскальзыванием и benchmark. " +
       "Депозит и % на бумагу — в " +
       '<a class="panel-link" href="#/settings">Настройках</a>.' +
       "</p>" +
@@ -4565,6 +4665,36 @@
     return "";
   }
 
+  function renderRiskChecks(row) {
+    var checks = (row.raw && row.raw.risk_checks) || [];
+    if (!checks.length) return "—";
+    var allowed = checks.filter(function (check) {
+      return check.outcome === "allow";
+    }).length;
+    var items = checks
+      .map(function (check) {
+        var explanation = check.reason
+          ? ": " + riskReasonLabel(check.reason)
+          : "";
+        return (
+          "<li><code>" +
+          escapeHtml(check.code || "check") +
+          "</code> — " +
+          escapeHtml(check.outcome === "deny" ? "запрет" : "разрешено") +
+          escapeHtml(explanation) +
+          "</li>"
+        );
+      })
+      .join("");
+    return (
+      "<details><summary>" +
+      escapeHtml(String(allowed) + "/" + String(checks.length)) +
+      "</summary><ul class=\"risk-check-list\">" +
+      items +
+      "</ul></details>"
+    );
+  }
+
   function renderJournalOrders() {
     var filtered = filterOrders(lastOrders);
     var statuses = [];
@@ -4587,7 +4717,7 @@
         '<table class="data-table" data-tour="journal-orders-table">' +
           "<thead><tr>" +
           "<th>тикер</th><th>время</th><th>сторона</th><th>кол-во</th>" +
-          "<th>статус</th><th>причина</th><th>рукав</th>" +
+          "<th>статус</th><th>причина</th><th>проверки</th><th>рукав</th>" +
           "</tr></thead><tbody>" +
           filtered
             .map(function (row) {
@@ -4611,6 +4741,8 @@
                 escapeHtml(orderStatusLabel(row.status)) +
                 "</td><td>" +
                 escapeHtml(reasonText) +
+                "</td><td>" +
+                renderRiskChecks(row) +
                 "</td><td>" +
                 escapeHtml(SLEEVE_NAMES[row.sleeve] || row.sleeve || "—") +
                 "</td></tr>"

@@ -47,6 +47,10 @@ def load_weights(sleeves: Sequence[str]) -> dict[str, Decimal]:
     total = sum(out.values(), Decimal("0"))
     if total <= 0:
         return fallback
+    if "cash" in raw:
+        if total > 1:
+            return fallback
+        return out
     # нормализуем на случай округления
     return {name: (weight / total) for name, weight in out.items()}
 

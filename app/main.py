@@ -1,9 +1,8 @@
-import hmac
 import logging
 import os
 import time
 from contextlib import asynccontextmanager
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from uuid import UUID
@@ -12,36 +11,40 @@ from fastapi import Depends, FastAPI, HTTPException
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.requests import Request
 
 from app import __version__
+from app.advisory.screener import propose_from_scores
+from app.advisory.view import DISCLAIMER, fundamentals_view, recommendations_view
 from app.agent.approve import apply_approved
 from app.agent.flag import agents_enabled
 from app.agent.proposals import new_proposal, reject_proposal
 from app.agent.schemas import ProposeOrder, ProposeWeights
-from pydantic import BaseModel, Field
 from app.agent.store import get_proposal, list_proposals, proposal_view, remember
-from app.advisory.screener import propose_from_scores
-from app.advisory.view import DISCLAIMER, fundamentals_view, recommendations_view
 from app.alloc.plan import allocation_plan
 from app.alloc.view import ACTIVE_SLEEVES, allocation_view
 from app.alloc.weights_store import save_weights
-from app.strategy.desk import desk_backtest
-from app.book.accounts import TRADING_CASH, VAULT
+from app.book.accounts import TRADING_CASH
 from app.book.drift import drift_view
 from app.book.ledger import ensure_deposit, ledger_balance, ledger_view
-from app.book.orders import order_item, orders_view
+from app.book.orders import STATUS_REJECTED, order_item, orders_view, submit_order
 from app.book.portfolio import portfolio_from_book
+from app.book.valuation import PriceMark, value_portfolio
 from app.book.vault import vault_view
 from app.broker.fake import FakeBroker
+from app.broker.port import OrderRequest
 from app.broker.sandbox_payin import DEFAULT_DEPOSIT
 from app.broker.tinkoff import BrokerTokenError
 from app.db import get_db, get_sessionmaker, ping_session
 from app.models import (
+    Candle,
     EarningsDay,
+    EquitySnapshot,
+    Fill,
     Flag,
     Fundamental,
     Instrument,
@@ -59,6 +62,7 @@ from app.ops.ratelimit import DEFAULT_CABIN_RATE_PER_MIN, IpRateLimit, client_ip
 from app.ops.ready import read_beat, ready_view
 from app.ops.telegram import alert_kill, send_telegram
 from app.risk.calendar import calendar_map
+from app.risk.context import RiskContext
 from app.risk.kill import apply_kill, is_killed, kill_view
 from app.risk.params_store import (
     MAX_NAME_SHARE,
@@ -67,6 +71,7 @@ from app.risk.params_store import (
     save_name_share,
 )
 from app.risk.universe import active_tickers
+from app.strategy.desk import desk_backtest
 from app.strategy.view import sleeve_view, sleeves_view
 from app.universe.cap import resolve_universe_max
 from app.universe.view import universe_view
@@ -271,6 +276,46 @@ def create_app() -> FastAPI:
         positions = list(await session.scalars(select(Position)))
         return portfolio_from_book(entries, positions)
 
+    @app.get("/capital/summary")
+    async def capital_summary(session: AsyncSession = Depends(get_db)) -> dict:
+        entries = list(await session.scalars(select(LedgerEntry)))
+        positions = list(await session.scalars(select(Position)))
+        fills = list(await session.scalars(select(Fill)))
+        snapshots = list(await session.scalars(select(EquitySnapshot)))
+        instrument_ids = {row.instrument_id for row in positions}
+        candles = (
+            list(
+                await session.scalars(
+                    select(Candle).where(Candle.instrument_id.in_(instrument_ids))
+                )
+            )
+            if instrument_ids
+            else []
+        )
+        latest: dict[UUID, Candle] = {}
+        for candle in candles:
+            previous = latest.get(candle.instrument_id)
+            if previous is None or candle.ts > previous.ts:
+                latest[candle.instrument_id] = candle
+        marks = {
+            instrument_id: PriceMark(
+                instrument_id=instrument_id,
+                price=Decimal(str(candle.c)),
+                as_of=candle.ts,
+                source=f"candle:{candle.tf}",
+            )
+            for instrument_id, candle in latest.items()
+        }
+        stale_hours = int(os.environ.get("VALUATION_STALE_HOURS", "36"))
+        return value_portfolio(
+            entries,
+            positions,
+            marks,
+            fills=fills,
+            snapshots=snapshots,
+            stale_after=timedelta(hours=stale_hours),
+        )
+
     @app.get("/orders")
     async def orders(
         status: str | None = None,
@@ -306,7 +351,7 @@ def create_app() -> FastAPI:
             ),
             TRADING_CASH,
         )
-        balance = await ensure_deposit(session, target)
+        await ensure_deposit(session, target)
         await session.commit()
         positions = list(await session.scalars(select(Position)))
         entries = list(await session.scalars(select(LedgerEntry)))
@@ -401,14 +446,26 @@ def create_app() -> FastAPI:
         body: ProposeWeights,
         session: AsyncSession = Depends(get_db),
     ) -> dict:
-        unknown = [row.sleeve for row in body.weights if row.sleeve not in ACTIVE_SLEEVES]
+        unknown = [
+            row.sleeve
+            for row in body.weights
+            if row.sleeve not in ACTIVE_SLEEVES
+        ]
         if unknown:
-            raise HTTPException(status_code=422, detail="unknown sleeve: " + ", ".join(unknown))
+            raise HTTPException(
+                status_code=422,
+                detail="unknown sleeve: " + ", ".join(unknown),
+            )
         missing = [
-            name for name in ACTIVE_SLEEVES if name not in {r.sleeve for r in body.weights}
+            name
+            for name in ACTIVE_SLEEVES
+            if name not in {r.sleeve for r in body.weights}
         ]
         if missing:
-            raise HTTPException(status_code=422, detail="missing sleeve: " + ", ".join(missing))
+            raise HTTPException(
+                status_code=422,
+                detail="missing sleeve: " + ", ".join(missing),
+            )
         weights = {row.sleeve: Decimal(str(row.weight)) for row in body.weights}
         save_weights(weights)
         equity = await _book_equity(session)
@@ -657,18 +714,200 @@ def create_app() -> FastAPI:
         flags = list(await session.scalars(select(Flag)))
         earnings = list(await session.scalars(select(EarningsDay)))
         entries = list(await session.scalars(select(LedgerEntry)))
-        equity = ledger_balance(entries, TRADING_CASH) + ledger_balance(entries, VAULT)
-        stop = (row.payload or {}).get("stop")
+        positions = list(await session.scalars(select(Position)))
+        orders = list(await session.scalars(select(Order)))
+        fills = list(await session.scalars(select(Fill)))
+        candles = list(await session.scalars(select(Candle)))
+        snapshots = list(await session.scalars(select(EquitySnapshot)))
+        now = datetime.now(UTC)
+        latest: dict[UUID, Candle] = {}
+        for candle in candles:
+            previous = latest.get(candle.instrument_id)
+            if previous is None or candle.ts > previous.ts:
+                latest[candle.instrument_id] = candle
+        marks = {
+            instrument_id: PriceMark(
+                instrument_id=instrument_id,
+                price=Decimal(str(candle.c)),
+                as_of=candle.ts,
+                source=f"candle:{candle.tf}",
+            )
+            for instrument_id, candle in latest.items()
+        }
+        valuation = value_portfolio(
+            entries,
+            positions,
+            marks,
+            snapshots=snapshots,
+            now=now,
+            stale_after=timedelta(
+                hours=int(os.environ.get("VALUATION_STALE_HOURS", "36"))
+            ),
+        )
+        payload = row.payload or {}
+        ticker = str(payload.get("ticker") or "").upper()
+        sleeve = str(payload.get("sleeve") or "")
+        instrument_by_ticker = {item.ticker: item for item in instruments}
+        instrument = instrument_by_ticker.get(ticker)
+        mark = marks.get(instrument.id) if instrument is not None else None
+        today_snapshots = sorted(
+            (
+                snapshot
+                for snapshot in snapshots
+                if snapshot.ts.astimezone(UTC).date() == now.date()
+            ),
+            key=lambda snapshot: snapshot.ts,
+        )
+        risk_context = None
+        if (
+            mark is not None
+            and valuation["status"] == "complete"
+            and valuation["equity"] is not None
+            and today_snapshots
+        ):
+            active_statuses = {
+                "new",
+                "submitted",
+                "acknowledged",
+                "partially_filled",
+                "cancel_pending",
+                "unknown",
+            }
+            filled_by_order: dict[UUID, int] = {}
+            for fill in fills:
+                filled_by_order[fill.order_id] = (
+                    filled_by_order.get(fill.order_id, 0) + fill.qty
+                )
+
+            def remaining(order: Order) -> Decimal:
+                return Decimal(max(order.qty - filled_by_order.get(order.id, 0), 0))
+
+            name_existing = sum(
+                (
+                    Decimal(str(position.qty)) * mark.price
+                    for position in positions
+                    if position.instrument_id == instrument.id
+                ),
+                Decimal("0"),
+            )
+            name_existing += sum(
+                (
+                    remaining(order) * mark.price
+                    for order in orders
+                    if order.ticker == ticker
+                    and order.side == "buy"
+                    and order.status in active_statuses
+                ),
+                Decimal("0"),
+            )
+            sleeve_existing = sum(
+                (
+                    Decimal(str(position.qty))
+                    * marks[position.instrument_id].price
+                    for position in positions
+                    if position.sleeve == sleeve
+                    and position.instrument_id in marks
+                ),
+                Decimal("0"),
+            )
+            sleeve_existing += sum(
+                (
+                    remaining(order)
+                    * marks[instrument_by_ticker[order.ticker].id].price
+                    for order in orders
+                    if order.sleeve == sleeve
+                    and order.side == "buy"
+                    and order.status in active_statuses
+                    and order.ticker in instrument_by_ticker
+                    and instrument_by_ticker[order.ticker].id in marks
+                ),
+                Decimal("0"),
+            )
+            gross_existing = sum(
+                (
+                    abs(Decimal(str(position.qty)))
+                    * marks[position.instrument_id].price
+                    for position in positions
+                    if position.instrument_id in marks
+                ),
+                Decimal("0"),
+            )
+            gross_existing += sum(
+                (
+                    remaining(order)
+                    * marks[instrument_by_ticker[order.ticker].id].price
+                    for order in orders
+                    if order.status in active_statuses
+                    and order.ticker in instrument_by_ticker
+                    and instrument_by_ticker[order.ticker].id in marks
+                ),
+                Decimal("0"),
+            )
+            risk_context = RiskContext(
+                price=mark.price,
+                price_as_of=mark.as_of,
+                equity=Decimal(str(valuation["equity"])),
+                start_equity=Decimal(str(today_snapshots[0].equity)),
+                stop_price=Decimal(str(payload.get("stop") or 0)),
+                name_existing=name_existing,
+                sleeve_existing=sleeve_existing,
+                gross_existing=gross_existing,
+                max_drawdown=Decimal(
+                    str(valuation["max_drawdown"] or 0)
+                ),
+                broker_healthy=not any(
+                    order.status == "unknown" for order in orders
+                ),
+                observed_at=now,
+                max_price_age=timedelta(
+                    hours=int(os.environ.get("VALUATION_STALE_HOURS", "36"))
+                ),
+            )
         row, order, weights = apply_approved(
             row,
             tickers=active_tickers(members, instruments),
-            port=FakeBroker(),
+            port=None,
             flags=flags,
             calendar=calendar_map(earnings),
             day=date.today(),
-            equity=equity if equity > 0 else None,
-            price=Decimal(str(stop)) if stop is not None else None,
+            context=risk_context,
+            defer_submit=True,
         )
+        if order is not None:
+            session.add(order)
+            await session.commit()
+            if order.status != STATUS_REJECTED:
+                request = OrderRequest(
+                    ticker=order.ticker,
+                    side=order.side,
+                    qty=order.qty,
+                    type=order.type,
+                    client_order_id=order.client_order_id,
+                )
+                submit_order(order, FakeBroker(), request)
+                raw = dict(order.raw or {})
+                checks = list(raw.get("risk_checks") or [])
+                checks.append(
+                    {
+                        "code": "broker_submit",
+                        "outcome": (
+                            "deny"
+                            if order.status == STATUS_REJECTED
+                            else "allow"
+                        ),
+                        "reason": raw.get("reject_reason")
+                        or raw.get("broker_error"),
+                        "explanation": raw.get("reject_reason")
+                        or raw.get("broker_error")
+                        or "broker_acknowledged",
+                        "inputs": {
+                            "client_order_id": order.client_order_id,
+                        },
+                    }
+                )
+                raw["risk_checks"] = checks
+                order.raw = raw
+                await session.commit()
         # веса уже сохранены в apply_approved → save_weights
         return proposal_view(
             row,

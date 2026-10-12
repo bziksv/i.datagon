@@ -3,10 +3,17 @@
 from __future__ import annotations
 
 import os
+from decimal import Decimal
 from pathlib import Path
 
 from app.alloc.view import ACTIVE_SLEEVES
-from app.strategy.backtest import load_bars, replay
+from app.strategy.backtest import (
+    BacktestConfig,
+    load_bars,
+    replay,
+    run_backtest,
+    run_walk_forward,
+)
 from app.strategy.config import (
     donchian_from_config,
     rsi_from_config,
@@ -67,10 +74,51 @@ def desk_backtest(
     bars = load_bars(path)
     strategy = strategy_for(name, env)
     signals = replay(strategy, symbol, bars)
+    config_values = env if env is not None else dict(os.environ)
+    tf = getattr(strategy, "timeframe", "1d")
+    backtest_config = BacktestConfig(
+        initial_cash=Decimal(config_values.get("BACKTEST_INITIAL_CASH", "1000000")),
+        position_share=Decimal(
+            config_values.get("BACKTEST_POSITION_SHARE", "0.10")
+        ),
+        commission_bps=Decimal(config_values.get("BACKTEST_COMMISSION_BPS", "5")),
+        slippage_bps=Decimal(config_values.get("BACKTEST_SLIPPAGE_BPS", "5")),
+        lot=int(config_values.get("BACKTEST_LOT", "1")),
+        periods_per_year=(
+            int(config_values.get("BACKTEST_PERIODS_PER_YEAR", "6552"))
+            if tf == "15m"
+            else int(config_values.get("BACKTEST_PERIODS_PER_YEAR", "252"))
+        ),
+    )
+    report = run_backtest(
+        strategy,
+        symbol,
+        bars,
+        config=backtest_config,
+    )
+    oos_share = Decimal(config_values.get("BACKTEST_OOS_SHARE", "0.30"))
+    if not Decimal("0") < oos_share < Decimal("1"):
+        raise ValueError("BACKTEST_OOS_SHARE must be in (0, 1)")
+    oos_bars = max(int(Decimal(len(bars)) * oos_share), 1)
+    train_bars = len(bars) - oos_bars
+    walk_forward = (
+        run_walk_forward(
+            lambda: strategy_for(name, env),
+            symbol,
+            bars,
+            train_bars=train_bars,
+            test_bars=max(
+                int(config_values.get("BACKTEST_OOS_FOLD_BARS", str(oos_bars))),
+                1,
+            ),
+            config=backtest_config,
+        )
+        if train_bars >= 1
+        else None
+    )
     kinds: dict[str, int] = {}
     for row in signals:
         kinds[row.kind] = kinds.get(row.kind, 0) + 1
-    tf = getattr(strategy, "timeframe", "1d")
     actionable = [row for row in signals if row.kind != "flat"]
     tail = actionable[-12:] if actionable else signals[-12:]
     return {
@@ -81,6 +129,8 @@ def desk_backtest(
         "signals": len(signals),
         "kinds": kinds,
         "path": str(path),
+        "backtest": report,
+        "walk_forward": walk_forward,
         "last": [
             {
                 "ts": row.ts.isoformat() if row.ts else None,

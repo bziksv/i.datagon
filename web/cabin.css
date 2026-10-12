@@ -679,6 +679,18 @@ button.danger:hover {
   margin: 0.35rem 0 0;
 }
 
+.warning-text {
+  color: var(--warn);
+  font-weight: 700;
+}
+
+.risk-check-list {
+  margin: 0.5rem 0 0;
+  padding-left: 1.1rem;
+  min-width: 15rem;
+  font-size: 0.8rem;
+}
+
 .skeleton {
   display: grid;
   gap: 0.55rem;

@@ -1,4 +1,6 @@
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime
+from decimal import Decimal
 from uuid import uuid4
 
 from app.agent.approve import apply_approved
@@ -7,7 +9,8 @@ from app.book.orders import STATUS_REJECTED
 from app.broker.fake import FakeBroker
 from app.db import get_db
 from app.main import create_app
-from app.models import Instrument, UniverseMember
+from app.models import Candle, EquitySnapshot, Instrument, LedgerEntry, UniverseMember
+from app.risk.context import RiskContext
 from fastapi.testclient import TestClient
 
 ORDER = {
@@ -18,6 +21,16 @@ ORDER = {
     "reason": "sma",
     "sleeve": "sma_cross",
 }
+
+
+def _context() -> RiskContext:
+    return RiskContext(
+        price=Decimal("250"),
+        price_as_of=datetime.now(UTC),
+        equity=Decimal("1000000"),
+        start_equity=Decimal("1000000"),
+        stop_price=Decimal("240"),
+    )
 
 
 def test_without_approve_nothing_moves() -> None:
@@ -40,7 +53,12 @@ def test_without_approve_nothing_moves() -> None:
 def test_approve_order_goes_through_gate() -> None:
     port = FakeBroker()
     row = new_proposal("order", ORDER)
-    row, order, weights = apply_approved(row, tickers=["SBER"], port=port)
+    row, order, weights = apply_approved(
+        row,
+        tickers=["SBER"],
+        port=port,
+        context=_context(),
+    )
     assert row.status == STATUS_APPROVED
     assert order is not None
     assert order.broker_order_id
@@ -90,7 +108,7 @@ def test_list_proposals_api(monkeypatch) -> None:
 
 
 class _UniverseSession:
-    def __init__(self) -> None:
+    def __init__(self, *, include_snapshot: bool = True) -> None:
         inst = Instrument(
             id=uuid4(),
             ticker="SBER",
@@ -105,6 +123,41 @@ class _UniverseSession:
             reason="test",
             active=True,
         )
+        now = datetime.now(UTC)
+        self._candle = Candle(
+            id=uuid4(),
+            instrument_id=inst.id,
+            tf="1d",
+            ts=now,
+            o=260,
+            h=261,
+            low=259,
+            c=260,
+            v=1000,
+        )
+        self._entry = LedgerEntry(
+            id=uuid4(),
+            account_kind="trading_cash",
+            amount=1_000_000,
+            reason="deposit",
+            ts=now,
+        )
+        self._snapshot = EquitySnapshot(
+            id=uuid4(),
+            ts=now,
+            trading_cash=1_000_000,
+            vault=0,
+            positions_value=0,
+            equity=1_000_000,
+        )
+        self._include_snapshot = include_snapshot
+        self.added = []
+
+    def add(self, row) -> None:
+        self.added.append(row)
+
+    async def commit(self) -> None:
+        return None
 
     async def scalars(self, stmt):
         entity = stmt.column_descriptions[0].get("entity")
@@ -112,11 +165,21 @@ class _UniverseSession:
             return [self._inst]
         if entity is UniverseMember:
             return [self._member]
+        if entity is Candle:
+            return [self._candle]
+        if entity is LedgerEntry:
+            return [self._entry]
+        if entity is EquitySnapshot:
+            return [self._snapshot] if self._include_snapshot else []
         return []
 
 
 async def _universe_db() -> AsyncIterator[_UniverseSession]:
     yield _UniverseSession()
+
+
+async def _universe_without_snapshot() -> AsyncIterator[_UniverseSession]:
+    yield _UniverseSession(include_snapshot=False)
 
 
 def test_approve_api(monkeypatch) -> None:
@@ -139,3 +202,23 @@ def test_approve_api(monkeypatch) -> None:
     assert approved.status_code == 200
     assert approved.json()["status"] == "approved"
     assert approved.json()["order"]["ticker"] == "SBER"
+
+
+def test_approve_api_fails_closed_without_day_start_snapshot(monkeypatch) -> None:
+    monkeypatch.setenv("APP_AUTH_TOKEN", "secret")
+    app = create_app()
+    app.dependency_overrides[get_db] = _universe_without_snapshot
+    client = TestClient(app)
+    created = client.post(
+        "/proposals/order",
+        headers={"X-App-Token": "secret"},
+        json=ORDER,
+    )
+    approved = client.post(
+        f"/proposals/{created.json()['id']}/approve",
+        headers={"X-App-Token": "secret"},
+    )
+    assert approved.status_code == 200
+    assert approved.json()["status"] == "proposed"
+    assert approved.json()["order"]["status"] == STATUS_REJECTED
+    assert approved.json()["order"]["raw"]["reject_reason"] == "risk_context_missing"

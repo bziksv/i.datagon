@@ -84,3 +84,31 @@ def test_two_partial_fills_recalc_qty_and_avg() -> None:
     assert len(entries) == 2
     assert Decimal(str(entries[0].amount)) == Decimal("-400")
     assert Decimal(str(entries[1].amount)) == Decimal("-660")
+
+
+def test_realized_net_pnl_includes_buy_and_sell_commissions() -> None:
+    instrument_id = uuid4()
+    buy = _fill(100, "1000")
+    buy.commission = Decimal("100")
+    position, _ = apply_fill(
+        None,
+        buy,
+        sleeve="manual",
+        instrument_id=instrument_id,
+        side="buy",
+    )
+    assert Decimal(str(position.avg_price)) == Decimal("1000")
+    assert Decimal(str(position.avg_cost)) == Decimal("1001")
+
+    sell = _fill(100, "1030")
+    sell.commission = Decimal("100")
+    closed, _ = apply_fill(
+        position,
+        sell,
+        sleeve="manual",
+        instrument_id=instrument_id,
+        side="sell",
+    )
+    assert closed.qty == 0
+    assert Decimal(str(sell.realized_gross_pnl)) == Decimal("3000")
+    assert Decimal(str(sell.realized_net_pnl)) == Decimal("2800")
