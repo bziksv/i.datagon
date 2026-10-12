@@ -13,7 +13,7 @@ TZ_CABIN = ROOT / "TZ-CABIN.md"
 def test_cabin_ui_version_in_help() -> None:
     js = JS.read_text()
     assert "CABIN_UI_VERSION" in js
-    assert 'CABIN_UI_VERSION = "v3.0.6"' in js
+    assert 'CABIN_UI_VERSION = "v3.0.7"' in js
     assert "help-version" in js
     assert "help-cabin-version" in js
     assert "кабинет" in js

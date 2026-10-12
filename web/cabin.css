@@ -1873,6 +1873,72 @@ pre.payload {
   margin: 0.55rem 0 0.85rem;
 }
 
+.desk-batch-pick {
+  margin: 0.35rem 0 1rem;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.desk-check-group {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--bg-soft);
+  padding: 0.55rem 0.7rem 0.65rem;
+}
+
+.desk-check-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.45rem;
+  margin-bottom: 0.45rem;
+}
+
+.desk-check-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.desk-check-actions {
+  display: inline-flex;
+  gap: 0.35rem;
+}
+
+button.ghost.compact {
+  padding: 0.2rem 0.45rem;
+  font-size: 0.78rem;
+}
+
+.desk-check-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.7rem;
+}
+
+.desk-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.86rem;
+  color: var(--text);
+  cursor: pointer;
+  user-select: none;
+}
+
+.desk-check input {
+  margin: 0;
+}
+
+.desk-batch-actions {
+  align-items: center;
+}
+
+.desk-batch-actions .source-line {
+  margin: 0;
+}
+
 .field.compact {
   margin-bottom: 0;
   min-width: 8.5rem;

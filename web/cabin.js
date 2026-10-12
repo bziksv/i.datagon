@@ -2,7 +2,7 @@
   "use strict";
 
   /** Версия UI кабинета (этап 30+). Не путать с version API. */
-  var CABIN_UI_VERSION = "v3.0.6";
+  var CABIN_UI_VERSION = "v3.0.7";
 
   var ROUTES = [
     {
@@ -134,6 +134,8 @@
   var lastDeskBacktest = null;
   var lastDeskBatch = null;
   var lastDeskBatchOpen = null;
+  var lastDeskBatchSleeves = null;
+  var lastDeskBatchTickers = null;
   var lastDeskSleeve = "sma_cross";
   var lastDeskTicker = "SBER";
   var lastDeskTickers = [];
@@ -2738,6 +2740,65 @@
     });
   }
 
+  function deskBatchSleeveSelection() {
+    if (lastDeskBatchSleeves == null) {
+      return ACTIVE_SLEEVE_IDS.slice();
+    }
+    return lastDeskBatchSleeves.filter(function (id) {
+      return ACTIVE_SLEEVE_IDS.indexOf(id) >= 0;
+    });
+  }
+
+  function deskBatchTickerSelection(available) {
+    var pool = available && available.length ? available : [];
+    if (lastDeskBatchTickers == null) {
+      return pool.slice();
+    }
+    return lastDeskBatchTickers.filter(function (ticker) {
+      return pool.indexOf(ticker) >= 0;
+    });
+  }
+
+  function renderDeskCheckGroup(kind, title, items, selected, labelFn) {
+    var boxes = items
+      .map(function (item) {
+        var checked = selected.indexOf(item) >= 0;
+        return (
+          '<label class="desk-check">' +
+          '<input type="checkbox" data-desk-check="' +
+          escapeHtml(kind) +
+          '" value="' +
+          escapeHtml(item) +
+          '"' +
+          (checked ? " checked" : "") +
+          "> " +
+          escapeHtml(labelFn ? labelFn(item) : item) +
+          "</label>"
+        );
+      })
+      .join("");
+    return (
+      '<div class="desk-check-group" data-desk-group="' +
+      escapeHtml(kind) +
+      '">' +
+      '<div class="desk-check-head">' +
+      '<span class="desk-check-title">' +
+      escapeHtml(title) +
+      "</span>" +
+      '<span class="desk-check-actions">' +
+      '<button type="button" class="ghost compact" data-desk-check-all="' +
+      escapeHtml(kind) +
+      '">все</button>' +
+      '<button type="button" class="ghost compact" data-desk-check-none="' +
+      escapeHtml(kind) +
+      '">сбросить</button>' +
+      "</span></div>" +
+      '<div class="desk-check-list">' +
+      boxes +
+      "</div></div>"
+    );
+  }
+
   function deskPeriodLabel(fromIso, toIso, bars, tf) {
     var from = deskDateLabel(fromIso);
     var to = deskDateLabel(toIso);
@@ -3120,6 +3181,24 @@
         );
       })
       .join("");
+    var batchSleeves = deskBatchSleeveSelection();
+    var batchTickers = deskBatchTickerSelection(tickers);
+    var batchCount = batchSleeves.length * batchTickers.length;
+    var sleeveChecks = renderDeskCheckGroup(
+      "sleeve",
+      "Рукава для пакета (" + batchSleeves.length + "/" + ACTIVE_SLEEVE_IDS.length + ")",
+      ACTIVE_SLEEVE_IDS,
+      batchSleeves,
+      function (id) {
+        return SLEEVE_NAMES[id] || id;
+      }
+    );
+    var tickerChecks = renderDeskCheckGroup(
+      "ticker",
+      "Тикеры для пакета (" + batchTickers.length + "/" + tickers.length + ")",
+      tickers,
+      batchTickers
+    );
     return (
       '<section class="panel" data-tour="strategies-desk">' +
       "<h3>Прогон на истории</h3>" +
@@ -3127,21 +3206,35 @@
       "<strong>Не путать с гарантией прибыли.</strong> Модель сделок по локальному файлу свечей (обычно с биржи MOEX, не из Тинькофф API): исполнение на открытии следующего бара, с комиссией и проскальзыванием, сравнение с «купить и держать». " +
       "Даты не выбираются вручную — берётся весь файл тикера (по умолчанию ~2 года дневок). Сейчас доступно тикеров: " +
       escapeHtml(String(tickers.length)) +
-      ". «Прогнать все» прогоняет все рукава × все тикеры (~" +
-      escapeHtml(String(tickers.length * ACTIVE_SLEEVE_IDS.length)) +
-      " прогонов). Депозит и % на бумагу — в " +
+      ". Один прогон — пара из списков ниже; пакет — отмеченные галочками рукава и тикеры. Депозит и % на бумагу — в " +
       '<a class="panel-link" href="#/settings">Настройках</a>.' +
       "</p>" +
       '<div class="filters" data-tour="strategies-desk-form">' +
-      '<label class="field compact">рукав<select id="desk-sleeve">' +
+      '<label class="field compact">один рукав<select id="desk-sleeve">' +
       sleeveOpts +
       "</select></label>" +
-      '<label class="field compact">тикер<select id="desk-ticker">' +
+      '<label class="field compact">один тикер<select id="desk-ticker">' +
       tickerOpts +
       "</select></label>" +
-      '<button type="button" class="primary" id="desk-run">Прогнать на истории</button>' +
-      '<button type="button" id="desk-run-all">Прогнать все</button>' +
+      '<button type="button" class="primary" id="desk-run">Прогнать одну пару</button>' +
       "</div>" +
+      '<div class="desk-batch-pick" data-tour="strategies-desk-pick">' +
+      sleeveChecks +
+      tickerChecks +
+      '<div class="filters desk-batch-actions">' +
+      '<button type="button" class="primary" id="desk-run-all"' +
+      (batchCount ? "" : " disabled") +
+      ">Прогнать выбранные (" +
+      escapeHtml(String(batchCount)) +
+      ")</button>" +
+      '<span class="source-line" id="desk-batch-pick-hint">' +
+      (batchCount
+        ? escapeHtml(String(batchSleeves.length)) +
+          " рукав(а) × " +
+          escapeHtml(String(batchTickers.length)) +
+          " тикер(ов)"
+        : "Отметьте хотя бы один рукав и один тикер") +
+      "</span></div></div>" +
       batchHtml +
       resultHtml +
       "</section>"
@@ -3723,12 +3816,82 @@
           });
       });
     }
+    function readDeskChecks(kind) {
+      return Array.prototype.slice
+        .call(
+          document.querySelectorAll(
+            'input[data-desk-check="' + kind + '"]:checked'
+          )
+        )
+        .map(function (el) {
+          return String(el.value || "").trim();
+        })
+        .filter(Boolean);
+    }
+    function syncDeskPickFromDom() {
+      lastDeskBatchSleeves = readDeskChecks("sleeve");
+      lastDeskBatchTickers = readDeskChecks("ticker").map(function (ticker) {
+        return ticker.toUpperCase();
+      });
+    }
+    var pickRoot = document.querySelector('[data-tour="strategies-desk-pick"]');
+    if (pickRoot) {
+      pickRoot.addEventListener("change", function (ev) {
+        var input = ev.target;
+        if (
+          !input ||
+          !input.getAttribute ||
+          !input.getAttribute("data-desk-check")
+        ) {
+          return;
+        }
+        syncDeskPickFromDom();
+        renderStrategies();
+      });
+      pickRoot.addEventListener("click", function (ev) {
+        var btn = ev.target && ev.target.closest
+          ? ev.target.closest("[data-desk-check-all], [data-desk-check-none]")
+          : null;
+        if (!btn) return;
+        var kind =
+          btn.getAttribute("data-desk-check-all") ||
+          btn.getAttribute("data-desk-check-none");
+        var all = !!btn.getAttribute("data-desk-check-all");
+        if (kind === "sleeve") {
+          lastDeskBatchSleeves = all ? ACTIVE_SLEEVE_IDS.slice() : [];
+        } else if (kind === "ticker") {
+          var available = lastDeskTickers && lastDeskTickers.length
+            ? lastDeskTickers.slice()
+            : [];
+          lastDeskBatchTickers = all ? available : [];
+        }
+        renderStrategies();
+      });
+    }
     if (runAllBtn) {
       runAllBtn.addEventListener("click", function () {
+        syncDeskPickFromDom();
+        var sleeves = deskBatchSleeveSelection();
+        var tickers = deskBatchTickerSelection(
+          lastDeskTickers && lastDeskTickers.length
+            ? lastDeskTickers
+            : [lastDeskTicker || "SBER"]
+        );
+        if (!sleeves.length || !tickers.length) {
+          lastDeskBatch = {
+            error: "Отметьте хотя бы один рукав и один тикер",
+          };
+          renderStrategies();
+          return;
+        }
         runAllBtn.disabled = true;
         if (runBtn) runBtn.disabled = true;
         runAllBtn.textContent = "Прогоняю…";
-        apiPost("/desk/backtests/batch", {}, { timeoutMs: FETCH_TIMEOUT_BATCH_MS })
+        apiPost(
+          "/desk/backtests/batch",
+          { sleeves: sleeves, tickers: tickers },
+          { timeoutMs: FETCH_TIMEOUT_BATCH_MS }
+        )
           .then(function (data) {
             lastDeskBatch = data;
             lastDeskBatchOpen = null;

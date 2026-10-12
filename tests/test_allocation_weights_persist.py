@@ -175,6 +175,19 @@ def test_desk_backtest_batch_api(tmp_path, monkeypatch) -> None:
         assert "entry_price" in trade
         assert "notional" in trade
         assert "net_pnl" in trade
+    subset = client.post(
+        "/desk/backtests/batch",
+        headers={"X-App-Token": "secret"},
+        json={
+            "sleeves": ["sma_cross", "overnight_bounce"],
+            "tickers": ["SBER"],
+        },
+    )
+    assert subset.status_code == 200, subset.text
+    picked = subset.json()
+    assert picked["count"] == 2
+    assert picked["tickers"] == ["SBER"]
+    assert set(picked["sleeves"]) == {"sma_cross", "overnight_bounce"}
 
 
 def test_cabin_strategies_budget_and_desk_ui() -> None:
@@ -199,16 +212,19 @@ def test_cabin_strategies_budget_and_desk_ui() -> None:
     assert "/allocation/plan" in js
     assert 'apiPut("/allocation/weights"' in js
     assert 'apiPost("/backtests"' in js
-    assert 'apiPost("/desk/backtests/batch"' in js
+    assert '"/desk/backtests/batch"' in js
     assert "FETCH_TIMEOUT_BATCH_MS" in js
     assert 'id="desk-run-all"' in js
-    assert "Прогнать все" in js
+    assert "Прогнать выбранные" in js
     assert "strategies-desk-batch" in js
+    assert "strategies-desk-pick" in js
     assert "desk-batch-row" in js
     assert "trade_rows" in js
     assert "сумма покупки" in js
+    assert "data-desk-check" in js
+    assert "sleeves: sleeves, tickers: tickers" in js
     assert "Сохранить бюджеты" in js
-    assert "Прогнать на истории" in js
+    assert "Прогнать одну пару" in js
     assert "Секторов нет" in js
     assert "data-sleeve-capital" in js
     assert "rsi_reversion" in js
