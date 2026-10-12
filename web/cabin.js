@@ -2,7 +2,7 @@
   "use strict";
 
   /** Версия UI кабинета (этап 30+). Не путать с version API. */
-  var CABIN_UI_VERSION = "v3.3.3";
+  var CABIN_UI_VERSION = "v3.3.4";
 
   var ROUTES = [
     {
@@ -3503,25 +3503,46 @@
         ? lastDeskGroups.sp500
         : []
       ).slice();
-    var tickerChecks = sectors
-      .map(function (sector) {
-        var items = sector.tickers || [];
-        var selected = batchTickers.filter(function (ticker) {
-          return items.indexOf(ticker) >= 0;
-        });
-        return renderDeskCheckGroup(
-          "ticker",
-          (sector.title || "Тикеры") +
-            " (" +
-            selected.length +
-            "/" +
-            items.length +
-            ")",
-          items,
-          selected
-        );
-      })
-      .join("");
+    var moexSectors = sectors.filter(function (sector) {
+      return sector && sector.id !== "sp500";
+    });
+    var spSector =
+      sectors.filter(function (sector) {
+        return sector && sector.id === "sp500";
+      })[0] ||
+      (sp500Tickers.length
+        ? {
+            id: "sp500",
+            title: "S&P 500",
+            default_on: false,
+            tickers: sp500Tickers,
+          }
+        : null);
+    function sectorChecksHtml(sector, titleOverride) {
+      var items = (sector && sector.tickers) || [];
+      var selected = batchTickers.filter(function (ticker) {
+        return items.indexOf(ticker) >= 0;
+      });
+      return renderDeskCheckGroup(
+        "ticker",
+        (titleOverride || sector.title || "Тикеры") +
+          " (" +
+          selected.length +
+          "/" +
+          items.length +
+          ")",
+        items,
+        selected
+      );
+    }
+    var tickerChecks =
+      moexSectors.map(function (sector) {
+        return sectorChecksHtml(sector);
+      }).join("") +
+      (spSector
+        ? '<div class="desk-market-break" data-tour="desk-sp500-break">Рынок США · Yahoo</div>' +
+          sectorChecksHtml(spSector, "Тикеры S&P 500")
+        : "");
     return (
       '<section class="panel" data-tour="strategies-desk">' +
       "<h3>Прогон на истории</h3>" +
