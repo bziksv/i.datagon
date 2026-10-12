@@ -44,8 +44,11 @@ def candle_m15_dir() -> Path:
     return Path(os.environ.get("CANDLE_M15_DIR", "data/candles_m15"))
 
 
-def list_candle_tickers(*, tf: str = "1d") -> list[str]:
-    root = candle_m15_dir() if tf == "15m" else candle_dir()
+def candle_sp500_dir() -> Path:
+    return Path(os.environ.get("CANDLE_SP500_DIR", "data/candles_sp500"))
+
+
+def _list_csv_tickers(root: Path) -> list[str]:
     if not root.is_dir():
         return []
     return sorted(
@@ -53,6 +56,37 @@ def list_candle_tickers(*, tf: str = "1d") -> list[str]:
         for path in root.glob("*.csv")
         if path.is_file() and path.stat().st_size > 0
     )
+
+
+def list_candle_tickers(*, tf: str = "1d") -> list[str]:
+    if tf == "15m":
+        return _list_csv_tickers(candle_m15_dir())
+    universe = list_candle_universe(tf=tf)
+    return list(universe["tickers"])
+
+
+def list_candle_universe(*, tf: str = "1d") -> dict:
+    """MOEX и S&P 500 отдельно; плоский tickers — для batch/API."""
+    if tf == "15m":
+        m15 = _list_csv_tickers(candle_m15_dir())
+        return {
+            "tf": "15m",
+            "tickers": m15,
+            "count": len(m15),
+            "groups": {"moex": m15, "sp500": []},
+        }
+    moex = _list_csv_tickers(candle_dir())
+    sp500 = _list_csv_tickers(candle_sp500_dir())
+    # MOEX первым, затем S&P без дублей
+    moex_set = set(moex)
+    sp_only = [name for name in sp500 if name not in moex_set]
+    tickers = moex + sp_only
+    return {
+        "tf": "1d",
+        "tickers": tickers,
+        "count": len(tickers),
+        "groups": {"moex": moex, "sp500": sp_only},
+    }
 
 
 def strategy_for(sleeve: str, env: dict[str, str] | None = None):
@@ -75,11 +109,16 @@ def strategy_for(sleeve: str, env: dict[str, str] | None = None):
 
 
 def _bars_path(sleeve: str, symbol: str) -> Path:
-    daily = candle_dir() / f"{symbol}.csv"
     if sleeve == SCALP_SLEEVE:
         m15 = candle_m15_dir() / f"{symbol}.csv"
         if m15.exists():
             return m15
+    daily = candle_dir() / f"{symbol}.csv"
+    if daily.exists():
+        return daily
+    sp500 = candle_sp500_dir() / f"{symbol}.csv"
+    if sp500.exists():
+        return sp500
     return daily
 
 

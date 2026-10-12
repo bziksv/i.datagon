@@ -2057,6 +2057,11 @@ button.ghost.compact {
   font-size: 0.78rem;
 }
 
+.desk-check-list .empty {
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
 .desk-check-list {
   display: flex;
   flex-wrap: wrap;

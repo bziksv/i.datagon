@@ -2,7 +2,7 @@
   "use strict";
 
   /** Версия UI кабинета (этап 30+). Не путать с version API. */
-  var CABIN_UI_VERSION = "v3.3.0";
+  var CABIN_UI_VERSION = "v3.3.1";
 
   var ROUTES = [
     {
@@ -139,6 +139,7 @@
   var lastDeskSleeve = "sma_cross";
   var lastDeskTicker = "SBER";
   var lastDeskTickers = [];
+  var lastDeskGroups = { moex: [], sp500: [] };
   var loadErrors = {};
   var blockLoading = {};
   var routeLoading = false;
@@ -2760,6 +2761,13 @@
   function deskBatchTickerSelection(available) {
     var pool = available && available.length ? available : [];
     if (lastDeskBatchTickers == null) {
+      // По умолчанию только MOEX — S&P включаете отдельно ниже.
+      var moex = (lastDeskGroups && lastDeskGroups.moex) || [];
+      if (moex.length) {
+        return moex.filter(function (ticker) {
+          return pool.indexOf(ticker) >= 0;
+        });
+      }
       return pool.slice();
     }
     return lastDeskBatchTickers.filter(function (ticker) {
@@ -2768,6 +2776,7 @@
   }
 
   function renderDeskCheckGroup(kind, title, items, selected, labelFn) {
+    var scope = items.join(",");
     var boxes = items
       .map(function (item) {
         var checked = selected.indexOf(item) >= 0;
@@ -2796,13 +2805,17 @@
       '<span class="desk-check-actions">' +
       '<button type="button" class="ghost compact" data-desk-check-all="' +
       escapeHtml(kind) +
+      '" data-desk-scope="' +
+      escapeHtml(scope) +
       '">все</button>' +
       '<button type="button" class="ghost compact" data-desk-check-none="' +
       escapeHtml(kind) +
+      '" data-desk-scope="' +
+      escapeHtml(scope) +
       '">сбросить</button>' +
       "</span></div>" +
       '<div class="desk-check-list">' +
-      boxes +
+      (boxes || '<span class="empty">нет файлов свечей</span>') +
       "</div></div>"
     );
   }
@@ -3422,19 +3435,32 @@
     if (tickers.indexOf(selectedTicker) < 0 && selectedTicker) {
       tickers = [selectedTicker].concat(tickers);
     }
-    var tickerOpts = tickers
-      .map(function (ticker) {
-        return (
-          '<option value="' +
-          escapeHtml(ticker) +
-          '"' +
-          (ticker === selectedTicker ? " selected" : "") +
-          ">" +
-          escapeHtml(ticker) +
-          "</option>"
-        );
-      })
-      .join("");
+    function tickerOption(ticker) {
+      return (
+        '<option value="' +
+        escapeHtml(ticker) +
+        '"' +
+        (ticker === selectedTicker ? " selected" : "") +
+        ">" +
+        escapeHtml(ticker) +
+        "</option>"
+      );
+    }
+    var moexForSelect =
+      lastDeskGroups && lastDeskGroups.moex && lastDeskGroups.moex.length
+        ? lastDeskGroups.moex
+        : tickers;
+    var spForSelect =
+      lastDeskGroups && lastDeskGroups.sp500 ? lastDeskGroups.sp500 : [];
+    var tickerOpts =
+      '<optgroup label="MOEX">' +
+      moexForSelect.map(tickerOption).join("") +
+      "</optgroup>" +
+      (spForSelect.length
+        ? '<optgroup label="S&P 500">' +
+          spForSelect.map(tickerOption).join("") +
+          "</optgroup>"
+        : "");
     var batchSleeves = deskBatchSleeveSelection();
     var batchTickers = deskBatchTickerSelection(tickers);
     var batchCount = batchSleeves.length * batchTickers.length;
@@ -3447,20 +3473,45 @@
         return SLEEVE_NAMES[id] || id;
       }
     );
-    var tickerChecks = renderDeskCheckGroup(
-      "ticker",
-      "Тикеры для пакета (" + batchTickers.length + "/" + tickers.length + ")",
-      tickers,
-      batchTickers
-    );
+    var moexTickers =
+      (lastDeskGroups && lastDeskGroups.moex && lastDeskGroups.moex.length
+        ? lastDeskGroups.moex
+        : tickers
+      ).slice();
+    var sp500Tickers =
+      (lastDeskGroups && lastDeskGroups.sp500
+        ? lastDeskGroups.sp500
+        : []
+      ).slice();
+    var moexSelected = batchTickers.filter(function (ticker) {
+      return moexTickers.indexOf(ticker) >= 0;
+    });
+    var spSelected = batchTickers.filter(function (ticker) {
+      return sp500Tickers.indexOf(ticker) >= 0;
+    });
+    var tickerChecks =
+      renderDeskCheckGroup(
+        "ticker",
+        "Тикеры MOEX (" + moexSelected.length + "/" + moexTickers.length + ")",
+        moexTickers,
+        moexSelected
+      ) +
+      renderDeskCheckGroup(
+        "ticker",
+        "Тикеры S&P 500 (" + spSelected.length + "/" + sp500Tickers.length + ")",
+        sp500Tickers,
+        spSelected
+      );
     return (
       '<section class="panel" data-tour="strategies-desk">' +
       "<h3>Прогон на истории</h3>" +
       "<p>" +
-      "<strong>Не путать с гарантией прибыли.</strong> Модель сделок по локальному файлу свечей (обычно с биржи MOEX, не из Тинькофф API): исполнение на открытии следующего бара, с комиссией и проскальзыванием, сравнение с «купить и держать». " +
-      "Даты не выбираются вручную — берётся весь файл тикера (по умолчанию ~2 года дневок). Сейчас доступно тикеров: " +
-      escapeHtml(String(tickers.length)) +
-      ". Один прогон — пара из списков ниже; пакет — отмеченные галочками рукава и тикеры. Депозит и % на бумагу — в " +
+      "<strong>Не путать с гарантией прибыли.</strong> Модель сделок по локальному файлу свечей (MOEX и отдельно S&P 500 с Yahoo, не из Тинькофф API): исполнение на открытии следующего бара, с комиссией и проскальзыванием, сравнение с «купить и держать». " +
+      "Даты не выбираются вручную — берётся весь файл тикера (по умолчанию ~2 года дневок). Сейчас доступно: " +
+      escapeHtml(String(moexTickers.length)) +
+      " MOEX + " +
+      escapeHtml(String(sp500Tickers.length)) +
+      " S&P. Один прогон — пара из списков ниже; пакет — отмеченные галочками рукава и тикеры. Депозит и % на бумагу — в " +
       '<a class="panel-link" href="#/settings">Настройках</a>.' +
       "</p>" +
       '<div class="filters" data-tour="strategies-desk-form">' +
@@ -4114,10 +4165,28 @@
         if (kind === "sleeve") {
           lastDeskBatchSleeves = all ? ACTIVE_SLEEVE_IDS.slice() : [];
         } else if (kind === "ticker") {
-          var available = lastDeskTickers && lastDeskTickers.length
-            ? lastDeskTickers.slice()
-            : [];
-          lastDeskBatchTickers = all ? available : [];
+          var scopeRaw = btn.getAttribute("data-desk-scope") || "";
+          var scopeItems = scopeRaw
+            ? scopeRaw.split(",").filter(Boolean)
+            : lastDeskTickers && lastDeskTickers.length
+              ? lastDeskTickers.slice()
+              : [];
+          var current = deskBatchTickerSelection(
+            lastDeskTickers && lastDeskTickers.length
+              ? lastDeskTickers
+              : scopeItems
+          );
+          if (all) {
+            var merged = current.slice();
+            scopeItems.forEach(function (ticker) {
+              if (merged.indexOf(ticker) < 0) merged.push(ticker);
+            });
+            lastDeskBatchTickers = merged;
+          } else {
+            lastDeskBatchTickers = current.filter(function (ticker) {
+              return scopeItems.indexOf(ticker) < 0;
+            });
+          }
         }
         renderStrategies();
       });
@@ -4235,6 +4304,10 @@
     var candlesPromise = apiGet("/desk/candles?tf=1d")
       .then(function (data) {
         lastDeskTickers = (data && data.tickers) || [];
+        lastDeskGroups = {
+          moex: ((data && data.groups) || {}).moex || [],
+          sp500: ((data && data.groups) || {}).sp500 || [],
+        };
         if (
           lastDeskTickers.length &&
           lastDeskTickers.indexOf(lastDeskTicker) < 0

@@ -97,7 +97,12 @@ from app.risk.params_store import (
     save_risk_policy,
 )
 from app.risk.universe import active_tickers
-from app.strategy.desk import desk_backtest, desk_backtest_batch, list_candle_tickers
+from app.strategy.desk import (
+    desk_backtest,
+    desk_backtest_batch,
+    list_candle_tickers,
+    list_candle_universe,
+)
 from app.strategy.experiments import (
     experiment_view,
     new_experiment,
@@ -812,8 +817,7 @@ def create_app() -> FastAPI:
         frame = tf.strip().lower()
         if frame not in {"1d", "15m"}:
             raise HTTPException(status_code=422, detail="unsupported tf")
-        tickers = list_candle_tickers(tf=frame)
-        return {"tf": frame, "tickers": tickers, "count": len(tickers)}
+        return list_candle_universe(tf=frame)
 
     @app.post("/desk/backtest")
     def run_desk_backtest(body: DeskBacktestBody) -> dict:

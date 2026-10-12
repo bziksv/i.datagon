@@ -84,6 +84,7 @@ def test_explicit_cash_reserve_is_not_renormalized(tmp_path, monkeypatch) -> Non
 def test_desk_candles_lists_local_csvs(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("APP_AUTH_TOKEN", "secret")
     monkeypatch.setenv("CANDLE_DIR", str(tmp_path))
+    monkeypatch.setenv("CANDLE_SP500_DIR", str(tmp_path / "sp500_empty"))
     (tmp_path / "SBER.csv").write_text(
         Path("tests/fixtures/sber_daily.csv").read_text()
     )
@@ -96,8 +97,11 @@ def test_desk_candles_lists_local_csvs(tmp_path, monkeypatch) -> None:
         headers={"X-App-Token": "secret"},
     )
     assert response.status_code == 200
-    assert response.json()["tickers"] == ["GAZP", "SBER"]
-    assert response.json()["count"] == 2
+    body = response.json()
+    assert body["tickers"] == ["GAZP", "SBER"]
+    assert body["count"] == 2
+    assert body["groups"]["moex"] == ["GAZP", "SBER"]
+    assert body["groups"]["sp500"] == []
 
 
 def test_desk_backtest_api(tmp_path, monkeypatch) -> None:
@@ -142,6 +146,7 @@ def test_desk_backtest_batch_api(tmp_path, monkeypatch) -> None:
     (tmp_path / "SBER.csv").write_text(src.read_text())
     (tmp_path / "GAZP.csv").write_text(src.read_text())
     monkeypatch.setenv("CANDLE_DIR", str(tmp_path))
+    monkeypatch.setenv("CANDLE_SP500_DIR", str(tmp_path / "sp500_empty"))
     m15 = tmp_path / "m15"
     m15.mkdir()
     (m15 / "SBER.csv").write_text(Path("tests/fixtures/sber_m15.csv").read_text())
@@ -261,3 +266,7 @@ def test_cabin_strategies_budget_and_desk_ui() -> None:
     assert "by_sleeve" in js
     assert "пик капитала" in js
     assert "макс. просадка" in js
+    assert "Тикеры MOEX" in js
+    assert "Тикеры S&P 500" in js
+    assert "lastDeskGroups" in js
+    assert "data-desk-scope" in js
