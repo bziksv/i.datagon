@@ -22,7 +22,7 @@
 | A01 | Модуль скоринга value / quality / div / total по снимку `fundamentals` | чистые функции + тесты на PE/PB/ROE/div | **done** |
 | A02 | `GET /fundamentals` — список с метриками, raw-полями и скором | кабинет/API отдают тикер, PE, PB, EPS, ROE, div, scores, ts | **done** |
 | A03 | `GET /recommendations` — топ кандидатов по total score + rationale | JSON: ticker, scores, reason, side=buy | **done** |
-| A04 | `POST /recommendations/propose` — топ → `propose_order` (sleeve `fund_screener`) | proposals в очереди агентов с reason из скора | **done** |
+| A04 | `POST /recommendations/propose` — топ → paper-план (sleeve `fund_screener`) | только активный инструмент и свежая цена; frozen price/time, биржевой lot, стоп от цены | **done** |
 | A05 | Экран кабинета **Компании** | таблица фундамента + скор, маршрут `#/companies` | **done** |
 | A06 | Экран кабинета **Рекомендации** | карточки кандидатов + «В очередь», дисклеймер | **done** |
 | A07 | Воркер: периодический refresh fundamentals (если есть uid/токен) | job в loop; без токена — no-op, UI живёт на БД | **done** |
@@ -52,6 +52,6 @@
 
 1. В кабинете есть **Компании** и **Рекомендации**.
 2. По снимкам fundamentals виден скор и понятный reason.
-3. «В очередь» создаёт proposal без автоордера.
+3. «В очередь» создаёт paper-план без автоордера и без отправки брокеру.
 4. Дисклеймер на экране рекомендаций.
 5. Техрукава SMA/Дончиан/RSI/скальп не удалены — вторичный слой исполнения.

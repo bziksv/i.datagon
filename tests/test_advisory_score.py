@@ -1,7 +1,11 @@
 from datetime import UTC, datetime
 
 from app.advisory.score import score_fundamental
-from app.advisory.screener import propose_from_scores, rank_candidates
+from app.advisory.screener import (
+    fund_screener_plan_error,
+    propose_from_scores,
+    rank_candidates,
+)
 from app.advisory.view import fundamentals_view, recommendations_view
 from app.models import Fundamental
 
@@ -54,9 +58,47 @@ def test_recommendations_and_propose(tmp_path, monkeypatch) -> None:
     rows = [_row(), _row(ticker="LKOH", pe_ratio_ttm=4.0)]
     ranked = rank_candidates(rows, limit=2, min_score=10)
     assert len(ranked) >= 1
-    created = propose_from_scores(rows, limit=2, min_score=10)
+    plans = {
+        row["ticker"]: {
+            "qty": 10,
+            "stop": 95,
+            "entry_price": 100,
+            "price_as_of": "2026-10-12T10:00:00+00:00",
+            "lot": 10,
+        }
+        for row in ranked
+    }
+    created = propose_from_scores(
+        rows,
+        trade_plans=plans,
+        limit=2,
+        min_score=10,
+    )
     assert len(created) == len(ranked)
     assert created[0].payload["sleeve"] == "fund_screener"
     assert created[0].payload["side"] == "buy"
+    assert created[0].payload["execution_mode"] == "paper_book"
+    assert created[0].payload["qty"] == created[0].payload["lot"] == 10
+    assert fund_screener_plan_error(created[0].payload) is None
     recs = recommendations_view(rows, limit=5, min_score=10)
     assert recs["count"] >= 1
+
+
+def test_screener_skips_missing_plan_and_rejects_legacy_payload(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("PROPOSALS_PATH", str(tmp_path / "p.json"))
+    assert propose_from_scores([_row()], trade_plans={}, min_score=10) == []
+    assert (
+        fund_screener_plan_error(
+            {
+                "ticker": "SBER",
+                "side": "buy",
+                "qty": 1,
+                "stop": 250,
+                "sleeve": "fund_screener",
+            }
+        )
+        == "recommendation_plan_incomplete"
+    )

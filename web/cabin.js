@@ -38,14 +38,14 @@
       title: "Рекомендации",
       hint: "Кандидаты в очередь",
       intro:
-        "Топ имён по фундаментальному скору → «В очередь» → вы решаете в Агентах. Аналитика лаборатории, не ИК.",
+        "Топ имён по фундаментальному скору → paper-план по свежей цене и лоту → вы решаете в Агентах. Аналитика лаборатории, не ИК.",
     },
     {
       id: "agents",
       title: "Агенты",
       hint: "Что решить вам",
       intro:
-        "Агенты только предлагают. Сделка или смена весов — после вашего «Принять» и прохождения риск-правил.",
+        "Здесь вы одобряете внутренние paper-планы или веса. Торговые планы проходят риск-проверку и сохраняются в Журнале, но не отправляются в T‑Invest.",
     },
     {
       id: "news",
@@ -257,6 +257,19 @@
       hour: "2-digit",
       minute: "2-digit",
       second: "2-digit",
+    });
+  }
+
+  function dateTimeLabel(iso) {
+    if (!iso) return "—";
+    var value = new Date(iso);
+    if (isNaN(value.getTime())) return String(iso);
+    return value.toLocaleString("ru-RU", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
     });
   }
 
@@ -908,6 +921,26 @@
     return status || "—";
   }
 
+  function proposalExpiredReasonLabel(row) {
+    var reason = row && row.payload && row.payload.expired_reason;
+    if (reason === "recommendation_plan_incomplete") {
+      return "Старый план без зафиксированной цены, времени и биржевого лота";
+    }
+    if (reason === "recommendation_lot_invalid") {
+      return "Объём не соответствует биржевому лоту";
+    }
+    if (reason === "recommendation_stop_invalid") {
+      return "Стоп некорректен относительно зафиксированной цены";
+    }
+    if (reason === "recommendation_price_stale") {
+      return "Зафиксированная рыночная цена устарела";
+    }
+    if (reason === "recommendation_price_invalid") {
+      return "Время рыночной цены некорректно";
+    }
+    return reason || "";
+  }
+
   function proposalSummary(row) {
     var payload = row.payload || {};
     if (row.kind === "order") {
@@ -967,12 +1000,12 @@
 
   function proposalWillDo(row) {
     if (row.kind === "order") {
-      return "После «Принять» ордер пройдёт риск-ворота. Если риск пропустит — появится в Журнале; если нет — увидите отказ явно.";
+      return "После одобрения план пройдёт риск-ворота и сохранится как внутренняя paper-заявка в Журнале. В T‑Invest sandbox и на биржу ничего не отправляется.";
     }
     if (row.kind === "weights") {
-      return "После «Принять» новые веса рукавов применятся в аллокаторе. Сами сделки от смены весов не откроются.";
+      return "После «Принять веса» новые веса рукавов применятся в аллокаторе. Сами сделки от смены весов не откроются.";
     }
-    return "После «Принять» предложение перестанет ждать решения.";
+    return "После подтверждения предложение перестанет ждать решения.";
   }
 
   function proposedList(rows) {
@@ -1620,9 +1653,9 @@
       return {
         tone: "ok",
         text:
-          "Принято. Ордер прошёл риск" +
+          "Одобрено. Paper-заявка прошла риск и сохранена только во внутреннем Журнале" +
           (order && order.ticker ? " (" + order.ticker + ")" : "") +
-          ". Факт смотрите в Журнале.",
+          ". В брокер она не отправлена.",
       };
     }
     return {
@@ -1657,7 +1690,9 @@
         " " +
         String(payload.qty || "—") +
         " × " +
-        String(payload.ticker || "—")
+        String(payload.ticker || "—") +
+        (payload.lot ? " · лот " + String(payload.lot) : "") +
+        (payload.entry_price ? " · цена " + money(payload.entry_price) : "")
       : (payload.weights || [])
           .map(function (item) {
             return (
@@ -1668,7 +1703,10 @@
           })
           .join(" · ");
     var invalidation = isOrder
-      ? "Стоп " + money(payload.stop) + "; риск-ворота могут отклонить до исполнения."
+      ? "Стоп " +
+        money(payload.stop) +
+        (payload.price_as_of ? "; цена на " + dateTimeLabel(payload.price_as_of) : "") +
+        "; риск-ворота могут отклонить план."
       : "Не применять, если OOS-квалификация или лимиты капитала изменились.";
     var actions = "";
     if (waiting) {
@@ -1676,7 +1714,9 @@
         '<div class="proposal-actions" data-tour="agents-actions">' +
         '<button type="button" class="primary" data-approve="' +
         escapeHtml(row.id) +
-        '">Принять</button>' +
+        '">' +
+        (isOrder ? "Одобрить paper-план" : "Принять веса") +
+        "</button>" +
         '<button type="button" class="ghost" data-reject="' +
         escapeHtml(row.id) +
         '">Отклонить</button>' +
@@ -1712,7 +1752,7 @@
       escapeHtml(invalidation) +
       "</strong></div></div>" +
       (waiting
-        ? '<p class="will-do" data-tour="agents-will-do"><strong>Что будет при «Принять»:</strong> ' +
+        ? '<p class="will-do" data-tour="agents-will-do"><strong>Что произойдёт:</strong> ' +
           escapeHtml(proposalWillDo(row)) +
           "</p>"
         : "") +
@@ -1738,11 +1778,17 @@
           return item.id === id;
         })[0];
         askConfirm({
-          title: "Принять предложение?",
+          title:
+            row && row.kind === "weights"
+              ? "Принять новые веса?"
+              : "Одобрить paper-план?",
           text:
             (row ? proposalSummary(row) + ". " : "") +
-            "Ордер или веса применятся только если риск-ворота пропустят. Если риск откажет — увидите это явно.",
-          okLabel: "Принять",
+            (row && row.kind === "weights"
+              ? "Веса применятся в аллокаторе; сделки автоматически не откроются."
+              : "После риск-проверки заявка сохранится только во внутренней paper-книге. В T‑Invest sandbox и на биржу ничего не отправляется."),
+          okLabel:
+            row && row.kind === "weights" ? "Принять веса" : "Одобрить paper-план",
           danger: false,
         }).then(function (ok) {
           if (!ok) return;
@@ -1813,6 +1859,12 @@
     var waiting = proposedList(lastProposals);
     var recent = recentProposals(lastProposals);
     var agentsOn = !!(lastStatus && lastStatus.agents_enabled);
+    var archivedPlans = recent.filter(function (row) {
+      return !!proposalExpiredReasonLabel(row);
+    });
+    var archiveNotice = archivedPlans.length
+      ? '<div class="attention warn" role="status"><span><strong>Небезопасные старые планы архивированы.</strong> У них не было зафиксированной рыночной цены и биржевого лота, поэтому принять их больше нельзя.</span></div>'
+      : "";
     var waitingHtml = "";
     if (waiting.length) {
       waitingHtml = waiting
@@ -1846,7 +1898,12 @@
                 "</td><td>" +
                 escapeHtml(proposalStatusLabel(row.status)) +
                 "</td><td>" +
-                escapeHtml(proposalSummary(row)) +
+                escapeHtml(
+                  proposalSummary(row) +
+                    (proposalExpiredReasonLabel(row)
+                      ? ". Причина: " + proposalExpiredReasonLabel(row)
+                      : "")
+                ) +
                 "</td></tr>"
               );
             })
@@ -1860,6 +1917,7 @@
     body.innerHTML =
       agentsBannerHtml() +
       agentsFlashHtml() +
+      archiveNotice +
       '<section class="panel" id="agents-waiting" data-tour="agents-waiting">' +
       "<h3>Ждут решения</h3>" +
       "<p>Сначала предложения со статусом «ждут решения». Краткое описание человеческим языком — технические детали только под «Подробнее».</p>" +
@@ -1867,7 +1925,7 @@
       "</section>" +
       '<section class="panel" data-tour="agents-recent-panel">' +
       "<h3>Недавние решения</h3>" +
-      "<p>Принятые, отклонённые и истекшие. Итог ордеров — в <a class=\"panel-link\" href=\"#/journal?tab=orders\">Журнале</a>.</p>" +
+      "<p>Принятые, отклонённые и истекшие. Сохранённые paper-заявки — в <a class=\"panel-link\" href=\"#/journal?tab=orders\">Журнале</a>.</p>" +
       recentHtml +
       "</section>";
     bindAgentsActions();
@@ -2269,7 +2327,7 @@
           "Аналитика лаборатории, не индивидуальная инвестиционная рекомендация."
       ) +
       "</div>" +
-      "<p>Топ по фундаментальному скору. «В очередь» создаёт proposal (рукав fund_screener) — сделка только после вашего «Принять» в Агентах.</p>" +
+      "<p>«В очередь» создаёт paper-план только для активного инструмента со свежей рыночной ценой: объём равен одному биржевому лоту, стоп считается от зафиксированной цены. Одобрение в Агентах не отправляет заявку брокеру.</p>" +
       '<div class="panel-actions">' +
       '<button type="button" class="primary" id="recs-propose">В очередь (топ)</button>' +
       '<a class="panel-link" href="#/companies">Открыть Компании</a>' +
@@ -2293,10 +2351,13 @@
         apiPost("/recommendations/propose", { limit: 5, min_score: 40 })
           .then(function (payload) {
             if (status) {
+              var skipped = (payload.skipped || []).length;
               status.textContent =
                 "В очереди: " +
                 (payload.count || 0) +
-                " предложений. Откройте Агенты → Принять/Отклонить.";
+                " paper-планов" +
+                (skipped ? "; пропущено без свежего торгового плана: " + skipped : "") +
+                ". Откройте Агенты → Одобрить/Отклонить.";
             }
             return refreshProposals();
           })

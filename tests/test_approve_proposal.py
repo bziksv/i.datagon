@@ -202,6 +202,36 @@ def test_approve_api(monkeypatch) -> None:
     assert approved.status_code == 200
     assert approved.json()["status"] == "approved"
     assert approved.json()["order"]["ticker"] == "SBER"
+    assert approved.json()["order"]["broker_order_id"] is None
+    assert approved.json()["order"]["raw"]["execution_mode"] == "paper_book"
+
+
+def test_legacy_fund_screener_proposal_cannot_be_approved(monkeypatch) -> None:
+    monkeypatch.setenv("APP_AUTH_TOKEN", "secret")
+    app = create_app()
+    app.dependency_overrides[get_db] = _universe_db
+    client = TestClient(app)
+    legacy = {
+        **ORDER,
+        "reason": "legacy recommendation",
+        "sleeve": "fund_screener",
+    }
+    created = client.post(
+        "/proposals/order",
+        headers={"X-App-Token": "secret"},
+        json=legacy,
+    )
+    proposal_id = created.json()["id"]
+    approved = client.post(
+        f"/proposals/{proposal_id}/approve",
+        headers={"X-App-Token": "secret"},
+    )
+    assert approved.status_code == 409
+    assert approved.json()["message"] == "recommendation_plan_incomplete"
+    listed = client.get("/proposals", headers={"X-App-Token": "secret"}).json()
+    row = next(item for item in listed["proposals"] if item["id"] == proposal_id)
+    assert row["status"] == "expired"
+    assert row["payload"]["expired_reason"] == "recommendation_plan_incomplete"
 
 
 def test_approve_api_fails_closed_without_day_start_snapshot(monkeypatch) -> None:

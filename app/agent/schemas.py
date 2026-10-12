@@ -10,6 +10,10 @@ class ProposeOrder(BaseModel):
     side: str
     qty: int = Field(..., ge=1)
     stop: float = Field(..., gt=0)
+    entry_price: float | None = Field(default=None, gt=0)
+    price_as_of: str | None = None
+    lot: int | None = Field(default=None, ge=1)
+    execution_mode: str | None = None
     reason: str
     sleeve: str
 

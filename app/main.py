@@ -19,11 +19,21 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.requests import Request
 
 from app import __version__
-from app.advisory.screener import propose_from_scores
+from app.advisory.screener import (
+    fund_screener_plan_error,
+    propose_from_scores,
+    rank_candidates,
+)
 from app.advisory.view import DISCLAIMER, fundamentals_view, recommendations_view
 from app.agent.approve import apply_approved
 from app.agent.flag import agents_enabled
-from app.agent.proposals import new_proposal, reject_proposal
+from app.agent.proposals import (
+    STATUS_EXPIRED,
+    STATUS_PROPOSED,
+    new_proposal,
+    reject_proposal,
+    set_status,
+)
 from app.agent.schemas import ProposeOrder, ProposeWeights
 from app.agent.store import get_proposal, list_proposals, proposal_view, remember
 from app.alloc.plan import allocation_plan
@@ -40,14 +50,11 @@ from app.book.orders import (
     order_item,
     orders_view,
     reconcile_order,
-    submit_order,
 )
 from app.book.reports import weekly_paper_report
 from app.book.service import portfolio_valuation
 from app.book.valuation import PriceMark, value_portfolio
 from app.book.vault import vault_view
-from app.broker.fake import FakeBroker
-from app.broker.port import OrderRequest
 from app.broker.sandbox_payin import DEFAULT_DEPOSIT
 from app.broker.tinkoff import BrokerTokenError
 from app.db import get_db, get_sessionmaker, ping_session
@@ -940,8 +947,7 @@ def create_app() -> FastAPI:
     class ProposeRecsBody(BaseModel):
         limit: int = Field(default=5, ge=1, le=20)
         min_score: float = Field(default=40.0, ge=0, le=100)
-        qty: int = Field(default=1, ge=1)
-        stop: float = Field(default=250.0, gt=0)
+        stop_pct: float = Field(default=0.05, ge=0.01, le=0.20)
 
     @app.post("/recommendations/propose")
     async def recommendations_propose(
@@ -949,16 +955,76 @@ def create_app() -> FastAPI:
         session: AsyncSession = Depends(get_db),
     ) -> dict:
         rows = list(await session.scalars(select(Fundamental)))
-        created = propose_from_scores(
+        members = list(
+            await session.scalars(
+                select(UniverseMember).where(UniverseMember.active.is_(True))
+            )
+        )
+        instruments = list(await session.scalars(select(Instrument)))
+        candles = list(await session.scalars(select(Candle)))
+        active_ids = {member.instrument_id for member in members}
+        active_instruments = {
+            instrument.ticker.upper(): instrument
+            for instrument in instruments
+            if instrument.id in active_ids
+        }
+        latest: dict[UUID, Candle] = {}
+        for candle in candles:
+            previous = latest.get(candle.instrument_id)
+            if previous is None or candle.ts > previous.ts:
+                latest[candle.instrument_id] = candle
+        now = datetime.now(UTC)
+        stale_after = timedelta(
+            hours=int(os.environ.get("VALUATION_STALE_HOURS", "36"))
+        )
+        trade_plans: dict[str, dict[str, object]] = {}
+        skipped: list[dict[str, str]] = []
+        for candidate in rank_candidates(
             rows,
             limit=body.limit,
             min_score=body.min_score,
-            qty=body.qty,
-            stop=body.stop,
+        ):
+            ticker = candidate["ticker"].upper()
+            instrument = active_instruments.get(ticker)
+            reason = None
+            candle = latest.get(instrument.id) if instrument is not None else None
+            if instrument is None:
+                reason = "not_in_active_universe"
+            elif candle is None:
+                reason = "market_price_missing"
+            else:
+                price_as_of = (
+                    candle.ts
+                    if candle.ts.tzinfo is not None
+                    else candle.ts.replace(tzinfo=UTC)
+                )
+                if now - price_as_of > stale_after:
+                    reason = "market_price_stale"
+                elif Decimal(str(candle.c)) <= 0:
+                    reason = "market_price_invalid"
+            if reason is not None:
+                skipped.append({"ticker": ticker, "reason": reason})
+                continue
+            price = Decimal(str(candle.c))
+            stop = price * (Decimal("1") - Decimal(str(body.stop_pct)))
+            lot = max(int(instrument.lot or 1), 1)
+            trade_plans[ticker] = {
+                "qty": lot,
+                "stop": float(stop),
+                "entry_price": float(price),
+                "price_as_of": price_as_of.isoformat(),
+                "lot": lot,
+            }
+        created = propose_from_scores(
+            rows,
+            trade_plans=trade_plans,
+            limit=body.limit,
+            min_score=body.min_score,
         )
         return {
             "proposals": [proposal_view(row) for row in created],
             "count": len(created),
+            "skipped": skipped,
             "disclaimer": DISCLAIMER,
         }
 
@@ -1096,7 +1162,23 @@ def create_app() -> FastAPI:
 
     @app.get("/proposals")
     def proposals() -> dict:
-        return {"proposals": [proposal_view(row) for row in list_proposals()]}
+        rows = list_proposals()
+        for row in rows:
+            error = (
+                fund_screener_plan_error(
+                    row.payload or {},
+                    now=datetime.now(UTC),
+                    max_price_age=timedelta(
+                        hours=int(os.environ.get("VALUATION_STALE_HOURS", "36"))
+                    ),
+                )
+                if row.kind == "order" and row.status == STATUS_PROPOSED
+                else None
+            )
+            if error is not None:
+                row.payload = {**(row.payload or {}), "expired_reason": error}
+                remember(set_status(row, STATUS_EXPIRED))
+        return {"proposals": [proposal_view(row) for row in rows]}
 
     @app.post("/proposals/order")
     def propose_order(body: ProposeOrder) -> dict:
@@ -1116,6 +1198,24 @@ def create_app() -> FastAPI:
         row = get_proposal(proposal_id)
         if row is None:
             raise HTTPException(status_code=404, detail="not found")
+        plan_error = (
+            fund_screener_plan_error(
+                row.payload or {},
+                now=datetime.now(UTC),
+                max_price_age=timedelta(
+                    hours=int(os.environ.get("VALUATION_STALE_HOURS", "36"))
+                ),
+            )
+            if row.kind == "order"
+            else None
+        )
+        if plan_error is not None:
+            row.payload = {
+                **(row.payload or {}),
+                "expired_reason": plan_error,
+            }
+            remember(set_status(row, STATUS_EXPIRED))
+            raise HTTPException(status_code=409, detail=plan_error)
         members = list(
             await session.scalars(
                 select(UniverseMember).where(UniverseMember.active.is_(True))
@@ -1288,34 +1388,21 @@ def create_app() -> FastAPI:
             session.add(order)
             await session.commit()
             if order.status != STATUS_REJECTED:
-                request = OrderRequest(
-                    ticker=order.ticker,
-                    side=order.side,
-                    qty=order.qty,
-                    type=order.type,
-                    client_order_id=order.client_order_id,
-                )
-                submit_order(order, FakeBroker(), request)
                 raw = dict(order.raw or {})
                 checks = list(raw.get("risk_checks") or [])
                 checks.append(
                     {
-                        "code": "broker_submit",
-                        "outcome": (
-                            "deny"
-                            if order.status == STATUS_REJECTED
-                            else "allow"
-                        ),
-                        "reason": raw.get("reject_reason")
-                        or raw.get("broker_error"),
-                        "explanation": raw.get("reject_reason")
-                        or raw.get("broker_error")
-                        or "broker_acknowledged",
+                        "code": "paper_book_record",
+                        "outcome": "allow",
+                        "reason": None,
+                        "explanation": "saved_to_internal_paper_book",
                         "inputs": {
                             "client_order_id": order.client_order_id,
+                            "broker_submission": False,
                         },
                     }
                 )
+                raw["execution_mode"] = "paper_book"
                 raw["risk_checks"] = checks
                 order.raw = raw
                 await session.commit()
