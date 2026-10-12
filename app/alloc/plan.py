@@ -11,6 +11,13 @@ from app.alloc.view import ACTIVE_SLEEVES
 from app.alloc.weights_store import load_weights
 from app.risk.sleeve import DEFAULT_SLEEVE_SHARE
 from app.strategy.donchian import DEFAULT_PERIOD, SLEEVE as DONCHIAN
+from app.strategy.overnight import (
+    DEFAULT_AVERAGE_TRIGGER_PCT,
+    DEFAULT_MAX_LAYERS,
+    DEFAULT_STOP_PCT as OVERNIGHT_STOP,
+    DEFAULT_TAKE_PROFIT_PCT,
+    SLEEVE as OVERNIGHT,
+)
 from app.strategy.rsi import (
     DEFAULT_OVERBOUGHT,
     DEFAULT_OVERSOLD,
@@ -75,6 +82,22 @@ SLEEVE_HOWTO = {
         "holds": (
             "Короткий горизонт: те же лимиты капитала на имя, но быстрее оборачивает "
             "позицию. Нужны свечи M15 (CANDLE_M15_DIR)."
+        ),
+    },
+    OVERNIGHT: {
+        "title": "Вечерний докуп",
+        "horizon": "дневки",
+        "signal": (
+            f"Покупка на закрытии дня. Днём цель "
+            f"+{float(DEFAULT_TAKE_PROFIT_PCT)*100:g}% от средней цены (коридор 3–6%). "
+            f"Если закрытие ниже средней на {float(DEFAULT_AVERAGE_TRIGGER_PCT)*100:g}% — "
+            f"вечернее усреднение, до {DEFAULT_MAX_LAYERS} слоёв. "
+            f"Стоп {float(OVERNIGHT_STOP)*100:g}% от средней."
+        ),
+        "holds": (
+            "Ночная позиция: после тейка вечером может войти снова. "
+            "Усредняет только при просадке закрытия, не до бесконечности. "
+            "Модель по дневному OHLC — не тиковый стакан."
         ),
     },
 }

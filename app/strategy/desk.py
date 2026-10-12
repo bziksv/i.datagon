@@ -17,12 +17,14 @@ from app.strategy.backtest import (
 )
 from app.strategy.config import (
     donchian_from_config,
+    overnight_from_config,
     rsi_from_config,
     scalp_from_config,
     sma_from_config,
 )
 from app.strategy.donchian import SLEEVE as DONCHIAN_SLEEVE
 from app.strategy.evidence import strategy_evidence
+from app.strategy.overnight import SLEEVE as OVERNIGHT_SLEEVE
 from app.strategy.qualification import backtest_admission
 from app.strategy.rsi import SLEEVE as RSI_SLEEVE
 from app.strategy.scalp import SLEEVE as SCALP_SLEEVE
@@ -58,6 +60,8 @@ def strategy_for(sleeve: str, env: dict[str, str] | None = None):
         return rsi_from_config(env)
     if sleeve == SCALP_SLEEVE:
         return scalp_from_config(env)
+    if sleeve == OVERNIGHT_SLEEVE:
+        return overnight_from_config(env)
     raise ValueError(f"unknown sleeve: {sleeve}")
 
 

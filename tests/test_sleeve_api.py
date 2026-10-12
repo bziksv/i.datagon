@@ -78,6 +78,7 @@ def test_sleeves_compare_pnl() -> None:
         "donchian_breakout",
         "rsi_reversion",
         "ema_scalp",
+        "overnight_bounce",
     }
     assert by_name["sma_cross"]["unrealized"] == 100.0
     assert by_name["sma_cross"]["realized"] == 20.0

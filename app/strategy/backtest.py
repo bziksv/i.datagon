@@ -169,17 +169,38 @@ def run_backtest(
     entry_cost = Decimal("0")
     pending: str | None = None
     pending_reason = ""
+    pending_add = False
     fills: list[BacktestFill] = []
     trades: list[BacktestTrade] = []
     equity_curve: list[dict] = []
     turnover = Decimal("0")
     exposed_bars = 0
+    fill_at = str(getattr(strategy, "fill_at", "next_open") or "next_open")
+    allow_add = bool(getattr(strategy, "allow_add", False))
+    max_layers = max(int(getattr(strategy, "max_layers", 1) or 1), 1)
+    take_profit_pct = Decimal(str(getattr(strategy, "take_profit_pct", 0) or 0))
 
-    def buy(bar: CandleBar, reason: str) -> None:
+    def buy(
+        bar: CandleBar,
+        reason: str,
+        raw_price: Decimal | None = None,
+        *,
+        add: bool = False,
+    ) -> None:
         nonlocal cash, qty, entry_price, entry_ts, entry_cost, turnover
-        raw_price = Decimal(bar.o)
-        price = _execution_price(raw_price, "buy", cfg.slippage_bps)
-        budget = min(cash, cash * cfg.position_share)
+        if add and (qty <= 0 or entry_price is None):
+            add = False
+        if not add and qty > 0:
+            return
+        raw = Decimal(raw_price) if raw_price is not None else Decimal(bar.o)
+        price = _execution_price(raw, "buy", cfg.slippage_bps)
+        if max_layers > 1:
+            layer_cap = (
+                cfg.initial_cash * cfg.position_share / Decimal(max_layers)
+            )
+            budget = min(cash, layer_cap)
+        else:
+            budget = min(cash, cash * cfg.position_share)
         lot_cost = price * Decimal(cfg.lot)
         lots = int(budget // lot_cost) if lot_cost > 0 else 0
         wanted = lots * cfg.lot
@@ -194,12 +215,20 @@ def run_backtest(
         if wanted <= 0:
             return
         cash -= notional + fee
+        turnover += notional
+        fills.append(BacktestFill(bar.ts, "buy", wanted, price, fee, reason))
+        if add and entry_price is not None and qty > 0:
+            total_qty = qty + wanted
+            entry_price = (
+                entry_price * Decimal(qty) + price * Decimal(wanted)
+            ) / Decimal(total_qty)
+            entry_cost += fee
+            qty = total_qty
+            return
         qty = wanted
         entry_price = price
         entry_ts = bar.ts
         entry_cost = fee
-        turnover += notional
-        fills.append(BacktestFill(bar.ts, "buy", wanted, price, fee, reason))
 
     def sell(bar: CandleBar, reason: str, raw_price: Decimal | None = None) -> None:
         nonlocal cash, qty, entry_price, entry_ts, entry_cost, turnover
@@ -237,20 +266,38 @@ def run_backtest(
 
     for index, bar in enumerate(bars):
         evaluating = index >= evaluation_start
-        if evaluating:
-            if pending == "buy" and qty == 0:
-                buy(bar, pending_reason)
+        if evaluating and fill_at != "close":
+            if pending == "buy" and (qty == 0 or (pending_add and allow_add)):
+                buy(bar, pending_reason, add=pending_add and qty > 0)
             elif pending in {"sell", "exit"} and qty > 0:
                 sell(bar, pending_reason)
         pending = None
         pending_reason = ""
+        pending_add = False
 
+        stopped_today = False
         stop_pct = Decimal(str(getattr(strategy, "stop_pct", 0) or 0))
         if evaluating and qty > 0 and entry_price is not None and stop_pct > 0:
             stop_price = entry_price * (Decimal("1") - stop_pct)
             if Decimal(bar.low) <= stop_price:
                 raw_fill = min(Decimal(bar.o), stop_price)
                 sell(bar, "stop", raw_fill)
+                stopped_today = True
+
+        if (
+            evaluating
+            and qty > 0
+            and entry_price is not None
+            and take_profit_pct > 0
+        ):
+            tp_price = entry_price * (Decimal("1") + take_profit_pct)
+            if Decimal(bar.h) >= tp_price:
+                raw_fill = (
+                    Decimal(bar.o)
+                    if Decimal(bar.o) >= tp_price
+                    else tp_price
+                )
+                sell(bar, "take_profit", raw_fill)
 
         if evaluating:
             if qty > 0:
@@ -265,18 +312,39 @@ def run_backtest(
                 entry_price=entry_price,
             )
         )
-        can_execute_next = index + 1 >= evaluation_start
         if (
-            can_execute_next
-            and signal is not None
-            and signal.kind in {"buy", "sell", "exit"}
+            signal is None
+            or signal.kind not in {"buy", "sell", "exit"}
         ):
-            if signal.kind == "buy" and qty == 0:
-                pending = "buy"
-                pending_reason = f"signal:{signal.kind}"
+            continue
+        if fill_at == "close":
+            if not evaluating:
+                continue
+            # После стопа не входим в тот же вечер — только после тейка/флэта.
+            if (
+                signal.kind == "buy"
+                and not stopped_today
+                and (qty == 0 or allow_add)
+            ):
+                buy(
+                    bar,
+                    f"signal:{signal.kind}",
+                    raw_price=Decimal(bar.c),
+                    add=qty > 0,
+                )
             elif signal.kind in {"sell", "exit"} and qty > 0:
-                pending = signal.kind
-                pending_reason = f"signal:{signal.kind}"
+                sell(bar, f"signal:{signal.kind}", raw_price=Decimal(bar.c))
+            continue
+        can_execute_next = index + 1 >= evaluation_start
+        if not can_execute_next:
+            continue
+        if signal.kind == "buy" and (qty == 0 or allow_add):
+            pending = "buy"
+            pending_reason = f"signal:{signal.kind}"
+            pending_add = qty > 0
+        elif signal.kind in {"sell", "exit"} and qty > 0:
+            pending = signal.kind
+            pending_reason = f"signal:{signal.kind}"
 
     final_equity = cash + Decimal(qty) * Decimal(bars[-1].c)
     curve_values = [Decimal(str(row["equity"])) for row in equity_curve]

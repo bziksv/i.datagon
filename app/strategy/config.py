@@ -5,6 +5,13 @@ from decimal import Decimal
 from pathlib import Path
 
 from app.strategy.donchian import DEFAULT_PERIOD, DonchianBreakoutStrategy
+from app.strategy.overnight import (
+    DEFAULT_AVERAGE_TRIGGER_PCT,
+    DEFAULT_MAX_LAYERS,
+    DEFAULT_STOP_PCT as OVERNIGHT_STOP,
+    DEFAULT_TAKE_PROFIT_PCT,
+    OvernightBounceStrategy,
+)
 from app.strategy.rsi import (
     DEFAULT_OVERBOUGHT,
     DEFAULT_OVERSOLD,
@@ -134,6 +141,33 @@ def scalp_params(
     return fast, slow, stop
 
 
+def overnight_params(
+    env: Mapping[str, str],
+    yaml_text: str | None = None,
+) -> tuple[Decimal, Decimal, int, Decimal]:
+    take_profit = DEFAULT_TAKE_PROFIT_PCT
+    average_trigger = DEFAULT_AVERAGE_TRIGGER_PCT
+    max_layers = DEFAULT_MAX_LAYERS
+    stop = OVERNIGHT_STOP
+    if yaml_text:
+        section = _section(yaml_text, "overnight_bounce")
+        take_profit = _decimal_field(section, "take_profit_pct", take_profit)
+        average_trigger = _decimal_field(
+            section, "average_trigger_pct", average_trigger
+        )
+        max_layers = _int_field(section, "max_layers", max_layers)
+        stop = _decimal_field(section, "stop_pct", stop)
+    if env.get("OVERNIGHT_TAKE_PROFIT_PCT"):
+        take_profit = Decimal(env["OVERNIGHT_TAKE_PROFIT_PCT"])
+    if env.get("OVERNIGHT_AVERAGE_TRIGGER_PCT"):
+        average_trigger = Decimal(env["OVERNIGHT_AVERAGE_TRIGGER_PCT"])
+    if env.get("OVERNIGHT_MAX_LAYERS"):
+        max_layers = int(env["OVERNIGHT_MAX_LAYERS"])
+    if env.get("OVERNIGHT_STOP_PCT"):
+        stop = Decimal(env["OVERNIGHT_STOP_PCT"])
+    return take_profit, average_trigger, max_layers, stop
+
+
 def _yaml_text(yaml_path: Path | None) -> str | None:
     if yaml_path is not None and yaml_path.exists():
         return yaml_path.read_text()
@@ -173,12 +207,28 @@ def scalp_from_config(
     return EmaScalpStrategy(fast=fast, slow=slow, stop_pct=stop)
 
 
+def overnight_from_config(
+    env: Mapping[str, str],
+    yaml_path: Path | None = DEFAULT_YAML,
+) -> OvernightBounceStrategy:
+    take_profit, average_trigger, max_layers, stop = overnight_params(
+        env, _yaml_text(yaml_path)
+    )
+    return OvernightBounceStrategy(
+        take_profit_pct=take_profit,
+        average_trigger_pct=average_trigger,
+        max_layers=max_layers,
+        stop_pct=stop,
+    )
+
+
 def active_strategies(env: Mapping[str, str], yaml_path: Path | None = DEFAULT_YAML):
     return [
         sma_from_config(env, yaml_path),
         donchian_from_config(env, yaml_path),
         rsi_from_config(env, yaml_path),
         scalp_from_config(env, yaml_path),
+        overnight_from_config(env, yaml_path),
     ]
 
 
@@ -187,6 +237,7 @@ def daily_strategies(env: Mapping[str, str], yaml_path: Path | None = DEFAULT_YA
         sma_from_config(env, yaml_path),
         donchian_from_config(env, yaml_path),
         rsi_from_config(env, yaml_path),
+        overnight_from_config(env, yaml_path),
     ]
 
 

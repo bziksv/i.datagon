@@ -18,14 +18,14 @@ def test_one_sleeve_gets_full_cap_within_101() -> None:
 
 def test_active_sleeves_equal_weight_within_101() -> None:
     weights = allocate(ACTIVE_SLEEVES)
-    assert len(ACTIVE_SLEEVES) == 4
+    assert len(ACTIVE_SLEEVES) == 5
     share = Decimal("1") / Decimal(len(ACTIVE_SLEEVES))
     assert weights[SLEEVE] == share
     assert weights[DONCHIAN] == share
     assert sum(weights.values()) == Decimal("1")
     for name in ACTIVE_SLEEVES:
         capital = sleeve_capital(Decimal("1000000"), weight=weights[name])
-        assert capital == Decimal("100000")
+        assert capital == Decimal("80000")
         assert capital <= Decimal("1000000") * DEFAULT_SLEEVE_SHARE
 
 
@@ -39,13 +39,21 @@ def test_allocation_weights_in_view(tmp_path, monkeypatch) -> None:
         "donchian_breakout",
         "rsi_reversion",
         "ema_scalp",
+        "overnight_bounce",
     ]
-    assert [row["weight"] for row in view["sleeves"]] == [0.25, 0.25, 0.25, 0.25]
+    assert [row["weight"] for row in view["sleeves"]] == [
+        0.2,
+        0.2,
+        0.2,
+        0.2,
+        0.2,
+    ]
     assert [row["capital"] for row in view["sleeves"]] == [
-        100000.0,
-        100000.0,
-        100000.0,
-        100000.0,
+        80000.0,
+        80000.0,
+        80000.0,
+        80000.0,
+        80000.0,
     ]
 
 

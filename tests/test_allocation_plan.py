@@ -28,15 +28,17 @@ def test_allocation_plan_one_million_sleeve(tmp_path, monkeypatch) -> None:
         "donchian_breakout",
         "rsi_reversion",
         "ema_scalp",
+        "overnight_bounce",
     }
     sma = by["sma_cross"]
-    assert sma["capital"] == 500000.0
-    assert sma["name_budget"] == 50000.0
-    assert sma["example"]["qty"] == 200
-    assert sma["example"]["notional"] == 50000.0
+    assert sma["capital"] == 400000.0
+    assert sma["name_budget"] == 40000.0
+    assert sma["example"]["qty"] == 160
+    assert sma["example"]["notional"] == 40000.0
     assert sma["signal"]
     assert sma["holds"]
     assert by["ema_scalp"]["horizon"] == "15m"
+    assert by["overnight_bounce"]["title"] == "Вечерний докуп"
     assert by["rsi_reversion"]["title"]
 
 

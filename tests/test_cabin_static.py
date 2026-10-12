@@ -44,8 +44,8 @@ def test_cabin_shell_stage01_menu_and_router() -> None:
     css = CSS.read_text()
     js = JS.read_text()
     assert "<!DOCTYPE html>" in html
-    assert 'href="/cabin.css?v=3.0.5"' in html
-    assert 'src="/cabin.js?v=3.0.5"' in html
+    assert 'href="/cabin.css?v=3.0.6"' in html
+    assert 'src="/cabin.js?v=3.0.6"' in html
     assert "webpack" not in html.lower()
     assert "react" not in html.lower()
     assert "vite" not in html.lower()
@@ -227,6 +227,7 @@ def test_cabin_strategies_card_stage13() -> None:
     assert "donchian_breakout" in js
     assert "rsi_reversion" in js
     assert "ema_scalp" in js
+    assert "overnight_bounce" in js
     assert "Как устроен" in js
     # симметрия: все рукава из одного списка / howto
     assert "ACTIVE_SLEEVE_IDS" in js
@@ -245,6 +246,7 @@ def test_cabin_strategies_compare_stage12() -> None:
     assert "donchian_breakout" in js
     assert "rsi_reversion" in js
     assert "ema_scalp" in js
+    assert "overnight_bounce" in js
     assert "#/strategies/" in js
     assert "открыть" in js
     assert "зафиксировано" in js
@@ -255,6 +257,7 @@ def test_cabin_strategies_compare_stage12() -> None:
     assert "strategies-row-donchian_breakout" in js
     assert "strategies-row-rsi_reversion" in js
     assert "strategies-row-ema_scalp" in js
+    assert '"overnight_bounce"' in js
 
 
 def test_cabin_portfolio_alloc_drift_stage11() -> None:
@@ -362,8 +365,8 @@ def test_cabin_tour_engine_stage05() -> None:
     js = JS.read_text()
     tour_js = (ROOT / "web" / "tour.js").read_text()
     tour_css = (ROOT / "web" / "tour.css").read_text()
-    assert 'href="/tour.css?v=3.0.5"' in html
-    assert 'src="/tour.js?v=3.0.5"' in html
+    assert 'href="/tour.css?v=3.0.6"' in html
+    assert 'src="/tour.js?v=3.0.6"' in html
     assert "CabinTour" in tour_js
     assert "cabin_tour_v1:" in tour_js
     assert "resetAll" in tour_js

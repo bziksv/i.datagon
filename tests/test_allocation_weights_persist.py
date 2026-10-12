@@ -14,21 +14,23 @@ def test_weights_roundtrip(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("SLEEVE_WEIGHTS_PATH", str(tmp_path / "w.json"))
     save_weights(
         {
-            "sma_cross": 0.4,
-            "donchian_breakout": 0.3,
+            "sma_cross": 0.3,
+            "donchian_breakout": 0.25,
             "rsi_reversion": 0.2,
-            "ema_scalp": 0.1,
+            "ema_scalp": 0.15,
+            "overnight_bounce": 0.1,
         }
     )
     got = load_weights(ACTIVE_SLEEVES)
-    assert got["sma_cross"] == Decimal("0.4")
-    assert got["donchian_breakout"] == Decimal("0.3")
+    assert got["sma_cross"] == Decimal("0.3")
+    assert got["donchian_breakout"] == Decimal("0.25")
     assert got["rsi_reversion"] == Decimal("0.2")
-    assert got["ema_scalp"] == Decimal("0.1")
+    assert got["ema_scalp"] == Decimal("0.15")
+    assert got["overnight_bounce"] == Decimal("0.1")
     view = allocation_view(ACTIVE_SLEEVES, equity=Decimal("1000000"))
     by = {row["sleeve"]: row for row in view["sleeves"]}
-    assert by["sma_cross"]["weight"] == 0.4
-    assert by["sma_cross"]["capital"] == 160000.0  # 1e6 * 0.4 * 0.4
+    assert by["sma_cross"]["weight"] == 0.3
+    assert by["sma_cross"]["capital"] == 120000.0  # 1e6 * 0.4 * 0.3
 
 
 def test_put_allocation_weights_persists(tmp_path, monkeypatch) -> None:
@@ -37,16 +39,18 @@ def test_put_allocation_weights_persists(tmp_path, monkeypatch) -> None:
     # без БД endpoint вернёт 503 — проверяем store + view, как кабинет читает после save
     save_weights(
         {
-            "sma_cross": 0.25,
-            "donchian_breakout": 0.25,
-            "rsi_reversion": 0.25,
-            "ema_scalp": 0.25,
+            "sma_cross": 0.2,
+            "donchian_breakout": 0.2,
+            "rsi_reversion": 0.2,
+            "ema_scalp": 0.2,
+            "overnight_bounce": 0.2,
         }
     )
     view = allocation_view(ACTIVE_SLEEVES, equity=Decimal("1000000"))
     by = {row["sleeve"]: row for row in view["sleeves"]}
-    assert by["sma_cross"]["weight"] == 0.25
-    assert by["ema_scalp"]["weight"] == 0.25
+    assert by["sma_cross"]["weight"] == 0.2
+    assert by["ema_scalp"]["weight"] == 0.2
+    assert by["overnight_bounce"]["weight"] == 0.2
 
 
 def test_explicit_cash_reserve_is_not_renormalized(tmp_path, monkeypatch) -> None:
@@ -57,6 +61,7 @@ def test_explicit_cash_reserve_is_not_renormalized(tmp_path, monkeypatch) -> Non
             "donchian_breakout": 0,
             "rsi_reversion": 0,
             "ema_scalp": 0,
+            "overnight_bounce": 0,
             "cash": 0.5,
         }
     )
@@ -138,10 +143,10 @@ def test_desk_backtest_batch_api(tmp_path, monkeypatch) -> None:
     )
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body["count"] == 8  # 4 sleeves × 2 daily tickers
-    assert body["ok"] == 8
+    assert body["count"] == 10  # 5 sleeves × 2 daily tickers
+    assert body["ok"] == 10
     assert body["skipped"] == 0
-    assert len(body["rows"]) == 8
+    assert len(body["rows"]) == 10
     assert "top" in body
     sleeves = {row["sleeve"] for row in body["rows"]}
     tickers = {row["ticker"] for row in body["rows"]}
@@ -150,6 +155,7 @@ def test_desk_backtest_batch_api(tmp_path, monkeypatch) -> None:
         "donchian_breakout",
         "rsi_reversion",
         "ema_scalp",
+        "overnight_bounce",
     }
     assert tickers == {"SBER", "GAZP"}
     # без m15 для GAZP скальп падает на дневки (как одиночный desk_backtest)
@@ -207,4 +213,6 @@ def test_cabin_strategies_budget_and_desk_ui() -> None:
     assert "data-sleeve-capital" in js
     assert "rsi_reversion" in js
     assert "ema_scalp" in js
-    assert "четыре рукава" in js
+    assert "Пять рукавов" in js
+    assert "overnight_bounce" in js
+    assert "Вечерний докуп" in js

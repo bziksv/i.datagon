@@ -26,3 +26,11 @@ ema_scalp:
   name_share: 0.10
   sleeve_share: 0.40
   stop_pct: 0.015
+
+overnight_bounce:
+  take_profit_pct: 0.045
+  average_trigger_pct: 0.02
+  max_layers: 3
+  name_share: 0.10
+  sleeve_share: 0.40
+  stop_pct: 0.10
