@@ -11,7 +11,10 @@ def test_ip_limit_blocks_after_n() -> None:
     assert limiter.allow("1.1.1.1", 2) is False
     assert limiter.allow("2.2.2.2", 2) is True
     assert client_ip({"X-Real-IP": "10.0.0.8"}, "127.0.0.1") == "10.0.0.8"
+    assert client_ip({"X-Forwarded-For": "9.9.9.9"}, "127.0.0.1") == "9.9.9.9"
     assert client_ip({"X-Forwarded-For": "8.8.8.8"}, "203.0.113.9") == "203.0.113.9"
+    limiter.reset("1.1.1.1")
+    assert limiter.allow("1.1.1.1", 3) is True
 
 
 def test_cabin_api_returns_429(monkeypatch) -> None:
