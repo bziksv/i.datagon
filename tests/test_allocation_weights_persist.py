@@ -185,6 +185,7 @@ def test_cabin_strategies_budget_and_desk_ui() -> None:
     assert 'apiPut("/allocation/weights"' in js
     assert 'apiPost("/backtests"' in js
     assert 'apiPost("/desk/backtests/batch"' in js
+    assert "FETCH_TIMEOUT_BATCH_MS" in js
     assert 'id="desk-run-all"' in js
     assert "Прогнать все" in js
     assert "strategies-desk-batch" in js

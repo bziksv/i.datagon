@@ -2,7 +2,7 @@
   "use strict";
 
   /** Версия UI кабинета (этап 30+). Не путать с version API. */
-  var CABIN_UI_VERSION = "v3.0.3";
+  var CABIN_UI_VERSION = "v3.0.4";
 
   var ROUTES = [
     {
@@ -141,6 +141,7 @@
   var routeLoading = false;
   var refreshBusy = false;
   var FETCH_TIMEOUT_MS = 12000;
+  var FETCH_TIMEOUT_BATCH_MS = 120000;
   var confirmResolver = null;
   var confirmReturnFocus = null;
   var mobileMoreOpen = false;
@@ -460,10 +461,12 @@
     }
   }
 
-  function apiPost(path, body) {
+  function apiPost(path, body, options) {
+    options = options || {};
     return fetchJson(path, {
       method: "POST",
       body: body === undefined ? undefined : body,
+      timeoutMs: options.timeoutMs,
     });
   }
 
@@ -524,12 +527,14 @@
     var ctrl =
       typeof AbortController !== "undefined" ? new AbortController() : null;
     var timer = null;
+    var timeoutMs =
+      options.timeoutMs != null ? options.timeoutMs : FETCH_TIMEOUT_MS;
     if (ctrl) {
       timer = window.setTimeout(function () {
         try {
           ctrl.abort();
         } catch (e) {}
-      }, FETCH_TIMEOUT_MS);
+      }, timeoutMs);
     }
     var headers = Object.assign(
       { "X-App-Token": options.token || activeToken() },
@@ -3670,7 +3675,7 @@
         runAllBtn.disabled = true;
         if (runBtn) runBtn.disabled = true;
         runAllBtn.textContent = "Прогоняю…";
-        apiPost("/desk/backtests/batch", {})
+        apiPost("/desk/backtests/batch", {}, { timeoutMs: FETCH_TIMEOUT_BATCH_MS })
           .then(function (data) {
             lastDeskBatch = data;
             renderStrategies();
