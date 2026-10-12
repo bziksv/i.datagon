@@ -94,3 +94,28 @@ def test_observation_before_start_or_with_invalid_equity_is_rejected() -> None:
             benchmark_equity=Decimal("100"),
             observed_at=start,
         )
+
+
+def test_campaign_reports_stalled_observation_stream() -> None:
+    start = datetime(2026, 10, 12, tzinfo=UTC)
+    run = new_paper_forward_run(
+        sleeve="sma_cross",
+        experiment_id=uuid4(),
+        started_at=start,
+    )
+    rows = [
+        new_observation(
+            run,
+            strategy_equity=Decimal("100"),
+            benchmark_equity=Decimal("100"),
+            observed_at=start,
+        )
+    ]
+    result = paper_forward_view(
+        run,
+        rows,
+        now=start + timedelta(days=4),
+    )
+    assert result["status"] == "stalled"
+    assert result["observation_stale"] is True
+    assert result["last_observed_at"] == start.isoformat()

@@ -1233,6 +1233,19 @@
         String(lastUnknownOrders.length) + " ордеров в unknown",
       ]);
     }
+    var forwardGate = admissionGates.G3 || {};
+    if (
+      forwardGate.status === "stalled" ||
+      forwardGate.status === "incomplete"
+    ) {
+      alertItems.push([
+        "critical",
+        "Paper-forward",
+        forwardGate.status === "stalled"
+          ? "Новые наблюдения не поступают"
+          : "Период завершён без полного покрытия",
+      ]);
+    }
     if (!alertItems.length) {
       alertItems.push(["ok", "System clear", "Критичных событий нет"]);
     }

@@ -1001,7 +1001,9 @@ button.danger:hover {
 }
 .admission-gate.is-passed strong { color: #8ff0a8; }
 .admission-gate.is-running strong { color: #ffc679; }
-.admission-gate.is-blocked strong { color: #ff9898; }
+.admission-gate.is-blocked strong,
+.admission-gate.is-stalled strong,
+.admission-gate.is-incomplete strong { color: #ff9898; }
 
 .command-panel,
 .decision-panel,

@@ -56,9 +56,15 @@ def paper_forward_view(
     observations: Sequence[PaperForwardObservation],
     *,
     now: datetime | None = None,
+    stale_after: timedelta = timedelta(hours=72),
 ) -> dict:
     observed = sorted(observations, key=lambda row: row.observed_at)
     current = now or datetime.now(UTC)
+    last_observed_at = observed[-1].observed_at if observed else None
+    observation_stale = bool(
+        last_observed_at is None
+        or current - last_observed_at > stale_after
+    )
     matured = current >= run.ends_at
     covers_period = bool(
         len(observed) >= 2
@@ -83,6 +89,15 @@ def paper_forward_view(
         )
         excess_return = strategy_return - benchmark_return
     complete = matured and covers_period
+    status = (
+        "complete"
+        if complete
+        else "incomplete"
+        if matured
+        else "stalled"
+        if observation_stale
+        else "running"
+    )
     return {
         "id": str(run.id),
         "sleeve": run.sleeve,
@@ -91,8 +106,18 @@ def paper_forward_view(
         "started_at": run.started_at.isoformat(),
         "ends_at": run.ends_at.isoformat(),
         "observations": len(observed),
-        "status": "complete" if complete else "running",
+        "status": status,
         "complete": complete,
+        "observation_stale": observation_stale,
+        "stale_after_sec": int(stale_after.total_seconds()),
+        "last_observed_at": (
+            last_observed_at.isoformat() if last_observed_at else None
+        ),
+        "next_observation_due": (
+            (last_observed_at + stale_after).isoformat()
+            if last_observed_at
+            else run.started_at.isoformat()
+        ),
         "capital_eligible": bool(complete and excess_return and excess_return > 0),
         "strategy_return": (
             float(strategy_return) if strategy_return is not None else None
