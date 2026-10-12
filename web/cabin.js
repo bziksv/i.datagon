@@ -2,7 +2,7 @@
   "use strict";
 
   /** Версия UI кабинета (этап 30+). Не путать с version API. */
-  var CABIN_UI_VERSION = "v3.3.7";
+  var CABIN_UI_VERSION = "v3.3.8";
 
   var ROUTES = [
     {
@@ -100,6 +100,7 @@
     "help",
   ];
   var lastFundamentals = null;
+  var lastCompaniesNote = "";
   var lastRecommendations = null;
   var SETTINGS_TOUR_KEY = "settings";
 
@@ -571,9 +572,24 @@
     return fetch(path, opts)
       .then(function (res) {
         if (!res.ok) {
-          var err = new Error(humanizeHttpError(res.status));
-          err.status = res.status;
-          throw err;
+          return res
+            .json()
+            .catch(function () {
+              return null;
+            })
+            .then(function (payload) {
+              var detail =
+                payload &&
+                (typeof payload.detail === "string"
+                  ? payload.detail
+                  : payload.detail && payload.detail.message
+                    ? payload.detail.message
+                    : "");
+              var err = new Error(detail || humanizeHttpError(res.status));
+              err.status = res.status;
+              err.detail = detail || "";
+              throw err;
+            });
         }
         return res.json();
       })
@@ -2250,26 +2266,30 @@
       '<button type="button" class="ghost" id="companies-refresh">Обновить с брокера</button>' +
       "</div>" +
       '<p class="source-line" id="companies-status">' +
-      escapeHtml(data.disclaimer || "") +
+      escapeHtml(
+        lastCompaniesNote || data.disclaimer || ""
+      ) +
       "</p>" +
       table +
       "</section>";
     var demoBtn = byId("companies-demo");
     var refreshBtn = byId("companies-refresh");
-    var status = byId("companies-status");
     if (demoBtn) {
       demoBtn.addEventListener("click", function () {
         demoBtn.disabled = true;
+        lastCompaniesNote = "Грузим демо…";
+        renderCompanies();
         apiPost("/fundamentals/demo", {})
           .then(function (payload) {
             lastFundamentals = payload;
-            if (status) status.textContent = "Загружено демо: " + (payload.count || 0);
+            lastCompaniesNote =
+              "Загружено демо: " + (payload.count || 0) + " тикеров";
             renderCompanies();
           })
           .catch(function (err) {
-            if (status) {
-              status.textContent = "Демо не загрузилось: " + (err.message || "ошибка");
-            }
+            lastCompaniesNote =
+              "Демо не загрузилось: " + (err.message || "ошибка");
+            renderCompanies();
           })
           .finally(function () {
             demoBtn.disabled = false;
@@ -2279,21 +2299,25 @@
     if (refreshBtn) {
       refreshBtn.addEventListener("click", function () {
         refreshBtn.disabled = true;
-        apiPost("/fundamentals/refresh", {})
+        lastCompaniesNote =
+          "Обновляю с брокера (справочник акций + фундамент)…";
+        renderCompanies();
+        var busy = byId("companies-refresh");
+        if (busy) busy.disabled = true;
+        apiPost("/fundamentals/refresh", {}, { timeoutMs: FETCH_TIMEOUT_BATCH_MS })
           .then(function (payload) {
-            if (status) {
-              status.textContent = "Обновлено записей: " + (payload.upserted || 0);
-            }
+            lastCompaniesNote =
+              "С брокера обновлено: " + (payload.upserted || 0) + " записей";
             return refreshCompanies();
           })
           .catch(function (err) {
-            if (status) {
-              status.textContent =
-                "Брокер недоступен или ошибка: " + (err.message || "ошибка");
-            }
+            lastCompaniesNote =
+              "Брокер: " + (err.message || "ошибка обновления");
+            renderCompanies();
           })
           .finally(function () {
-            refreshBtn.disabled = false;
+            var btn = byId("companies-refresh");
+            if (btn) btn.disabled = false;
           });
       });
     }

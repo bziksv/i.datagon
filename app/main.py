@@ -1053,11 +1053,16 @@ def create_app() -> FastAPI:
 
     @app.post("/fundamentals/refresh")
     async def fundamentals_refresh() -> dict:
-        from worker.fundamentals import run_fundamentals_refresh
+        from worker.fundamentals import (
+            FundamentalsRefreshError,
+            run_fundamentals_refresh,
+        )
 
         try:
             saved = await run_fundamentals_refresh()
         except BrokerTokenError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        except FundamentalsRefreshError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
         except Exception as exc:
             raise HTTPException(
