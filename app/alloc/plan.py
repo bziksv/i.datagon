@@ -13,7 +13,12 @@ from app.risk.sleeve import DEFAULT_SLEEVE_SHARE
 from app.strategy.donchian import DEFAULT_PERIOD, SLEEVE as DONCHIAN
 from app.strategy.overnight import (
     DEFAULT_AVERAGE_TRIGGER_PCT,
+    DEFAULT_COOLDOWN_BARS,
+    DEFAULT_MAX_HOLD_BARS,
     DEFAULT_MAX_LAYERS,
+    DEFAULT_MIN_DAY_DROP_PCT,
+    DEFAULT_RSI_MAX,
+    DEFAULT_SMA_PERIOD,
     DEFAULT_STOP_PCT as OVERNIGHT_STOP,
     DEFAULT_TAKE_PROFIT_PCT,
     SLEEVE as OVERNIGHT,
@@ -88,15 +93,18 @@ SLEEVE_HOWTO = {
         "title": "Вечерний докуп",
         "horizon": "дневки",
         "signal": (
-            f"Покупка на закрытии дня. Днём цель "
-            f"+{float(DEFAULT_TAKE_PROFIT_PCT)*100:g}% от средней цены (коридор 3–6%). "
-            f"Если закрытие ниже средней на {float(DEFAULT_AVERAGE_TRIGGER_PCT)*100:g}% — "
-            f"вечернее усреднение, до {DEFAULT_MAX_LAYERS} слоёв. "
-            f"Стоп {float(OVERNIGHT_STOP)*100:g}% от средней."
+            f"Вход на close только после зелёного дня: красный день ≤ "
+            f"−{float(DEFAULT_MIN_DAY_DROP_PCT)*100:g}%, close внизу диапазона, "
+            f"≤ SMA{DEFAULT_SMA_PERIOD}, RSI≤{float(DEFAULT_RSI_MAX):g}. "
+            f"Тейк +{float(DEFAULT_TAKE_PROFIT_PCT)*100:g}%, стоп "
+            f"{float(OVERNIGHT_STOP)*100:g}% от первой цены, удержание "
+            f"{DEFAULT_MAX_HOLD_BARS} бара, усреднение до {DEFAULT_MAX_LAYERS} слоёв "
+            f"при −{float(DEFAULT_AVERAGE_TRIGGER_PCT)*100:g}%, пауза "
+            f"{DEFAULT_COOLDOWN_BARS} дней после стопа."
         ),
         "holds": (
-            "Ночная позиция: после тейка вечером может войти снова. "
-            "Усредняет только при просадке закрытия, не до бесконечности. "
+            "Защитный overnight: не покупает каждый вечер и не усредняет бесконечно. "
+            "На выборке blue chips скорее около нуля, чем «печатный станок». "
             "Модель по дневному OHLC — не тиковый стакан."
         ),
     },

@@ -165,6 +165,7 @@ def run_backtest(
     cash = Decimal(cfg.initial_cash)
     qty = 0
     entry_price: Decimal | None = None
+    first_entry_price: Decimal | None = None
     entry_ts: datetime | None = None
     entry_cost = Decimal("0")
     pending: str | None = None
@@ -179,6 +180,7 @@ def run_backtest(
     allow_add = bool(getattr(strategy, "allow_add", False))
     max_layers = max(int(getattr(strategy, "max_layers", 1) or 1), 1)
     take_profit_pct = Decimal(str(getattr(strategy, "take_profit_pct", 0) or 0))
+    stop_from_first = bool(getattr(strategy, "stop_from_first", False))
 
     def buy(
         bar: CandleBar,
@@ -187,7 +189,7 @@ def run_backtest(
         *,
         add: bool = False,
     ) -> None:
-        nonlocal cash, qty, entry_price, entry_ts, entry_cost, turnover
+        nonlocal cash, qty, entry_price, first_entry_price, entry_ts, entry_cost, turnover
         if add and (qty <= 0 or entry_price is None):
             add = False
         if not add and qty > 0:
@@ -227,11 +229,12 @@ def run_backtest(
             return
         qty = wanted
         entry_price = price
+        first_entry_price = price
         entry_ts = bar.ts
         entry_cost = fee
 
     def sell(bar: CandleBar, reason: str, raw_price: Decimal | None = None) -> None:
-        nonlocal cash, qty, entry_price, entry_ts, entry_cost, turnover
+        nonlocal cash, qty, entry_price, first_entry_price, entry_ts, entry_cost, turnover
         if qty <= 0 or entry_price is None or entry_ts is None:
             return
         price = _execution_price(
@@ -261,6 +264,7 @@ def run_backtest(
         fills.append(BacktestFill(bar.ts, "sell", qty, price, fee, reason))
         qty = 0
         entry_price = None
+        first_entry_price = None
         entry_ts = None
         entry_cost = Decimal("0")
 
@@ -275,14 +279,22 @@ def run_backtest(
         pending_reason = ""
         pending_add = False
 
-        stopped_today = False
+        blocked_reentry = False
         stop_pct = Decimal(str(getattr(strategy, "stop_pct", 0) or 0))
         if evaluating and qty > 0 and entry_price is not None and stop_pct > 0:
-            stop_price = entry_price * (Decimal("1") - stop_pct)
+            stop_ref = (
+                first_entry_price
+                if stop_from_first and first_entry_price is not None
+                else entry_price
+            )
+            stop_price = stop_ref * (Decimal("1") - stop_pct)
             if Decimal(bar.low) <= stop_price:
                 raw_fill = min(Decimal(bar.o), stop_price)
                 sell(bar, "stop", raw_fill)
-                stopped_today = True
+                blocked_reentry = True
+                note_stop = getattr(strategy, "note_stop", None)
+                if callable(note_stop):
+                    note_stop()
 
         if (
             evaluating
@@ -298,6 +310,7 @@ def run_backtest(
                     else tp_price
                 )
                 sell(bar, "take_profit", raw_fill)
+                blocked_reentry = True
 
         if evaluating:
             if qty > 0:
@@ -320,10 +333,10 @@ def run_backtest(
         if fill_at == "close":
             if not evaluating:
                 continue
-            # После стопа не входим в тот же вечер — только после тейка/флэта.
+            # После стопа/тейка не входим в тот же вечер — ждём слабость на новом дне.
             if (
                 signal.kind == "buy"
-                and not stopped_today
+                and not blocked_reentry
                 and (qty == 0 or allow_add)
             ):
                 buy(

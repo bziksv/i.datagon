@@ -7,7 +7,14 @@ from pathlib import Path
 from app.strategy.donchian import DEFAULT_PERIOD, DonchianBreakoutStrategy
 from app.strategy.overnight import (
     DEFAULT_AVERAGE_TRIGGER_PCT,
+    DEFAULT_CLOSE_RANGE_MAX,
+    DEFAULT_COOLDOWN_BARS,
+    DEFAULT_MAX_HOLD_BARS,
     DEFAULT_MAX_LAYERS,
+    DEFAULT_MIN_DAY_DROP_PCT,
+    DEFAULT_RSI_MAX,
+    DEFAULT_RSI_PERIOD,
+    DEFAULT_SMA_PERIOD,
     DEFAULT_STOP_PCT as OVERNIGHT_STOP,
     DEFAULT_TAKE_PROFIT_PCT,
     OvernightBounceStrategy,
@@ -144,28 +151,68 @@ def scalp_params(
 def overnight_params(
     env: Mapping[str, str],
     yaml_text: str | None = None,
-) -> tuple[Decimal, Decimal, int, Decimal]:
-    take_profit = DEFAULT_TAKE_PROFIT_PCT
-    average_trigger = DEFAULT_AVERAGE_TRIGGER_PCT
-    max_layers = DEFAULT_MAX_LAYERS
-    stop = OVERNIGHT_STOP
+) -> dict:
+    params = {
+        "take_profit_pct": DEFAULT_TAKE_PROFIT_PCT,
+        "average_trigger_pct": DEFAULT_AVERAGE_TRIGGER_PCT,
+        "max_layers": DEFAULT_MAX_LAYERS,
+        "stop_pct": OVERNIGHT_STOP,
+        "sma_period": DEFAULT_SMA_PERIOD,
+        "max_hold_bars": DEFAULT_MAX_HOLD_BARS,
+        "cooldown_bars": DEFAULT_COOLDOWN_BARS,
+        "min_day_drop_pct": DEFAULT_MIN_DAY_DROP_PCT,
+        "rsi_period": DEFAULT_RSI_PERIOD,
+        "rsi_max": DEFAULT_RSI_MAX,
+        "close_range_max": DEFAULT_CLOSE_RANGE_MAX,
+    }
     if yaml_text:
         section = _section(yaml_text, "overnight_bounce")
-        take_profit = _decimal_field(section, "take_profit_pct", take_profit)
-        average_trigger = _decimal_field(
-            section, "average_trigger_pct", average_trigger
+        params["take_profit_pct"] = _decimal_field(
+            section, "take_profit_pct", params["take_profit_pct"]
         )
-        max_layers = _int_field(section, "max_layers", max_layers)
-        stop = _decimal_field(section, "stop_pct", stop)
-    if env.get("OVERNIGHT_TAKE_PROFIT_PCT"):
-        take_profit = Decimal(env["OVERNIGHT_TAKE_PROFIT_PCT"])
-    if env.get("OVERNIGHT_AVERAGE_TRIGGER_PCT"):
-        average_trigger = Decimal(env["OVERNIGHT_AVERAGE_TRIGGER_PCT"])
-    if env.get("OVERNIGHT_MAX_LAYERS"):
-        max_layers = int(env["OVERNIGHT_MAX_LAYERS"])
-    if env.get("OVERNIGHT_STOP_PCT"):
-        stop = Decimal(env["OVERNIGHT_STOP_PCT"])
-    return take_profit, average_trigger, max_layers, stop
+        params["average_trigger_pct"] = _decimal_field(
+            section, "average_trigger_pct", params["average_trigger_pct"]
+        )
+        params["max_layers"] = _int_field(
+            section, "max_layers", params["max_layers"]
+        )
+        params["stop_pct"] = _decimal_field(section, "stop_pct", params["stop_pct"])
+        params["sma_period"] = _int_field(
+            section, "sma_period", params["sma_period"]
+        )
+        params["max_hold_bars"] = _int_field(
+            section, "max_hold_bars", params["max_hold_bars"]
+        )
+        params["cooldown_bars"] = _int_field(
+            section, "cooldown_bars", params["cooldown_bars"]
+        )
+        params["min_day_drop_pct"] = _decimal_field(
+            section, "min_day_drop_pct", params["min_day_drop_pct"]
+        )
+        params["rsi_period"] = _int_field(
+            section, "rsi_period", params["rsi_period"]
+        )
+        params["rsi_max"] = _decimal_field(section, "rsi_max", params["rsi_max"])
+        params["close_range_max"] = _decimal_field(
+            section, "close_range_max", params["close_range_max"]
+        )
+    env_map = {
+        "OVERNIGHT_TAKE_PROFIT_PCT": ("take_profit_pct", Decimal),
+        "OVERNIGHT_AVERAGE_TRIGGER_PCT": ("average_trigger_pct", Decimal),
+        "OVERNIGHT_MAX_LAYERS": ("max_layers", int),
+        "OVERNIGHT_STOP_PCT": ("stop_pct", Decimal),
+        "OVERNIGHT_SMA_PERIOD": ("sma_period", int),
+        "OVERNIGHT_MAX_HOLD_BARS": ("max_hold_bars", int),
+        "OVERNIGHT_COOLDOWN_BARS": ("cooldown_bars", int),
+        "OVERNIGHT_MIN_DAY_DROP_PCT": ("min_day_drop_pct", Decimal),
+        "OVERNIGHT_RSI_PERIOD": ("rsi_period", int),
+        "OVERNIGHT_RSI_MAX": ("rsi_max", Decimal),
+        "OVERNIGHT_CLOSE_RANGE_MAX": ("close_range_max", Decimal),
+    }
+    for env_key, (name, caster) in env_map.items():
+        if env.get(env_key):
+            params[name] = caster(env[env_key])
+    return params
 
 
 def _yaml_text(yaml_path: Path | None) -> str | None:
@@ -211,15 +258,7 @@ def overnight_from_config(
     env: Mapping[str, str],
     yaml_path: Path | None = DEFAULT_YAML,
 ) -> OvernightBounceStrategy:
-    take_profit, average_trigger, max_layers, stop = overnight_params(
-        env, _yaml_text(yaml_path)
-    )
-    return OvernightBounceStrategy(
-        take_profit_pct=take_profit,
-        average_trigger_pct=average_trigger,
-        max_layers=max_layers,
-        stop_pct=stop,
-    )
+    return OvernightBounceStrategy(**overnight_params(env, _yaml_text(yaml_path)))
 
 
 def active_strategies(env: Mapping[str, str], yaml_path: Path | None = DEFAULT_YAML):

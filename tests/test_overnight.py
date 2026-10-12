@@ -25,46 +25,87 @@ def _bar(
     )
 
 
-def test_overnight_buys_when_flat() -> None:
+def _loose(**overrides) -> OvernightBounceStrategy:
+    params = dict(
+        take_profit_pct=Decimal("0.03"),
+        average_trigger_pct=Decimal("0.20"),
+        max_layers=1,
+        stop_pct=Decimal("0.50"),
+        max_hold_bars=5,
+        cooldown_bars=0,
+        min_day_drop_pct=Decimal("0"),
+        rsi_max=Decimal("100"),
+        close_range_max=Decimal("1"),
+        sma_period=2,
+    )
+    params.update(overrides)
+    return OvernightBounceStrategy(**params)
+
+
+def _downtrend_then_setup() -> list[CandleBar]:
+    bars: list[CandleBar] = []
+    price = 120.0
+    for day in range(16):
+        o = price
+        c = price - 1.2
+        bars.append(_bar(day, o=o, h=o + 0.3, low=c - 0.2, c=c))
+        price = c
+    bars.append(_bar(16, o=price, h=price + 2.5, low=price - 0.2, c=price + 2.0))
+    price = price + 2.0
+    o = price
+    c = price * 0.98
+    bars.append(_bar(17, o=o, h=o + 0.1, low=c - 0.05, c=c))
+    return bars
+
+
+def test_overnight_skips_green_day() -> None:
     sleeve = OvernightBounceStrategy()
-    bars = [_bar(0, o=100, h=101, low=99, c=100)]
+    bars = _downtrend_then_setup()
+    last = bars[-1]
+    bars[-1] = _bar(
+        17,
+        o=float(last.o),
+        h=float(last.o) + 3,
+        low=float(last.o) - 0.1,
+        c=float(last.o) + 2,
+    )
+    signal = sleeve.on_bar(BarContext("SBER", bars))
+    assert signal is not None
+    assert signal.kind == "flat"
+
+
+def test_overnight_buys_filtered_weak_setup() -> None:
+    sleeve = OvernightBounceStrategy()
+    bars = _downtrend_then_setup()
     signal = sleeve.on_bar(BarContext("SBER", bars))
     assert signal is not None
     assert signal.kind == "buy"
+    assert sleeve.stop_from_first is True
     assert sleeve.fill_at == "close"
-    assert sleeve.allow_add is True
-    assert sleeve.take_profit_pct == Decimal("0.045")
 
 
-def test_overnight_averages_on_drawdown() -> None:
-    sleeve = OvernightBounceStrategy(
-        average_trigger_pct=Decimal("0.02"),
-        max_layers=3,
-    )
+def test_overnight_time_exit_on_second_bar() -> None:
+    sleeve = _loose(max_hold_bars=2, take_profit_pct=Decimal("0.50"))
     bars = [
-        _bar(0, o=100, h=100, low=100, c=100),
-        _bar(1, o=98, h=99, low=96, c=97),
+        _bar(0, o=100, h=101, low=99, c=101),  # green
+        _bar(1, o=101, h=101, low=97, c=97),  # entry
+        _bar(2, o=97, h=98, low=96, c=97),  # hold=2 → exit
     ]
-    first = sleeve.on_bar(BarContext("SBER", bars[:1]))
-    assert first is not None and first.kind == "buy"
-    second = sleeve.on_bar(
-        BarContext("SBER", bars, entry_price=Decimal("100"))
+    assert sleeve.on_bar(BarContext("SBER", bars[:2])).kind == "buy"
+    signal = sleeve.on_bar(
+        BarContext("SBER", bars, entry_price=Decimal("97"))
     )
-    assert second is not None
-    assert second.kind == "buy"
+    assert signal is not None
+    assert signal.kind == "exit"
 
 
-def test_overnight_backtest_take_profit_and_reeentry() -> None:
-    sleeve = OvernightBounceStrategy(
-        take_profit_pct=Decimal("0.05"),
-        average_trigger_pct=Decimal("0.02"),
-        max_layers=3,
-        stop_pct=Decimal("0.20"),
-    )
+def test_overnight_backtest_no_same_day_reentry_after_tp() -> None:
+    sleeve = _loose()
     bars = [
-        _bar(0, o=100, h=100, low=100, c=100),  # buy close 100
-        _bar(1, o=101, h=106, low=100, c=105),  # TP 105, then re-buy close 105
-        _bar(2, o=105, h=106, low=104, c=105),
+        _bar(0, o=100, h=101, low=99, c=101),  # green
+        _bar(1, o=101, h=101, low=97, c=97),  # buy
+        _bar(2, o=97, h=102, low=97, c=101),  # TP, green evening
+        _bar(3, o=101, h=103, low=101, c=102),
     ]
     report = run_backtest(
         sleeve,
@@ -78,23 +119,25 @@ def test_overnight_backtest_take_profit_and_reeentry() -> None:
         ),
         evaluation_start=0,
     )
-    reasons = [trade["exit_reason"] for trade in report["trades"]]
-    assert "take_profit" in reasons
+    assert [trade["exit_reason"] for trade in report["trades"]] == ["take_profit"]
     buys = [fill for fill in report["fills"] if fill["side"] == "buy"]
-    assert len(buys) >= 2
+    assert len(buys) == 1
 
 
-def test_overnight_backtest_averages_layers() -> None:
-    sleeve = OvernightBounceStrategy(
-        take_profit_pct=Decimal("0.50"),  # unreachable
+def test_overnight_backtest_stop_from_first_entry() -> None:
+    sleeve = _loose(
+        take_profit_pct=Decimal("0.50"),
         average_trigger_pct=Decimal("0.02"),
-        max_layers=3,
-        stop_pct=Decimal("0.50"),
+        max_layers=2,
+        stop_pct=Decimal("0.05"),
+        max_hold_bars=20,
+        cooldown_bars=1,
     )
     bars = [
-        _bar(0, o=100, h=100, low=100, c=100),
-        _bar(1, o=98, h=99, low=96, c=97),
-        _bar(2, o=96, h=97, low=94, c=95),
+        _bar(0, o=100, h=101, low=99, c=101),
+        _bar(1, o=101, h=101, low=97, c=97),
+        _bar(2, o=97, h=97, low=94, c=94),
+        _bar(3, o=94, h=94, low=90, c=91),
     ]
     report = run_backtest(
         sleeve,
@@ -108,6 +151,4 @@ def test_overnight_backtest_averages_layers() -> None:
         ),
         evaluation_start=0,
     )
-    buys = [fill for fill in report["fills"] if fill["side"] == "buy"]
-    assert len(buys) == 3
-    assert report["summary"]["open_qty"] > 0
+    assert any(trade["exit_reason"] == "stop" for trade in report["trades"])
