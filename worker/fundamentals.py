@@ -151,7 +151,8 @@ async def run_fundamentals_refresh(fetch: FetchFn | None = None) -> int:
         shares = await asyncio.to_thread(fetch_moex_shares)
     except Exception as exc:
         raise FundamentalsRefreshError(
-            f"Не удалось загрузить акции с брокера: {exc}"
+            "Не удалось загрузить акции с брокера (sandbox API недоступен). "
+            "Пока в таблице остаются старые/демо снимки — это не полный desk."
         ) from exc
 
     dumped = dump_moex_instruments(instruments, shares)

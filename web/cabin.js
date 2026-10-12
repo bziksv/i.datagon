@@ -2,7 +2,7 @@
   "use strict";
 
   /** Версия UI кабинета (этап 30+). Не путать с version API. */
-  var CABIN_UI_VERSION = "v3.3.8";
+  var CABIN_UI_VERSION = "v3.3.9";
 
   var ROUTES = [
     {
@@ -578,13 +578,16 @@
               return null;
             })
             .then(function (payload) {
-              var detail =
-                payload &&
-                (typeof payload.detail === "string"
-                  ? payload.detail
-                  : payload.detail && payload.detail.message
-                    ? payload.detail.message
-                    : "");
+              var detail = "";
+              if (payload) {
+                if (typeof payload.message === "string" && payload.message) {
+                  detail = payload.message;
+                } else if (typeof payload.detail === "string") {
+                  detail = payload.detail;
+                } else if (payload.detail && payload.detail.message) {
+                  detail = payload.detail.message;
+                }
+              }
               var err = new Error(detail || humanizeHttpError(res.status));
               err.status = res.status;
               err.detail = detail || "";
