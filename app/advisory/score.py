@@ -148,19 +148,8 @@ def score_fundamental(
     v = value_score(pe, pb)
     q = quality_score(roe_v, eps)
     d = div_score(div_pct)
-    # value 40% / quality 35% / div 25%; нулевые оси не тянут вниз весь вес
-    weights: list[tuple[float, float]] = []
-    if v > 0:
-        weights.append((v, 0.40))
-    if q > 0:
-        weights.append((q, 0.35))
-    if d > 0:
-        weights.append((d, 0.25))
-    if not weights:
-        total = 0.0
-    else:
-        wsum = sum(w for _, w in weights)
-        total = _clip(sum(score * (w / wsum) for score, w in weights))
+    # Всегда 40/35/25: нет див./выброс = 0 по оси, вес не раздаём остальным.
+    total = _clip(v * 0.40 + q * 0.35 + d * 0.25)
     bits: list[str] = []
     if pe is not None and pe > 0:
         bits.append(f"P/E {pe:.1f}")
@@ -173,7 +162,9 @@ def score_fundamental(
     if div_pct is not None:
         bits.append(f"див. {div_pct:.1f}%")
     elif raw_ttm is not None and raw_ttm > MAX_SANE_DIV_YIELD_PCT:
-        bits.append(f"див. выброс {raw_ttm:.0f}% (не в скор)")
+        bits.append(f"див. выброс {raw_ttm:.0f}% (в скор как 0)")
+    elif d == 0:
+        bits.append("див. 0")
     if not bits:
         rationale = "Недостаточно фундаментальных метрик для оценки."
     else:

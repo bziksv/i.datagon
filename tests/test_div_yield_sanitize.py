@@ -18,6 +18,8 @@ def test_sfin_like_outlier_is_dropped_from_score_and_view() -> None:
         raw={"roe": 15.67, "dividend_yield_daily_ttm": 186.98},
     )
     assert scored.div == 0.0
+    # 92.5*0.4 + 72.5*0.35 + 0*0.25 ≈ 62.4 — без раздачи веса див. остальным
+    assert 61.0 <= scored.total <= 63.5
     assert "выброс" in scored.rationale
     row = Fundamental(
         ticker="SFIN",
@@ -32,6 +34,7 @@ def test_sfin_like_outlier_is_dropped_from_score_and_view() -> None:
     assert item["dividend_yield_ttm"] is None
     assert item["dividend_yield_outlier"] is True
     assert item["scores"]["div"] == 0.0
+    assert item["scores"]["total"] == scored.total
 
 
 def test_normal_div_yield_still_scores() -> None:
