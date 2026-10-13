@@ -3,6 +3,7 @@
 import os
 from datetime import datetime
 from decimal import Decimal
+from pathlib import Path
 
 from tinkoff.invest import (
     CandleInterval,
@@ -72,17 +73,62 @@ def sandbox_token() -> str:
     return token
 
 
+def _packaged_russian_certs() -> list[Path]:
+    """PEM Минцифры рядом с репо (deploy/certs) — нужен gRPC к Тиньку."""
+    root = Path(__file__).resolve().parents[2] / "deploy" / "certs"
+    names = (
+        "russian_trusted_root_ca.crt",
+        "russian_trusted_sub_ca.crt",
+    )
+    return [root / name for name in names if (root / name).is_file()]
+
+
 def _ensure_grpc_roots() -> None:
-    """Тинькофф отдаёт цепочку Минцифры; без system CA gRPC падает на TLS."""
-    if os.environ.get("GRPC_DEFAULT_SSL_ROOTS_FILE_PATH", "").strip():
-        return
-    for path in (
-        "/etc/ssl/certs/ca-certificates.crt",
-        "/etc/pki/tls/certs/ca-bundle.crt",
-    ):
-        if os.path.isfile(path):
-            os.environ["GRPC_DEFAULT_SSL_ROOTS_FILE_PATH"] = path
+    """Тинькофф на Russian Trusted CA; системный store macOS/gRPC его часто не знает.
+
+    Собираем certifi + PEM Минцифры в tempfile (без пробелов в пути — gRPC fdopen).
+    """
+    from tempfile import gettempdir
+
+    # c-ares на macOS без DNS в Wi‑Fi часто не резолвит; native стабильнее.
+    os.environ.setdefault("GRPC_DNS_RESOLVER", "native")
+
+    packaged = _packaged_russian_certs()
+    if not packaged:
+        existing = os.environ.get("GRPC_DEFAULT_SSL_ROOTS_FILE_PATH", "").strip()
+        if existing and os.path.isfile(existing):
             return
+        for path in (
+            "/etc/ssl/certs/ca-certificates.crt",
+            "/etc/pki/tls/certs/ca-bundle.crt",
+            "/etc/ssl/cert.pem",
+        ):
+            if os.path.isfile(path):
+                os.environ["GRPC_DEFAULT_SSL_ROOTS_FILE_PATH"] = path
+                return
+        return
+
+    out = Path(gettempdir()) / "idatagon-grpc-roots.pem"
+    parts: list[str] = []
+    try:
+        import certifi
+
+        parts.append(Path(certifi.where()).read_text(encoding="utf-8"))
+    except Exception:
+        for path in (
+            "/etc/ssl/certs/ca-certificates.crt",
+            "/etc/ssl/cert.pem",
+            "/etc/pki/tls/certs/ca-bundle.crt",
+        ):
+            if os.path.isfile(path):
+                parts.append(Path(path).read_text(encoding="utf-8"))
+                break
+    for pem in packaged:
+        parts.append(pem.read_text(encoding="utf-8"))
+    blob = "\n".join(parts)
+    if not out.is_file() or out.read_text(encoding="utf-8") != blob:
+        out.write_text(blob, encoding="utf-8")
+    os.environ["GRPC_DEFAULT_SSL_ROOTS_FILE_PATH"] = str(out)
 
 
 def make_client(*, live: bool = False) -> Client:
