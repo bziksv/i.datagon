@@ -39,7 +39,8 @@ def test_empty_moex_dump_fails() -> None:
 def test_sdk_uses_shares() -> None:
     source = inspect.getsource(fetch_moex_shares)
     assert "instruments.shares" in source
-    assert "moex_share_rows" in source
+    assert "MOEX_CLASS_CODE" in source
+    assert "asset_uid" in source or "сырые TQBR" in source
 
 
 @pytest.mark.skip(reason="skip-live: MOEX dump is not sent from tests")

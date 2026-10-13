@@ -19,7 +19,6 @@ from tinkoff.invest.utils import decimal_to_quotation, money_to_decimal, quotati
 from app.broker.instruments import (
     MOEX_CLASS_CODE,
     instrument_from_share,
-    moex_share_rows,
     pick_moex,
 )
 from app.broker.port import CandleBar, OrderAck, OrderRequest
@@ -73,7 +72,21 @@ def sandbox_token() -> str:
     return token
 
 
+def _ensure_grpc_roots() -> None:
+    """Тинькофф отдаёт цепочку Минцифры; без system CA gRPC падает на TLS."""
+    if os.environ.get("GRPC_DEFAULT_SSL_ROOTS_FILE_PATH", "").strip():
+        return
+    for path in (
+        "/etc/ssl/certs/ca-certificates.crt",
+        "/etc/pki/tls/certs/ca-bundle.crt",
+    ):
+        if os.path.isfile(path):
+            os.environ["GRPC_DEFAULT_SSL_ROOTS_FILE_PATH"] = path
+            return
+
+
 def make_client(*, live: bool = False) -> Client:
+    _ensure_grpc_roots()
     return Client(sandbox_token(), target=grpc_target(live=live))
 
 
@@ -187,9 +200,15 @@ def find_moex_instrument(ticker: str):
 
 
 def fetch_moex_shares() -> list:
+    """Сырые TQBR share с брокера (с asset_uid/name/sector) — не ORM Instrument."""
     with make_client() as client:
         raw = client.instruments.shares()
-        return moex_share_rows(raw.instruments)
+        return [
+            share
+            for share in raw.instruments
+            if (getattr(share, "class_code", "") or "") == MOEX_CLASS_CODE
+            and (getattr(share, "ticker", "") or "").strip()
+        ]
 
 
 def fetch_asset_fundamentals(assets: list[str]) -> list:
