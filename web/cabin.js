@@ -2,7 +2,7 @@
   "use strict";
 
   /** Версия UI кабинета (этап 30+). Не путать с version API. */
-  var CABIN_UI_VERSION = "v3.3.16";
+  var CABIN_UI_VERSION = "v3.3.17";
 
   var ROUTES = [
     {
@@ -2237,6 +2237,13 @@
     return (Math.round(pct * 10) / 10).toFixed(1) + "%";
   }
 
+  function fundDivLabel(row) {
+    if (row && row.dividend_yield_outlier && row.dividend_yield_ttm == null) {
+      return "н/д";
+    }
+    return fundPctLabel(row && row.dividend_yield_ttm);
+  }
+
   function fundToneCell(score, text) {
     return (
       '<td class="' +
@@ -2291,7 +2298,7 @@
       "</td><td>" +
       escapeHtml(fundPctLabel(row.roe)) +
       "</td><td>" +
-      escapeHtml(fundPctLabel(row.dividend_yield_ttm)) +
+      escapeHtml(fundDivLabel(row)) +
       "</td><td class=\"fund-verdict " +
       fundScoreTone(total) +
       '">' +

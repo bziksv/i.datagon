@@ -11,7 +11,12 @@ from app.advisory.moex_catalog import (
     lookup_sector,
     sector_title,
 )
-from app.advisory.score import score_fundamental
+from app.advisory.score import (
+    MAX_SANE_DIV_YIELD_PCT,
+    as_percent,
+    sane_dividend_yield_pct,
+    score_fundamental,
+)
 from app.models import Fundamental
 
 DISCLAIMER = (
@@ -51,7 +56,27 @@ def fundamental_item(row: Fundamental) -> dict:
         ),
         "roe": raw.get("roe"),
         "free_float": raw.get("free_float"),
-        "dividend_yield_ttm": raw.get("dividend_yield_daily_ttm"),
+        "dividend_yield_ttm": sane_dividend_yield_pct(
+            raw.get("forward_annual_dividend_yield"),
+            raw.get("dividend_yield_daily_ttm"),
+            raw.get("five_years_average_dividend_yield"),
+        ),
+        "dividend_yield_raw_ttm": as_percent(
+            float(raw["dividend_yield_daily_ttm"])
+            if isinstance(raw.get("dividend_yield_daily_ttm"), (int, float))
+            else None
+        ),
+        "dividend_yield_outlier": bool(
+            (
+                as_percent(
+                    float(raw["dividend_yield_daily_ttm"])
+                    if isinstance(raw.get("dividend_yield_daily_ttm"), (int, float))
+                    else None
+                )
+                or 0.0
+            )
+            > MAX_SANE_DIV_YIELD_PCT
+        ),
         "scores": {
             "value": scored.value,
             "quality": scored.quality,

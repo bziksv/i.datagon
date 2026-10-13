@@ -83,10 +83,35 @@ def quality_score(roe: float | None, eps: float | None) -> float:
     return _clip(sum(parts) / len(parts))
 
 
+# Выше ~20% TTM на РФ почти всегда разовое/битые данные брокера (как SFIN 187%).
+MAX_SANE_DIV_YIELD_PCT = 20.0
+
+
+def as_percent(value: float | None) -> float | None:
+    if value is None:
+        return None
+    return value * 100 if abs(value) <= 1.5 else value
+
+
+def sane_dividend_yield_pct(
+    *candidates: float | None,
+    max_pct: float = MAX_SANE_DIV_YIELD_PCT,
+) -> float | None:
+    """Первая правдоподобная див. доходность в %; выбросы отбрасываем."""
+    for raw in candidates:
+        y = as_percent(_f(raw))
+        if y is None or y <= 0:
+            continue
+        if y > max_pct:
+            continue
+        return round(y, 2)
+    return None
+
+
 def div_score(div_yield: float | None) -> float:
-    if div_yield is None:
+    y = sane_dividend_yield_pct(div_yield)
+    if y is None:
         return 0.0
-    y = div_yield * 100 if abs(div_yield) <= 1.5 else div_yield
     if y >= 10:
         return 95.0
     if y >= 7:
@@ -114,14 +139,15 @@ def score_fundamental(
     pb = _f(price_to_book_ttm)
     eps = _f(eps_ttm)
     roe_v = _f(roe if roe is not None else payload.get("roe"))
-    div = _f(
-        dividend_yield
-        if dividend_yield is not None
-        else payload.get("dividend_yield_daily_ttm")
+    div_pct = sane_dividend_yield_pct(
+        dividend_yield,
+        payload.get("forward_annual_dividend_yield"),
+        payload.get("dividend_yield_daily_ttm"),
+        payload.get("five_years_average_dividend_yield"),
     )
     v = value_score(pe, pb)
     q = quality_score(roe_v, eps)
-    d = div_score(div)
+    d = div_score(div_pct)
     # value 40% / quality 35% / div 25%; нулевые оси не тянут вниз весь вес
     weights: list[tuple[float, float]] = []
     if v > 0:
@@ -141,11 +167,13 @@ def score_fundamental(
     if pb is not None and pb > 0:
         bits.append(f"P/B {pb:.2f}")
     if roe_v is not None:
-        roe_pct = roe_v * 100 if abs(roe_v) <= 1.5 else roe_v
+        roe_pct = as_percent(roe_v) or 0.0
         bits.append(f"ROE {roe_pct:.0f}%")
-    if div is not None and div > 0:
-        y = div * 100 if abs(div) <= 1.5 else div
-        bits.append(f"див. {y:.1f}%")
+    raw_ttm = as_percent(_f(payload.get("dividend_yield_daily_ttm")))
+    if div_pct is not None:
+        bits.append(f"див. {div_pct:.1f}%")
+    elif raw_ttm is not None and raw_ttm > MAX_SANE_DIV_YIELD_PCT:
+        bits.append(f"див. выброс {raw_ttm:.0f}% (не в скор)")
     if not bits:
         rationale = "Недостаточно фундаментальных метрик для оценки."
     else:

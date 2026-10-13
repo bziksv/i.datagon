@@ -28,6 +28,10 @@ def stat_payload(stat: Any) -> dict:
         "roe",
         "free_float",
         "dividend_yield_daily_ttm",
+        "forward_annual_dividend_yield",
+        "five_years_average_dividend_yield",
+        "dividends_per_share",
+        "dividend_rate_ttm",
     ):
         value = getattr(stat, name, None)
         if isinstance(value, datetime):
