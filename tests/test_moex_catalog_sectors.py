@@ -4,7 +4,7 @@ from app.advisory.moex_catalog import lookup_sector, normalize_sector, sector_ti
 def test_healthcare_maps_to_health_not_other() -> None:
     assert normalize_sector("health_care") == "health"
     assert normalize_sector("healthcare") == "health"
-    assert sector_title("health") == "Здравоохранение"
+    assert sector_title("health") == "Здравоохранение и фарма"
 
 
 def test_lookup_prefers_broker_health_and_catalog_over_other() -> None:

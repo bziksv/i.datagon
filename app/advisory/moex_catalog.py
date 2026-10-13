@@ -16,7 +16,7 @@ SECTOR_TITLES: dict[str, str] = {
     "chem": "Химия и удобрения",
     "real_estate": "Недвижимость",
     "industrials": "Промышленность",
-    "health": "Здравоохранение",
+    "health": "Здравоохранение и фарма",
     "other": "Прочее",
 }
 
@@ -98,7 +98,6 @@ _MOEX_ROWS: tuple[tuple[str, str, str], ...] = (
     ("FIXP", "Fix Price", "retail"),
     ("MVID", "М.Видео", "retail"),
     ("OZON", "Ozon", "retail"),
-    ("MDMG", "Мать и дитя", "health"),
     ("BELU", "НоваБев", "retail"),
     ("WUSH", "Whoosh", "retail"),
     ("HHRU", "HeadHunter", "retail"),
