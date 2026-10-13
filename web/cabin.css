@@ -2134,6 +2134,30 @@ pre.payload {
   white-space: normal;
 }
 
+.fund-search-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.55rem 0.75rem;
+  margin: 0.85rem 0 0.35rem;
+}
+
+.fund-search-bar .field.compact {
+  min-width: min(100%, 18rem);
+  flex: 1 1 14rem;
+  margin: 0;
+}
+
+.fund-search-bar input[type="search"] {
+  width: 100%;
+}
+
+.fund-search-count {
+  font-size: 0.82rem;
+  color: var(--muted);
+  padding-bottom: 0.35rem;
+}
+
 .fund-sector-chips {
   display: flex;
   flex-wrap: wrap;

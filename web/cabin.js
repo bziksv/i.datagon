@@ -2,7 +2,7 @@
   "use strict";
 
   /** Версия UI кабинета (этап 30+). Не путать с version API. */
-  var CABIN_UI_VERSION = "v3.3.13";
+  var CABIN_UI_VERSION = "v3.3.14";
 
   var ROUTES = [
     {
@@ -102,6 +102,7 @@
   var lastFundamentals = null;
   var lastCompaniesNote = "";
   var lastCompaniesSector = "all";
+  var lastCompaniesQuery = "";
   var lastRecommendations = null;
   var SETTINGS_TOUR_KEY = "settings";
 
@@ -2328,7 +2329,16 @@
     );
   }
 
-  function renderCompanies() {
+  function fundCompanyMatches(row, query) {
+    var q = String(query || "").trim().toLowerCase();
+    if (!q) return true;
+    var ticker = String(row.ticker || "").toLowerCase();
+    var name = String(row.name || "").toLowerCase();
+    return ticker.indexOf(q) >= 0 || name.indexOf(q) >= 0;
+  }
+
+  function renderCompanies(opts) {
+    opts = opts || {};
     var body = byId("page-body");
     var data = lastFundamentals || { items: [], disclaimer: "", sectors: [] };
     var items = (data.items || []).slice().sort(function (a, b) {
@@ -2345,25 +2355,55 @@
       ? "demo"
       : "live";
     var activeSector = lastCompaniesSector || "all";
+    var query = lastCompaniesQuery || "";
+    var matched = items.filter(function (row) {
+      return fundCompanyMatches(row, query);
+    });
     var visible =
       activeSector === "all"
-        ? items
-        : items.filter(function (row) {
+        ? matched
+        : matched.filter(function (row) {
             return row.sector === activeSector;
           });
     var top = visible.filter(function (row) {
       return Number((row.scores || {}).total) >= 70;
     }).slice(0, 5);
     if (!top.length) top = visible.slice(0, 5);
+    var sectorCounts = {};
+    matched.forEach(function (row) {
+      var id = row.sector || "other";
+      sectorCounts[id] = (sectorCounts[id] || 0) + 1;
+    });
+    var searchBar =
+      '<div class="fund-search-bar">' +
+      '<label class="field compact">поиск' +
+      '<input type="search" id="companies-search" placeholder="тикер или название (IRAO, Интер)" value="' +
+      escapeHtml(query) +
+      '" autocomplete="off" spellcheck="false">' +
+      "</label>" +
+      (query
+        ? '<button type="button" class="ghost" id="companies-search-clear">Сбросить</button>'
+        : "") +
+      (query
+        ? '<span class="fund-search-count">' +
+          escapeHtml(String(visible.length)) +
+          " из " +
+          escapeHtml(String(items.length)) +
+          "</span>"
+        : "") +
+      "</div>";
     var sectorChips =
       '<div class="fund-sector-chips" data-tour="companies-sectors">' +
       '<button type="button" class="fund-chip' +
       (activeSector === "all" ? " is-active" : "") +
       '" data-fund-sector="all">Все (' +
-      items.length +
+      matched.length +
       ")</button>" +
       sectors
         .map(function (sector) {
+          var count = query
+            ? sectorCounts[sector.id] || 0
+            : sector.count || 0;
           return (
             '<button type="button" class="fund-chip' +
             (activeSector === sector.id ? " is-active" : "") +
@@ -2372,7 +2412,7 @@
             '">' +
             escapeHtml(sector.title || sector.id) +
             " (" +
-            escapeHtml(String(sector.count || 0)) +
+            escapeHtml(String(count)) +
             ")</button>"
           );
         })
@@ -2424,7 +2464,10 @@
       activeSector === "all" && sectors.length
         ? sectors
             .map(function (sector) {
-              var rows = sector.items || [];
+              var rows = (sector.items || []).filter(function (row) {
+                return fundCompanyMatches(row, query);
+              });
+              if (!rows.length) return "";
               return (
                 '<section class="fund-sector-block" data-fund-sector-block="' +
                 escapeHtml(sector.id) +
@@ -2432,10 +2475,16 @@
                 "<h4>" +
                 escapeHtml(sector.title || sector.id) +
                 " · " +
-                escapeHtml(String(sector.count || 0)) +
+                escapeHtml(String(rows.length)) +
                 " · лучший скор " +
                 escapeHtml(
-                  String(sector.top_score != null ? sector.top_score : "—")
+                  String(
+                    rows[0] && rows[0].scores && rows[0].scores.total != null
+                      ? rows[0].scores.total
+                      : sector.top_score != null
+                        ? sector.top_score
+                        : "—"
+                  )
                 ) +
                 "</h4>" +
                 wrapTableScroll(
@@ -2445,7 +2494,12 @@
                 "</section>"
               );
             })
-            .join("")
+            .join("") ||
+          (query
+            ? '<p class="empty" data-tour="companies-empty">Ничего не найдено по «' +
+              escapeHtml(query) +
+              '».</p>'
+            : "")
         : visible.length
           ? wrapTableScroll(
               fundTableHtml(visible, {
@@ -2455,7 +2509,11 @@
               }),
               true
             )
-          : '<p class="empty" data-tour="companies-empty">В этом секторе пока нет снимков.</p>';
+          : '<p class="empty" data-tour="companies-empty">' +
+            (query
+              ? "Ничего не найдено по «" + escapeHtml(query) + "»."
+              : "В этом секторе пока нет снимков.") +
+            "</p>";
     var empty = !items.length
       ? '<p class="empty" data-tour="companies-empty">Снимков ещё нет. Нажмите «Демо-данные» — расширенный каталог акций РФ с названиями и секторами. «Обновить с брокера» подтянет все TQBR с Тинькофф, когда sandbox отвечает.</p>'
       : "";
@@ -2477,21 +2535,47 @@
       '<p class="source-line" id="companies-status">' +
       escapeHtml(lastCompaniesNote || data.disclaimer || "") +
       "</p>" +
-      (items.length ? sectorChips + topCards + sectorBlocks : empty) +
+      (items.length ? searchBar + sectorChips + topCards + sectorBlocks : empty) +
       "</section>";
     var demoBtn = byId("companies-demo");
     var refreshBtn = byId("companies-refresh");
+    var searchInput = byId("companies-search");
+    var clearSearch = byId("companies-search-clear");
     document.querySelectorAll("[data-fund-sector]").forEach(function (btn) {
       btn.addEventListener("click", function () {
         lastCompaniesSector = btn.getAttribute("data-fund-sector") || "all";
         renderCompanies();
       });
     });
+    if (searchInput) {
+      searchInput.addEventListener("input", function () {
+        lastCompaniesQuery = searchInput.value || "";
+        var caret = searchInput.selectionStart;
+        renderCompanies({ keepSearchFocus: true, caret: caret });
+      });
+      if (opts.keepSearchFocus) {
+        searchInput.focus();
+        var pos =
+          opts.caret != null ? opts.caret : searchInput.value.length;
+        try {
+          searchInput.setSelectionRange(pos, pos);
+        } catch (err) {
+          /* ignore */
+        }
+      }
+    }
+    if (clearSearch) {
+      clearSearch.addEventListener("click", function () {
+        lastCompaniesQuery = "";
+        renderCompanies({ keepSearchFocus: true, caret: 0 });
+      });
+    }
     if (demoBtn) {
       demoBtn.addEventListener("click", function () {
         demoBtn.disabled = true;
         lastCompaniesNote = "Грузим демо-каталог РФ…";
         lastCompaniesSector = "all";
+        lastCompaniesQuery = "";
         renderCompanies();
         apiPost("/fundamentals/demo", {})
           .then(function (payload) {
