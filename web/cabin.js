@@ -2,7 +2,7 @@
   "use strict";
 
   /** Версия UI кабинета (этап 30+). Не путать с version API. */
-  var CABIN_UI_VERSION = "v3.3.15";
+  var CABIN_UI_VERSION = "v3.3.16";
 
   var ROUTES = [
     {
@@ -103,6 +103,8 @@
   var lastCompaniesNote = "";
   var lastCompaniesSector = "all";
   var lastCompaniesQuery = "";
+  var companiesPollTimer = null;
+  var COMPANIES_POLL_MS = 10 * 60 * 1000;
   var lastRecommendations = null;
   var SETTINGS_TOUR_KEY = "settings";
 
@@ -2524,13 +2526,18 @@
       "<strong>Что смотреть.</strong> Акции РФ (MOEX TQBR): название компании, отрасль и скор. " +
       "Сверху — топ к покупке; ниже — разбивка по секторам. " +
       'Дальше — <a class="panel-link" href="#/recommendations">Рекомендации</a>. ' +
-      "<br>Источник: живой фундамент с брокера Тинькофф (sandbox API)." +
+      "<br>Источник: живой фундамент с брокера Тинькофф (sandbox API). " +
+      "Воркер обновляет снимки автоматически каждые 6 часов; кнопка — вне очереди." +
       "</div>" +
       '<div class="panel-actions">' +
       '<button type="button" class="primary" id="companies-refresh">Обновить с брокера</button>' +
       "</div>" +
       '<p class="source-line" id="companies-status">' +
-      escapeHtml(lastCompaniesNote || data.disclaimer || "") +
+      escapeHtml(
+        lastCompaniesNote ||
+          "Автообновление с брокера каждые 6 часов. " +
+            (data.disclaimer || "")
+      ) +
       "</p>" +
       (items.length ? searchBar + sectorChips + topCards + sectorBlocks : empty) +
       "</section>";
@@ -2606,6 +2613,24 @@
         if (currentRoute === "companies") renderCompanies();
         return null;
       });
+  }
+
+  function stopCompaniesPoll() {
+    if (companiesPollTimer) {
+      clearInterval(companiesPollTimer);
+      companiesPollTimer = null;
+    }
+  }
+
+  function startCompaniesPoll() {
+    stopCompaniesPoll();
+    companiesPollTimer = setInterval(function () {
+      if (currentRoute !== "companies") {
+        stopCompaniesPoll();
+        return;
+      }
+      refreshCompanies();
+    }, COMPANIES_POLL_MS);
   }
 
   function renderRecommendations() {
@@ -5214,6 +5239,9 @@
       }
     }
     if (!route) route = ROUTES[0];
+    if (currentRoute === "companies" && route.id !== "companies") {
+      stopCompaniesPoll();
+    }
     currentRoute = route.id;
 
     syncNavActive(route.id);
@@ -5271,6 +5299,7 @@
     if (route.id === "companies") {
       renderCompanies();
       refreshCompanies();
+      startCompaniesPoll();
       return;
     }
     if (route.id === "recommendations") {

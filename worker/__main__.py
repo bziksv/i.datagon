@@ -36,7 +36,8 @@ async def run_worker() -> None:
     setup_logging()
     log = logging.getLogger("worker")
     log.info("worker start")
-    fund_interval = int(os.environ.get("FUNDAMENTALS_INTERVAL_SEC", "3600"))
+    # Компании / фундамент: по умолчанию раз в 6 часов.
+    fund_interval = int(os.environ.get("FUNDAMENTALS_INTERVAL_SEC", "21600"))
     candle_interval = int(os.environ.get("CANDLE_REFRESH_INTERVAL_SEC", "3600"))
     paper_tickers = [
         ticker.strip().upper()
