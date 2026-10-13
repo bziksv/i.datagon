@@ -1096,7 +1096,8 @@ def create_app() -> FastAPI:
         rows = list(await session.scalars(select(Fundamental)))
         view = fundamentals_view(rows)
         view["disclaimer"] = (
-            "Демо-снимки desk MOEX (синтетика). Не данные брокера. "
+            "Демо: расширенный каталог акций РФ MOEX TQBR с названиями и секторами "
+            "(синтетические метрики). Не данные брокера. "
             + DISCLAIMER
         )
         view["source"] = "demo"

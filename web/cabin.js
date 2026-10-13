@@ -2,7 +2,7 @@
   "use strict";
 
   /** Версия UI кабинета (этап 30+). Не путать с version API. */
-  var CABIN_UI_VERSION = "v3.3.11";
+  var CABIN_UI_VERSION = "v3.3.12";
 
   var ROUTES = [
     {
@@ -101,6 +101,7 @@
   ];
   var lastFundamentals = null;
   var lastCompaniesNote = "";
+  var lastCompaniesSector = "all";
   var lastRecommendations = null;
   var SETTINGS_TOUR_KEY = "settings";
 
@@ -2243,9 +2244,69 @@
     );
   }
 
+  function fundCompanyRow(row, idx, ranked) {
+    var scores = row.scores || {};
+    var total = scores.total;
+    var isTop = ranked && idx < 5 && Number(total) >= 45;
+    return (
+      '<tr class="' +
+      (isTop ? "fund-row--top " : "") +
+      fundScoreTone(total) +
+      '-row">' +
+      "<td>" +
+      (isTop
+        ? '<span class="fund-rank">#' + (idx + 1) + "</span>"
+        : '<span class="fund-rank muted">' + (idx + 1) + "</span>") +
+      "</td><td><div class=\"fund-name-cell\"><strong>" +
+      escapeHtml(row.ticker || "—") +
+      "</strong><span>" +
+      escapeHtml(row.name || row.ticker || "—") +
+      "</span></div></td><td>" +
+      escapeHtml(row.sector_title || "Прочее") +
+      "</td>" +
+      fundToneCell(
+        total,
+        String(total != null ? total : "—") + " · " + fundScoreLabel(total)
+      ) +
+      fundToneCell(
+        scores.value,
+        String(scores.value != null ? scores.value : "—")
+      ) +
+      fundToneCell(
+        scores.quality,
+        String(scores.quality != null ? scores.quality : "—")
+      ) +
+      fundToneCell(
+        scores.div,
+        String(scores.div != null ? scores.div : "—")
+      ) +
+      "<td>" +
+      escapeHtml(row.pe_ratio_ttm != null ? String(row.pe_ratio_ttm) : "—") +
+      "</td><td>" +
+      escapeHtml(
+        row.price_to_book_ttm != null ? String(row.price_to_book_ttm) : "—"
+      ) +
+      "</td><td>" +
+      escapeHtml(fundPctLabel(row.roe)) +
+      "</td><td>" +
+      escapeHtml(fundPctLabel(row.dividend_yield_ttm)) +
+      "</td><td class=\"fund-verdict " +
+      fundScoreTone(total) +
+      '">' +
+      escapeHtml(
+        Number(total) >= 70
+          ? "интереснее к покупке"
+          : Number(total) >= 45
+            ? "нейтрально"
+            : "слабее / дороже"
+      ) +
+      "</td></tr>"
+    );
+  }
+
   function renderCompanies() {
     var body = byId("page-body");
-    var data = lastFundamentals || { items: [], disclaimer: "" };
+    var data = lastFundamentals || { items: [], disclaimer: "", sectors: [] };
     var items = (data.items || []).slice().sort(function (a, b) {
       var sa = Number((a.scores || {}).total);
       var sb = Number((b.scores || {}).total);
@@ -2253,17 +2314,54 @@
       if (!isFinite(sb)) sb = -1;
       return sb - sa;
     });
+    var sectors = data.sectors && data.sectors.length
+      ? data.sectors
+      : [];
     var source = data.source === "demo" || /демо/i.test(String(data.disclaimer || ""))
       ? "demo"
       : "live";
-    var top = items.filter(function (row) {
+    var activeSector = lastCompaniesSector || "all";
+    var visible =
+      activeSector === "all"
+        ? items
+        : items.filter(function (row) {
+            return row.sector === activeSector;
+          });
+    var top = visible.filter(function (row) {
       return Number((row.scores || {}).total) >= 70;
     }).slice(0, 5);
-    if (!top.length) top = items.slice(0, 5);
+    if (!top.length) top = visible.slice(0, 5);
+    var sectorChips =
+      '<div class="fund-sector-chips" data-tour="companies-sectors">' +
+      '<button type="button" class="fund-chip' +
+      (activeSector === "all" ? " is-active" : "") +
+      '" data-fund-sector="all">Все (' +
+      items.length +
+      ")</button>" +
+      sectors
+        .map(function (sector) {
+          return (
+            '<button type="button" class="fund-chip' +
+            (activeSector === sector.id ? " is-active" : "") +
+            '" data-fund-sector="' +
+            escapeHtml(sector.id) +
+            '">' +
+            escapeHtml(sector.title || sector.id) +
+            " (" +
+            escapeHtml(String(sector.count || 0)) +
+            ")</button>"
+          );
+        })
+        .join("") +
+      "</div>";
     var topCards = top.length
       ? '<div class="fund-top" data-tour="companies-top">' +
-        "<h4>Топ к покупке по скору</h4>" +
-        '<p class="fund-top-note">Зелёный ≥70 — относительно сильнее по оценке/качеству/дивидендам внутри этого списка. Не сигнал брокера.</p>' +
+        "<h4>Топ к покупке" +
+        (activeSector === "all"
+          ? ""
+          : " · " + escapeHtml((top[0] && top[0].sector_title) || "")) +
+        "</h4>" +
+        '<p class="fund-top-note">Зелёный ≥70 — сильнее по оценке/качеству/дивидендам внутри выбранного среза. Не сигнал брокера.</p>' +
         '<div class="fund-top-grid">' +
         top
           .map(function (row, idx) {
@@ -2274,12 +2372,16 @@
               '">' +
               '<div class="fund-top-rank">#' +
               (idx + 1) +
+              " · " +
+              escapeHtml(row.sector_title || "") +
               "</div>" +
               "<h5>" +
               escapeHtml(row.ticker || "—") +
-              '</h5><div class="fund-top-score">' +
+              "</h5><p class=\"fund-top-name\">" +
+              escapeHtml(row.name || row.ticker || "—") +
+              '</p><div class="fund-top-score">' +
               escapeHtml(String(scores.total != null ? scores.total : "—")) +
-              ' <small>' +
+              " <small>" +
               escapeHtml(fundScoreLabel(scores.total)) +
               "</small></div>" +
               '<div class="fund-top-meta">оценка ' +
@@ -2294,90 +2396,71 @@
           .join("") +
         "</div></div>"
       : "";
-    var table = items.length
-      ? wrapTableScroll(
-          '<table class="data-table fund-table" data-tour="companies-table">' +
-            "<thead><tr>" +
-            "<th></th><th>тикер</th><th>скор</th><th>оценка</th><th>качество</th><th>дивиденды</th>" +
-            "<th>P/E</th><th>P/B</th><th>ROE</th><th>див.</th><th>вердикт</th>" +
-            "</tr></thead><tbody>" +
-            items
-              .map(function (row, idx) {
-                var scores = row.scores || {};
-                var total = scores.total;
-                var isTop = idx < 5 && Number(total) >= 45;
-                return (
-                  '<tr class="' +
-                  (isTop ? "fund-row--top " : "") +
-                  fundScoreTone(total) +
-                  '-row">' +
-                  "<td>" +
-                  (isTop
-                    ? '<span class="fund-rank">#' + (idx + 1) + "</span>"
-                    : '<span class="fund-rank muted">' + (idx + 1) + "</span>") +
-                  "</td><td><strong>" +
-                  escapeHtml(row.ticker || "—") +
-                  "</strong></td>" +
-                  fundToneCell(
-                    total,
-                    String(total != null ? total : "—") +
-                      " · " +
-                      fundScoreLabel(total)
-                  ) +
-                  fundToneCell(
-                    scores.value,
-                    String(scores.value != null ? scores.value : "—")
-                  ) +
-                  fundToneCell(
-                    scores.quality,
-                    String(scores.quality != null ? scores.quality : "—")
-                  ) +
-                  fundToneCell(
-                    scores.div,
-                    String(scores.div != null ? scores.div : "—")
-                  ) +
-                  "<td>" +
-                  escapeHtml(
-                    row.pe_ratio_ttm != null ? String(row.pe_ratio_ttm) : "—"
-                  ) +
-                  "</td><td>" +
-                  escapeHtml(
-                    row.price_to_book_ttm != null
-                      ? String(row.price_to_book_ttm)
-                      : "—"
-                  ) +
-                  "</td><td>" +
-                  escapeHtml(fundPctLabel(row.roe)) +
-                  "</td><td>" +
-                  escapeHtml(fundPctLabel(row.dividend_yield_ttm)) +
-                  "</td><td class=\"fund-verdict " +
-                  fundScoreTone(total) +
-                  '">' +
-                  escapeHtml(
-                    Number(total) >= 70
-                      ? "интереснее к покупке"
-                      : Number(total) >= 45
-                        ? "нейтрально"
-                        : "слабее / дороже"
-                  ) +
-                  "</td></tr>"
-                );
-              })
-              .join("") +
-            "</tbody></table>",
-          true
-        )
-      : '<p class="empty" data-tour="companies-empty">Снимков ещё нет. Нажмите «Демо-данные» — заполним desk MOEX (~48 ликвидных имён) синтетикой. «Обновить с брокера» — только когда sandbox отвечает.</p>';
+    var sectorBlocks =
+      activeSector === "all" && sectors.length
+        ? sectors
+            .map(function (sector) {
+              var rows = sector.items || [];
+              return (
+                '<section class="fund-sector-block" data-fund-sector-block="' +
+                escapeHtml(sector.id) +
+                '">' +
+                "<h4>" +
+                escapeHtml(sector.title || sector.id) +
+                " · " +
+                escapeHtml(String(sector.count || 0)) +
+                " · лучший скор " +
+                escapeHtml(
+                  String(sector.top_score != null ? sector.top_score : "—")
+                ) +
+                "</h4>" +
+                wrapTableScroll(
+                  '<table class="data-table fund-table">' +
+                    "<thead><tr>" +
+                    "<th></th><th>компания</th><th>сектор</th><th>скор</th><th>оценка</th><th>качество</th><th>дивиденды</th>" +
+                    "<th>P/E</th><th>P/B</th><th>ROE</th><th>див.</th><th>вердикт</th>" +
+                    "</tr></thead><tbody>" +
+                    rows
+                      .map(function (row, idx) {
+                        return fundCompanyRow(row, idx, true);
+                      })
+                      .join("") +
+                    "</tbody></table>",
+                  true
+                ) +
+                "</section>"
+              );
+            })
+            .join("")
+        : visible.length
+          ? wrapTableScroll(
+              '<table class="data-table fund-table" data-tour="companies-table">' +
+                "<thead><tr>" +
+                "<th></th><th>компания</th><th>сектор</th><th>скор</th><th>оценка</th><th>качество</th><th>дивиденды</th>" +
+                "<th>P/E</th><th>P/B</th><th>ROE</th><th>див.</th><th>вердикт</th>" +
+                "</tr></thead><tbody>" +
+                visible
+                  .map(function (row, idx) {
+                    return fundCompanyRow(row, idx, true);
+                  })
+                  .join("") +
+                "</tbody></table>",
+              true
+            )
+          : '<p class="empty" data-tour="companies-empty">В этом секторе пока нет снимков.</p>';
+    var empty = !items.length
+      ? '<p class="empty" data-tour="companies-empty">Снимков ещё нет. Нажмите «Демо-данные» — расширенный каталог акций РФ с названиями и секторами. «Обновить с брокера» подтянет все TQBR с Тинькофф, когда sandbox отвечает.</p>'
+      : "";
     body.innerHTML =
       '<section class="panel" data-tour="companies-panel">' +
       "<h3>Компании</h3>" +
       '<div class="callout" data-tour="companies-explain">' +
-      "<strong>Что смотреть.</strong> Это не весь РФ-рынок, а <em>desk MOEX</em> лаборатории (~48 бумаг: ядро + отрасли). " +
-      "Список уже отсортирован: сверху выше скор → относительно интереснее к покупке по фундаменту. " +
+      "<strong>Что смотреть.</strong> Акции РФ (MOEX TQBR): название компании, отрасль и скор. " +
+      "Сверху — топ к покупке; ниже — разбивка по секторам. " +
       'Дальше — <a class="panel-link" href="#/recommendations">Рекомендации</a>. ' +
       (source === "demo"
-        ? "<br><strong>Источник сейчас: демо</strong> (синтетика), не котировки/отчётность брокера."
-        : "<br>Источник: снимки фундамента с брокера.") +
+        ? "<br><strong>Источник сейчас: демо-каталог РФ</strong> (синтетика). Живые метрики — через «Обновить с брокера»."
+        : "<br>Источник: все TQBR + фундамент с брокера Тинькофф.") +
       "</div>" +
       '<div class="panel-actions">' +
       '<button type="button" class="primary" id="companies-demo">Демо-данные</button>' +
@@ -2386,21 +2469,31 @@
       '<p class="source-line" id="companies-status">' +
       escapeHtml(lastCompaniesNote || data.disclaimer || "") +
       "</p>" +
-      topCards +
-      table +
+      (items.length ? sectorChips + topCards + sectorBlocks : empty) +
       "</section>";
     var demoBtn = byId("companies-demo");
     var refreshBtn = byId("companies-refresh");
+    document.querySelectorAll("[data-fund-sector]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        lastCompaniesSector = btn.getAttribute("data-fund-sector") || "all";
+        renderCompanies();
+      });
+    });
     if (demoBtn) {
       demoBtn.addEventListener("click", function () {
         demoBtn.disabled = true;
-        lastCompaniesNote = "Грузим демо…";
+        lastCompaniesNote = "Грузим демо-каталог РФ…";
+        lastCompaniesSector = "all";
         renderCompanies();
         apiPost("/fundamentals/demo", {})
           .then(function (payload) {
             lastFundamentals = payload;
             lastCompaniesNote =
-              "Загружено демо: " + (payload.count || 0) + " тикеров";
+              "Демо РФ: " +
+              (payload.count || 0) +
+              " компаний, " +
+              (((payload.sectors || []).length) || 0) +
+              " секторов";
             renderCompanies();
           })
           .catch(function (err) {
@@ -2417,7 +2510,7 @@
       refreshBtn.addEventListener("click", function () {
         refreshBtn.disabled = true;
         lastCompaniesNote =
-          "Обновляю с брокера (справочник акций + фундамент)…";
+          "Обновляю все акции РФ TQBR с брокера (может занять минуту)…";
         renderCompanies();
         var busy = byId("companies-refresh");
         if (busy) busy.disabled = true;
@@ -2425,6 +2518,7 @@
           .then(function (payload) {
             lastCompaniesNote =
               "С брокера обновлено: " + (payload.upserted || 0) + " записей";
+            lastCompaniesSector = "all";
             return refreshCompanies();
           })
           .catch(function (err) {
@@ -2469,6 +2563,14 @@
               "<h4>" +
               escapeHtml(row.ticker || "—") +
               " · buy</h4>" +
+              (row.name
+                ? '<p class="fund-top-name">' +
+                  escapeHtml(row.name) +
+                  (row.sector_title
+                    ? " · " + escapeHtml(row.sector_title)
+                    : "") +
+                  "</p>"
+                : "") +
               '<div class="metrics tight">' +
               '<div class="metric hero"><div class="k">скор</div><div class="v">' +
               escapeHtml(String(scores.total != null ? scores.total : "—")) +

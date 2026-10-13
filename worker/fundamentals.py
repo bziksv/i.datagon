@@ -1,4 +1,4 @@
-"""Джоба: обновить снимки GetAssetFundamentals по бумагам desk/вселенной."""
+"""Джоба: обновить снимки GetAssetFundamentals по всем TQBR с Тинькофф."""
 
 from __future__ import annotations
 
@@ -7,11 +7,11 @@ import logging
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 
+from app.advisory.moex_catalog import normalize_sector, sector_title
 from app.broker.fundamentals import apply_snapshots, pair_stats
 from app.broker.instruments import dump_moex_instruments
 from app.db import get_sessionmaker
 from app.models import Fundamental, Instrument
-from app.strategy.moex_groups import all_moex_desk_tickers
 from sqlalchemy import select
 
 log = logging.getLogger("worker.fundamentals")
@@ -24,25 +24,61 @@ class FundamentalsRefreshError(RuntimeError):
     """Ошибка обновления фундамента — текст уходит в кабинет."""
 
 
-def target_tickers(existing: Sequence[Fundamental]) -> set[str]:
-    want = set(all_moex_desk_tickers())
-    want.update(row.ticker.upper() for row in existing if row.ticker)
-    return want
+def share_meta_map(shares: Sequence[object]) -> dict[str, dict[str, str]]:
+    """ticker → name/sector из ответа instruments.shares."""
+    out: dict[str, dict[str, str]] = {}
+    for share in shares:
+        ticker = (getattr(share, "ticker", None) or "").strip().upper()
+        if not ticker:
+            continue
+        name = (getattr(share, "name", None) or "").strip() or ticker
+        sector = normalize_sector(getattr(share, "sector", None))
+        out[ticker] = {
+            "name": name,
+            "sector": sector,
+            "sector_id": sector,
+            "sector_title": sector_title(sector),
+        }
+    return out
+
+
+def all_share_tickers(shares: Sequence[object]) -> set[str]:
+    return {
+        (getattr(share, "ticker", None) or "").strip().upper()
+        for share in shares
+        if (getattr(share, "ticker", None) or "").strip()
+    }
 
 
 def asset_map_for_tickers(
     shares: Sequence[object],
-    tickers: set[str],
+    tickers: set[str] | None = None,
 ) -> dict[str, str]:
     """asset_uid → ticker. GetAssetFundamentals ждёт asset_uid, не instrument uid."""
     out: dict[str, str] = {}
     for share in shares:
         ticker = (getattr(share, "ticker", None) or "").strip().upper()
         asset_uid = (getattr(share, "asset_uid", None) or "").strip()
-        if not ticker or not asset_uid or ticker not in tickers:
+        if not ticker or not asset_uid:
+            continue
+        if tickers is not None and ticker not in tickers:
             continue
         out[asset_uid] = ticker
     return out
+
+
+def enrich_with_share_meta(
+    rows: Sequence[Fundamental],
+    meta: dict[str, dict[str, str]],
+) -> list[Fundamental]:
+    for row in rows:
+        info = meta.get(row.ticker.upper())
+        if not info:
+            continue
+        raw = dict(row.raw or {})
+        raw.update(info)
+        row.raw = raw
+    return list(rows)
 
 
 def refresh_snapshots(
@@ -151,21 +187,23 @@ async def run_fundamentals_refresh(fetch: FetchFn | None = None) -> int:
         shares = await asyncio.to_thread(fetch_moex_shares)
     except Exception as exc:
         raise FundamentalsRefreshError(
-            "Не удалось загрузить акции с брокера (sandbox API недоступен). "
-            "Пока в таблице остаются старые/демо снимки — это не полный desk."
+            "Не удалось загрузить акции РФ с брокера (sandbox API недоступен). "
+            "Нажмите «Демо-данные» — расширенный каталог MOEX с названиями и секторами."
         ) from exc
 
     dumped = dump_moex_instruments(instruments, shares)
     await _persist_instruments(dumped)
 
-    want = target_tickers(existing)
+    # Все TQBR с Тинькофф, не только desk.
+    want = all_share_tickers(shares)
     ticker_by_asset = asset_map_for_tickers(shares, want)
     if not ticker_by_asset:
         raise FundamentalsRefreshError(
-            "Справочник акций есть, но нет asset_uid для desk-тикеров. "
+            "Справочник акций есть, но нет asset_uid у TQBR. "
             "Проверьте токен sandbox и ответ instruments.shares."
         )
 
     fn = fetch or fetch_asset_fundamentals
     updated = refresh_snapshots(existing, ticker_by_asset, fn)
+    enrich_with_share_meta(updated, share_meta_map(shares))
     return await _persist(updated)

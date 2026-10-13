@@ -2,8 +2,15 @@
 
 from __future__ import annotations
 
+from collections import defaultdict
 from collections.abc import Sequence
 
+from app.advisory.moex_catalog import (
+    SECTOR_TITLES,
+    lookup_name,
+    lookup_sector,
+    sector_title,
+)
 from app.advisory.score import score_fundamental
 from app.models import Fundamental
 
@@ -24,8 +31,12 @@ def fundamental_item(row: Fundamental) -> dict:
         eps_ttm=float(row.eps_ttm) if row.eps_ttm is not None else None,
         raw=raw,
     )
+    sector = lookup_sector(row.ticker, raw)
     return {
         "ticker": row.ticker,
+        "name": lookup_name(row.ticker, raw),
+        "sector": sector,
+        "sector_title": sector_title(sector),
         "asset_uid": row.asset_uid,
         "ts": row.ts.isoformat() if row.ts else None,
         "pe_ratio_ttm": float(row.pe_ratio_ttm) if row.pe_ratio_ttm is not None else None,
@@ -51,11 +62,48 @@ def fundamental_item(row: Fundamental) -> dict:
     }
 
 
+def _sector_groups(items: list[dict]) -> list[dict]:
+    by_sector: dict[str, list[dict]] = defaultdict(list)
+    for item in items:
+        by_sector[str(item.get("sector") or "other")].append(item)
+    order = list(SECTOR_TITLES.keys())
+    groups: list[dict] = []
+    for sector_id in order:
+        rows = by_sector.pop(sector_id, [])
+        if not rows:
+            continue
+        rows.sort(key=lambda row: row["scores"]["total"], reverse=True)
+        groups.append(
+            {
+                "id": sector_id,
+                "title": sector_title(sector_id),
+                "count": len(rows),
+                "top_score": rows[0]["scores"]["total"] if rows else None,
+                "tickers": [row["ticker"] for row in rows],
+                "items": rows,
+            }
+        )
+    for sector_id, rows in sorted(by_sector.items()):
+        rows.sort(key=lambda row: row["scores"]["total"], reverse=True)
+        groups.append(
+            {
+                "id": sector_id,
+                "title": sector_title(sector_id),
+                "count": len(rows),
+                "top_score": rows[0]["scores"]["total"] if rows else None,
+                "tickers": [row["ticker"] for row in rows],
+                "items": rows,
+            }
+        )
+    return groups
+
+
 def fundamentals_view(rows: Sequence[Fundamental]) -> dict:
     items = [fundamental_item(row) for row in rows]
     items.sort(key=lambda row: row["scores"]["total"], reverse=True)
     return {
         "items": items,
+        "sectors": _sector_groups(items),
         "count": len(items),
         "disclaimer": DISCLAIMER,
     }
@@ -71,6 +119,9 @@ def recommendations_view(
     picks = [
         {
             "ticker": row["ticker"],
+            "name": row["name"],
+            "sector": row["sector"],
+            "sector_title": row["sector_title"],
             "side": "buy",
             "scores": row["scores"],
             "rationale": row["rationale"],

@@ -2097,6 +2097,62 @@ pre.payload {
   font-size: 1.05rem;
 }
 
+.fund-top-name {
+  margin: 0 0 0.35rem;
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.25;
+}
+
+.fund-name-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 10rem;
+}
+
+.fund-name-cell span {
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.25;
+}
+
+.fund-sector-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0.75rem 0 0.85rem;
+}
+
+.fund-chip {
+  border: 1px solid var(--line);
+  background: var(--bg-elev);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 0.28rem 0.7rem;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.fund-chip:hover {
+  border-color: var(--accent);
+}
+
+.fund-chip.is-active {
+  background: #1f4d35;
+  border-color: #1f4d35;
+  color: #f4faf6;
+}
+
+.fund-sector-block {
+  margin: 0 0 1.25rem;
+}
+
+.fund-sector-block h4 {
+  margin: 0 0 0.45rem;
+  font-size: 0.98rem;
+}
+
 .fund-top-score {
   font-size: 1.25rem;
   font-weight: 700;
