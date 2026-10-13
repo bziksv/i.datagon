@@ -16,6 +16,7 @@ SECTOR_TITLES: dict[str, str] = {
     "chem": "Химия и удобрения",
     "real_estate": "Недвижимость",
     "industrials": "Промышленность",
+    "health": "Здравоохранение",
     "other": "Прочее",
 }
 
@@ -41,8 +42,10 @@ TINKOFF_SECTOR_MAP: dict[str, str] = {
     "industrial": "industrials",
     "transport": "transport",
     "real_estate": "real_estate",
-    "health_care": "other",
-    "healthcare": "other",
+    "health_care": "health",
+    "healthcare": "health",
+    "health": "health",
+    "pharma": "health",
     "telecoms": "tech",
 }
 
@@ -95,7 +98,7 @@ _MOEX_ROWS: tuple[tuple[str, str, str], ...] = (
     ("FIXP", "Fix Price", "retail"),
     ("MVID", "М.Видео", "retail"),
     ("OZON", "Ozon", "retail"),
-    ("MDMG", "MD Medical", "retail"),
+    ("MDMG", "Мать и дитя", "health"),
     ("BELU", "НоваБев", "retail"),
     ("WUSH", "Whoosh", "retail"),
     ("HHRU", "HeadHunter", "retail"),
@@ -146,7 +149,7 @@ _MOEX_ROWS: tuple[tuple[str, str, str], ...] = (
     ("GCHE", "Черкизово", "industrials"),
     ("AQUA", "Инарктика", "industrials"),
     ("DELI", "Делимобиль", "industrials"),
-    ("GEMC", "Юнайтед Медикал", "industrials"),
+    ("GEMC", "Юнайтед Медикал", "health"),
     ("CNRU", "ЦМТ", "industrials"),
 )
 
@@ -191,14 +194,16 @@ def lookup_name(ticker: str, raw: Mapping[str, object] | None = None) -> str:
 
 
 def lookup_sector(ticker: str, raw: Mapping[str, object] | None = None) -> str:
+    """Сектор брокера, если он осмысленный; иначе каталог. «other» не затирает каталог."""
     payload = raw or {}
+    catalog = MOEX_CATALOG.get(ticker.upper())
     for key in ("sector_id", "sector"):
         value = payload.get(key)
-        if isinstance(value, str) and value.strip():
-            sid = normalize_sector(value)
-            if key == "sector_id" or sid != "other" or value.strip().lower() in SECTOR_TITLES:
-                return sid if key == "sector_id" else normalize_sector(value)
-    row = MOEX_CATALOG.get(ticker.upper())
-    if row:
-        return row["sector"]
+        if not isinstance(value, str) or not value.strip():
+            continue
+        sid = normalize_sector(value)
+        if sid != "other":
+            return sid
+    if catalog:
+        return catalog["sector"]
     return "other"
