@@ -1520,6 +1520,16 @@ button.danger:hover {
   padding-right: 0.65rem;
 }
 
+/* В таблице компаний закрепляем название, не пустой ранг. */
+.table-scroll.is-sticky-first .fund-table th.fund-company,
+.table-scroll.is-sticky-first .fund-table td.fund-company,
+.table-scroll.is-sticky-first .fund-table th:first-child,
+.table-scroll.is-sticky-first .fund-table td:first-child {
+  min-width: 12rem;
+  max-width: 16rem;
+  white-space: normal;
+}
+
 .data-table {
   width: 100%;
   border-collapse: collapse;
@@ -2108,13 +2118,20 @@ pre.payload {
   display: flex;
   flex-direction: column;
   gap: 0.1rem;
-  min-width: 10rem;
+  min-width: 11rem;
+  white-space: normal;
 }
 
 .fund-name-cell span {
   color: var(--muted);
   font-size: 0.82rem;
   line-height: 1.25;
+  white-space: normal;
+}
+
+.fund-table td.fund-company,
+.fund-table th:first-child {
+  white-space: normal;
 }
 
 .fund-sector-chips {

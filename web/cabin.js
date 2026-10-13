@@ -2,7 +2,7 @@
   "use strict";
 
   /** Версия UI кабинета (этап 30+). Не путать с version API. */
-  var CABIN_UI_VERSION = "v3.3.12";
+  var CABIN_UI_VERSION = "v3.3.13";
 
   var ROUTES = [
     {
@@ -2244,26 +2244,25 @@
     );
   }
 
-  function fundCompanyRow(row, idx, ranked) {
+  function fundCompanyRow(row, idx, opts) {
+    opts = opts || {};
+    var showSector = opts.showSector !== false;
     var scores = row.scores || {};
     var total = scores.total;
-    var isTop = ranked && idx < 5 && Number(total) >= 45;
+    var isTop = opts.ranked && idx < 5 && Number(total) >= 45;
     return (
       '<tr class="' +
       (isTop ? "fund-row--top " : "") +
       fundScoreTone(total) +
       '-row">' +
-      "<td>" +
-      (isTop
-        ? '<span class="fund-rank">#' + (idx + 1) + "</span>"
-        : '<span class="fund-rank muted">' + (idx + 1) + "</span>") +
-      "</td><td><div class=\"fund-name-cell\"><strong>" +
+      '<td class="fund-company"><div class="fund-name-cell"><strong>' +
       escapeHtml(row.ticker || "—") +
       "</strong><span>" +
       escapeHtml(row.name || row.ticker || "—") +
-      "</span></div></td><td>" +
-      escapeHtml(row.sector_title || "Прочее") +
-      "</td>" +
+      "</span></div></td>" +
+      (showSector
+        ? "<td>" + escapeHtml(row.sector_title || "Прочее") + "</td>"
+        : "") +
       fundToneCell(
         total,
         String(total != null ? total : "—") + " · " + fundScoreLabel(total)
@@ -2301,6 +2300,31 @@
             : "слабее / дороже"
       ) +
       "</td></tr>"
+    );
+  }
+
+  function fundTableHtml(rows, opts) {
+    opts = opts || {};
+    var showSector = opts.showSector !== false;
+    return (
+      '<table class="data-table fund-table"' +
+      (opts.tour ? ' data-tour="' + escapeHtml(opts.tour) + '"' : "") +
+      ">" +
+      "<thead><tr>" +
+      "<th>компания</th>" +
+      (showSector ? "<th>сектор</th>" : "") +
+      "<th>скор</th><th>оценка</th><th>качество</th><th>дивиденды</th>" +
+      "<th>P/E</th><th>P/B</th><th>ROE</th><th>див.</th><th>вердикт</th>" +
+      "</tr></thead><tbody>" +
+      rows
+        .map(function (row, idx) {
+          return fundCompanyRow(row, idx, {
+            ranked: opts.ranked,
+            showSector: showSector,
+          });
+        })
+        .join("") +
+      "</tbody></table>"
     );
   }
 
@@ -2415,17 +2439,7 @@
                 ) +
                 "</h4>" +
                 wrapTableScroll(
-                  '<table class="data-table fund-table">' +
-                    "<thead><tr>" +
-                    "<th></th><th>компания</th><th>сектор</th><th>скор</th><th>оценка</th><th>качество</th><th>дивиденды</th>" +
-                    "<th>P/E</th><th>P/B</th><th>ROE</th><th>див.</th><th>вердикт</th>" +
-                    "</tr></thead><tbody>" +
-                    rows
-                      .map(function (row, idx) {
-                        return fundCompanyRow(row, idx, true);
-                      })
-                      .join("") +
-                    "</tbody></table>",
+                  fundTableHtml(rows, { ranked: true, showSector: false }),
                   true
                 ) +
                 "</section>"
@@ -2434,17 +2448,11 @@
             .join("")
         : visible.length
           ? wrapTableScroll(
-              '<table class="data-table fund-table" data-tour="companies-table">' +
-                "<thead><tr>" +
-                "<th></th><th>компания</th><th>сектор</th><th>скор</th><th>оценка</th><th>качество</th><th>дивиденды</th>" +
-                "<th>P/E</th><th>P/B</th><th>ROE</th><th>див.</th><th>вердикт</th>" +
-                "</tr></thead><tbody>" +
-                visible
-                  .map(function (row, idx) {
-                    return fundCompanyRow(row, idx, true);
-                  })
-                  .join("") +
-                "</tbody></table>",
+              fundTableHtml(visible, {
+                ranked: true,
+                showSector: activeSector === "all",
+                tour: "companies-table",
+              }),
               true
             )
           : '<p class="empty" data-tour="companies-empty">В этом секторе пока нет снимков.</p>';
