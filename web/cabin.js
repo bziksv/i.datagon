@@ -2,7 +2,7 @@
   "use strict";
 
   /** Версия UI кабинета (этап 30+). Не путать с version API. */
-  var CABIN_UI_VERSION = "v3.3.17";
+  var CABIN_UI_VERSION = "v3.3.18";
 
   var ROUTES = [
     {
@@ -45,7 +45,7 @@
       title: "Агенты",
       hint: "Что решить вам",
       intro:
-        "Здесь вы одобряете внутренние paper-планы или веса. Торговые планы проходят риск-проверку и сохраняются в Журнале, но не отправляются в T‑Invest.",
+        "Очередь решений: агент или Рекомендации предлагают план → вы принимаете или отклоняете → paper в Журнале. В T‑Invest ничего не уходит.",
     },
     {
       id: "news",
@@ -1628,15 +1628,50 @@
     if (on) {
       return (
         '<div class="attention info" data-tour="agents-banner">' +
-        "<span><strong>Агенты включены.</strong> Они только предлагают — сделка или веса после вашего решения и риск-правил.</span>" +
+        "<span><strong>Агенты включены.</strong> Они только предлагают. Сделка или веса — после вашего «Принять» и риск-правил. В брокер ничего не уходит.</span>" +
         "</div>"
       );
     }
     return (
       '<div class="attention calm" data-tour="agents-banner">' +
-      "<span><strong>Агенты выключены.</strong> Это ожидаемо, не авария. Очередь может быть пустой, пока агенты выключены на сервере. Предложения вручную через интерфейс всё ещё видны здесь.</span>" +
+      "<span><strong>Агенты выключены.</strong> Это ожидаемо, не авария. Фоновые предложения не создаются. Планы из Рекомендаций («В очередь») здесь всё равно видны.</span>" +
       "</div>"
     );
+  }
+
+  function agentsHowHtml() {
+    return (
+      '<div class="agents-how" data-tour="agents-how">' +
+      '<div class="agents-how-step"><span>1</span><strong>Предложение</strong><p>Из Рекомендаций или от агента</p></div>' +
+      '<div class="agents-how-step"><span>2</span><strong>Ваше решение</strong><p>Принять или отклонить</p></div>' +
+      '<div class="agents-how-step"><span>3</span><strong>Paper / журнал</strong><p>Только внутренняя книга</p></div>' +
+      "</div>"
+    );
+  }
+
+  function agentsStatsHtml(waitingCount, recentCount, agentsOn) {
+    return (
+      '<div class="metrics agents-stats" data-tour="agents-stats">' +
+      '<div class="metric hero"><div class="k">статус</div><div class="v">' +
+      (agentsOn ? "вкл" : "выкл") +
+      "</div></div>" +
+      '<div class="metric hero"><div class="k">ждут решения</div><div class="v">' +
+      escapeHtml(String(waitingCount)) +
+      "</div></div>" +
+      '<div class="metric"><div class="k">недавние</div><div class="v">' +
+      escapeHtml(String(recentCount)) +
+      "</div></div>" +
+      '<div class="metric"><div class="k">куда смотреть</div><div class="v agents-stats-link"><a class="panel-link" href="#/recommendations">Рекомендации</a></div></div>' +
+      "</div>"
+    );
+  }
+
+  function proposalStatusChipClass(status) {
+    if (status === "proposed") return "is-wait";
+    if (status === "approved") return "is-ok";
+    if (status === "rejected") return "is-bad";
+    if (status === "expired") return "is-muted";
+    return "";
   }
 
   function orderRejectLabel(code) {
@@ -1735,29 +1770,35 @@
     var payloadJson = JSON.stringify(row.payload || {}, null, 2);
     var isOrder = row.kind === "order" || !!payload.ticker;
     var thesis = payload.reason || proposalSummary(row);
-    var sizing = isOrder
+    var title = isOrder
+      ? String(payload.ticker || "—")
+      : proposalKindLabel(row.kind);
+    var subtitle = isOrder
       ? orderSideLabel(payload.side) +
-        " " +
+        " · " +
         String(payload.qty || "—") +
-        " × " +
-        String(payload.ticker || "—") +
+        " шт." +
         (payload.lot ? " · лот " + String(payload.lot) : "") +
-        (payload.entry_price ? " · цена " + money(payload.entry_price) : "")
-      : (payload.weights || [])
-          .map(function (item) {
-            return (
-              (SLEEVE_NAMES[item.sleeve] || item.sleeve) +
-              " " +
-              pctLabel(item.weight)
-            );
-          })
-          .join(" · ");
-    var invalidation = isOrder
-      ? "Стоп " +
-        money(payload.stop) +
-        (payload.price_as_of ? "; цена на " + dateTimeLabel(payload.price_as_of) : "") +
-        "; риск-ворота могут отклонить план."
-      : "Не применять, если OOS-квалификация или лимиты капитала изменились.";
+        (payload.sleeve
+          ? " · " + (SLEEVE_NAMES[payload.sleeve] || payload.sleeve)
+          : "")
+      : proposalSummary(row);
+    var facts = "";
+    if (isOrder) {
+      facts =
+        '<div class="proposal-facts">' +
+        '<div><span>цена</span><strong>' +
+        escapeHtml(payload.entry_price != null ? money(payload.entry_price) : "—") +
+        "</strong></div>" +
+        '<div><span>стоп</span><strong>' +
+        escapeHtml(payload.stop != null ? money(payload.stop) : "—") +
+        "</strong></div>" +
+        '<div><span>цена на</span><strong>' +
+        escapeHtml(
+          payload.price_as_of ? dateTimeLabel(payload.price_as_of) : "—"
+        ) +
+        "</strong></div></div>";
+    }
     var actions = "";
     if (waiting) {
       actions =
@@ -1773,36 +1814,35 @@
         "</div>";
     }
     return (
-      '<article class="proposal-card large" data-proposal-id="' +
+      '<article class="proposal-card large' +
+      (waiting ? " is-waiting" : "") +
+      '" data-proposal-id="' +
       escapeHtml(row.id) +
       '" data-tour="' +
       (opts && opts.tour ? opts.tour : "agents-card") +
       '">' +
       '<div class="proposal-head">' +
+      '<div class="proposal-title-block">' +
       '<div class="kind">' +
       escapeHtml(proposalKindLabel(row.kind)) +
-      '</div><span class="status-chip">' +
+      "</div>" +
+      "<h4>" +
+      escapeHtml(title) +
+      "</h4>" +
+      '<p class="summary">' +
+      escapeHtml(subtitle) +
+      "</p></div>" +
+      '<span class="status-chip ' +
+      proposalStatusChipClass(row.status) +
+      '">' +
       escapeHtml(proposalStatusLabel(row.status)) +
       "</span></div>" +
-      '<p class="summary">' +
-      escapeHtml(proposalSummary(row)) +
-      "</p>" +
-      '<div class="decision-flow">' +
-      '<div><span>01 / ОБОСНОВАНИЕ</span><strong>' +
+      '<p class="proposal-thesis">' +
       escapeHtml(thesis) +
-      "</strong></div>" +
-      '<div><span>02 / РАЗМЕР</span><strong>' +
-      escapeHtml(sizing || "—") +
-      "</strong></div>" +
-      '<div><span>03 / ПРОВЕРКИ</span><strong>Риск-политика · лимиты · свежие данные</strong></div>' +
-      '<div><span>04 / РЕЗУЛЬТАТ</span><strong>' +
-      escapeHtml(proposalWillDo(row)) +
-      "</strong></div>" +
-      '<div><span>05 / КОГДА НЕ ПРИМЕНЯТЬ</span><strong>' +
-      escapeHtml(invalidation) +
-      "</strong></div></div>" +
+      "</p>" +
+      facts +
       (waiting
-        ? '<p class="will-do" data-tour="agents-will-do"><strong>Что произойдёт:</strong> ' +
+        ? '<p class="will-do" data-tour="agents-will-do"><strong>После одобрения:</strong> ' +
           escapeHtml(proposalWillDo(row)) +
           "</p>"
         : "") +
@@ -1917,23 +1957,32 @@
       : "";
     var waitingHtml = "";
     if (waiting.length) {
-      waitingHtml = waiting
-        .map(function (row, i) {
-          return proposalCardHtml(row, {
-            tour: i === 0 ? "agents-card" : "agents-card-more",
-          });
-        })
-        .join("");
+      waitingHtml =
+        '<div class="proposal-cards">' +
+        waiting
+          .map(function (row, i) {
+            return proposalCardHtml(row, {
+              tour: i === 0 ? "agents-card" : "agents-card-more",
+            });
+          })
+          .join("") +
+        "</div>";
     } else if (loadErrors.proposals) {
       waitingHtml =
         blockErrorHtml("proposals") ||
         '<p class="empty" data-tour="agents-waiting-empty">Очередь не загрузилась — это не пустая очередь.</p>';
     } else if (!agentsOn) {
       waitingHtml =
-        '<p class="empty" data-tour="agents-waiting-empty">Очередь пуста: агенты выключены. Это нормально, не ошибка системы.</p>';
+        '<div class="agents-empty" data-tour="agents-waiting-empty">' +
+        "<strong>Очередь пуста: агенты выключены.</strong>" +
+        "<p>Это нормально, не ошибка системы. Включите <code>AGENTS_ENABLED</code> на сервере или добавьте план из Рекомендаций.</p>" +
+        '<a class="panel-link" href="#/recommendations">Открыть Рекомендации</a></div>';
     } else {
       waitingHtml =
-        '<p class="empty" data-tour="agents-waiting-empty">Сейчас нет предложений, которые ждут решения.</p>';
+        '<div class="agents-empty" data-tour="agents-waiting-empty">' +
+        "<strong>Сейчас нечего решать.</strong>" +
+        "<p>Когда появится предложение — карточка будет здесь. Можно добавить план из Рекомендаций.</p>" +
+        '<a class="panel-link" href="#/recommendations">Открыть Рекомендации → В очередь</a></div>';
     }
     var recentHtml = "";
     if (recent.length) {
@@ -1945,9 +1994,11 @@
               return (
                 "<tr><td>" +
                 escapeHtml(proposalKindLabel(row.kind)) +
-                "</td><td>" +
+                '</td><td><span class="status-chip ' +
+                proposalStatusChipClass(row.status) +
+                '">' +
                 escapeHtml(proposalStatusLabel(row.status)) +
-                "</td><td>" +
+                "</span></td><td>" +
                 escapeHtml(
                   proposalSummary(row) +
                     (proposalExpiredReasonLabel(row)
@@ -1962,20 +2013,27 @@
       );
     } else {
       recentHtml =
-        '<p class="empty">Недавних решений ещё нет. После принятия или отклонения они появятся здесь; факт сделок смотрите в Журнале.</p>';
+        '<p class="empty">Недавних решений ещё нет. После принятия или отклонения они появятся здесь; факт сделок — в Журнале.</p>';
     }
     body.innerHTML =
+      '<section class="panel agents-panel" data-tour="agents-panel">' +
+      "<h3>Агенты</h3>" +
       agentsBannerHtml() +
+      agentsHowHtml() +
+      agentsStatsHtml(waiting.length, recent.length, agentsOn) +
       agentsFlashHtml() +
       archiveNotice +
+      "</section>" +
       '<section class="panel" id="agents-waiting" data-tour="agents-waiting">' +
-      "<h3>Ждут решения</h3>" +
-      "<p>Сначала предложения со статусом «ждут решения». Краткое описание человеческим языком — технические детали только под «Подробнее».</p>" +
+      "<h3>Ждут решения · " +
+      escapeHtml(String(waiting.length)) +
+      "</h3>" +
+      "<p>Только статус «ждёт решения». Кнопки — ваше действие; детали под «Подробнее».</p>" +
       waitingHtml +
       "</section>" +
       '<section class="panel" data-tour="agents-recent-panel">' +
       "<h3>Недавние решения</h3>" +
-      "<p>Принятые, отклонённые и истекшие. Сохранённые paper-заявки — в <a class=\"panel-link\" href=\"#/journal?tab=orders\">Журнале</a>.</p>" +
+      "<p>Принятые, отклонённые и истекшие. Paper-заявки — в <a class=\"panel-link\" href=\"#/journal?tab=orders\">Журнале</a>.</p>" +
       recentHtml +
       "</section>";
     bindAgentsActions();

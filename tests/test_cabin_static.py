@@ -189,6 +189,8 @@ def test_cabin_agents_queue_banner_stage15() -> None:
     assert "agents-banner" in js
     assert "Агенты выключены" in js
     assert "ожидаемо, не авария" in js or "Это ожидаемо, не авария" in js
+    assert "agents-how" in js
+    assert "agents-stats" in js
     assert "Ждут решения" in js
     assert "Недавние решения" in js
     assert "sortProposalsProposedFirst" in js
@@ -196,6 +198,8 @@ def test_cabin_agents_queue_banner_stage15() -> None:
     assert "JSON wall" not in js
     assert "proposalSummary" in js
     assert "attention.calm" in css
+    assert "agents-how" in css
+    assert "status-chip.is-wait" in css
     assert "tab=proposed" in js or 'tab === "proposed"' in js
 
 
