@@ -25,7 +25,9 @@ def test_cabin_advisory_ui() -> None:
     assert 'apiGet("/fundamentals")' in js
     assert 'apiGet("/recommendations' in js
     assert 'apiPost("/recommendations/propose"' in js
-    assert 'apiPost("/fundamentals/demo"' in js
+    assert 'apiPost("/fundamentals/refresh"' in js
+    assert 'apiPost("/fundamentals/demo"' not in js
+    assert "companies-demo" not in js
     assert "recs-disclaimer" in js
     assert "fund_screener" in js
     assert "Одобрить paper-план" in js

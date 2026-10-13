@@ -1071,38 +1071,6 @@ def create_app() -> FastAPI:
             ) from exc
         return {"upserted": saved, "disclaimer": DISCLAIMER}
 
-    @app.post("/fundamentals/demo")
-    async def fundamentals_demo(session: AsyncSession = Depends(get_db)) -> dict:
-        """Синтетические снимки desk MOEX без брокера — кабинет не пустой при down sandbox."""
-        from app.advisory.demo_fundamentals import demo_fundamentals
-
-        samples = demo_fundamentals()
-        existing = {
-            row.ticker: row for row in await session.scalars(select(Fundamental))
-        }
-        for snap in samples:
-            found = existing.get(snap.ticker)
-            if found is None:
-                session.add(snap)
-            else:
-                found.ts = snap.ts
-                found.pe_ratio_ttm = snap.pe_ratio_ttm
-                found.price_to_book_ttm = snap.price_to_book_ttm
-                found.eps_ttm = snap.eps_ttm
-                found.market_capitalization = snap.market_capitalization
-                found.raw = snap.raw
-                found.asset_uid = snap.asset_uid
-        await session.commit()
-        rows = list(await session.scalars(select(Fundamental)))
-        view = fundamentals_view(rows)
-        view["disclaimer"] = (
-            "Демо: расширенный каталог акций РФ MOEX TQBR с названиями и секторами "
-            "(синтетические метрики). Не данные брокера. "
-            + DISCLAIMER
-        )
-        view["source"] = "demo"
-        return view
-
     @app.get("/news")
     async def news(session: AsyncSession = Depends(get_db)) -> dict:
         rows = list(await session.scalars(select(NewsEvent)))

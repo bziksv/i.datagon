@@ -2,7 +2,7 @@
   "use strict";
 
   /** Версия UI кабинета (этап 30+). Не путать с version API. */
-  var CABIN_UI_VERSION = "v3.3.14";
+  var CABIN_UI_VERSION = "v3.3.15";
 
   var ROUTES = [
     {
@@ -2351,11 +2351,11 @@
     var sectors = data.sectors && data.sectors.length
       ? data.sectors
       : [];
-    var source = data.source === "demo" || /демо/i.test(String(data.disclaimer || ""))
-      ? "demo"
-      : "live";
     var activeSector = lastCompaniesSector || "all";
     var query = lastCompaniesQuery || "";
+    if (/демо/i.test(String(lastCompaniesNote || ""))) {
+      lastCompaniesNote = "";
+    }
     var matched = items.filter(function (row) {
       return fundCompanyMatches(row, query);
     });
@@ -2515,7 +2515,7 @@
               : "В этом секторе пока нет снимков.") +
             "</p>";
     var empty = !items.length
-      ? '<p class="empty" data-tour="companies-empty">Снимков ещё нет. Нажмите «Демо-данные» — расширенный каталог акций РФ с названиями и секторами. «Обновить с брокера» подтянет все TQBR с Тинькофф, когда sandbox отвечает.</p>'
+      ? '<p class="empty" data-tour="companies-empty">Снимков ещё нет. Нажмите «Обновить с брокера» — подтянем TQBR и фундамент с Тинькофф.</p>'
       : "";
     body.innerHTML =
       '<section class="panel" data-tour="companies-panel">' +
@@ -2524,20 +2524,16 @@
       "<strong>Что смотреть.</strong> Акции РФ (MOEX TQBR): название компании, отрасль и скор. " +
       "Сверху — топ к покупке; ниже — разбивка по секторам. " +
       'Дальше — <a class="panel-link" href="#/recommendations">Рекомендации</a>. ' +
-      (source === "demo"
-        ? "<br><strong>Источник сейчас: демо-каталог РФ</strong> (синтетика). Живые метрики — через «Обновить с брокера»."
-        : "<br>Источник: все TQBR + фундамент с брокера Тинькофф.") +
+      "<br>Источник: живой фундамент с брокера Тинькофф (sandbox API)." +
       "</div>" +
       '<div class="panel-actions">' +
-      '<button type="button" class="primary" id="companies-demo">Демо-данные</button>' +
-      '<button type="button" class="ghost" id="companies-refresh">Обновить с брокера</button>' +
+      '<button type="button" class="primary" id="companies-refresh">Обновить с брокера</button>' +
       "</div>" +
       '<p class="source-line" id="companies-status">' +
       escapeHtml(lastCompaniesNote || data.disclaimer || "") +
       "</p>" +
       (items.length ? searchBar + sectorChips + topCards + sectorBlocks : empty) +
       "</section>";
-    var demoBtn = byId("companies-demo");
     var refreshBtn = byId("companies-refresh");
     var searchInput = byId("companies-search");
     var clearSearch = byId("companies-search-clear");
@@ -2568,34 +2564,6 @@
       clearSearch.addEventListener("click", function () {
         lastCompaniesQuery = "";
         renderCompanies({ keepSearchFocus: true, caret: 0 });
-      });
-    }
-    if (demoBtn) {
-      demoBtn.addEventListener("click", function () {
-        demoBtn.disabled = true;
-        lastCompaniesNote = "Грузим демо-каталог РФ…";
-        lastCompaniesSector = "all";
-        lastCompaniesQuery = "";
-        renderCompanies();
-        apiPost("/fundamentals/demo", {})
-          .then(function (payload) {
-            lastFundamentals = payload;
-            lastCompaniesNote =
-              "Демо РФ: " +
-              (payload.count || 0) +
-              " компаний, " +
-              (((payload.sectors || []).length) || 0) +
-              " секторов";
-            renderCompanies();
-          })
-          .catch(function (err) {
-            lastCompaniesNote =
-              "Демо не загрузилось: " + (err.message || "ошибка");
-            renderCompanies();
-          })
-          .finally(function () {
-            demoBtn.disabled = false;
-          });
       });
     }
     if (refreshBtn) {

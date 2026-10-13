@@ -18,8 +18,19 @@ def test_demo_metrics_are_deterministic() -> None:
     assert a.raw["name"] == "Сбербанк"
 
 
-def test_fundamentals_view_groups_by_sector_and_name() -> None:
+def test_fundamentals_view_skips_demo_rows() -> None:
     view = fundamentals_view(demo_fundamentals())
+    assert view["count"] == 0
+    assert view["source"] == "broker"
+
+
+def test_fundamentals_view_groups_live_by_sector_and_name() -> None:
+    rows = demo_fundamentals()
+    for row in rows:
+        raw = dict(row.raw or {})
+        raw.pop("demo", None)
+        row.raw = raw
+    view = fundamentals_view(rows)
     assert view["count"] >= 70
     assert view["items"][0]["name"]
     assert view["items"][0]["sector_title"]

@@ -188,7 +188,7 @@ async def run_fundamentals_refresh(fetch: FetchFn | None = None) -> int:
     except Exception as exc:
         raise FundamentalsRefreshError(
             "Не удалось загрузить акции РФ с брокера (sandbox API недоступен). "
-            "Нажмите «Демо-данные» — расширенный каталог MOEX с названиями и секторами."
+            "Проверьте TINKOFF_SANDBOX_TOKEN и TLS (Russian Trusted CA)."
         ) from exc
 
     dumped = dump_moex_instruments(instruments, shares)
