@@ -148,8 +148,17 @@ _MOEX_ROWS: tuple[tuple[str, str, str], ...] = (
     ("GCHE", "Черкизово", "industrials"),
     ("AQUA", "Инарктика", "industrials"),
     ("DELI", "Делимобиль", "industrials"),
-    ("GEMC", "Юнайтед Медикал", "health"),
     ("CNRU", "ЦМТ", "industrials"),
+    # здравоохранение и фарма
+    ("MDMG", "Мать и дитя", "health"),
+    ("GEMC", "ЮМГ", "health"),
+    ("GEMA", "Гемабанк", "health"),
+    ("OZPH", "Озон Фармацевтика", "health"),
+    ("PRMD", "Промомед", "health"),
+    ("LIFE", "Фармсинтез", "health"),
+    ("ABIO", "Артген", "health"),
+    ("DIOD", "ДИОД", "health"),
+    ("GECO", "Генетико", "health"),
 )
 
 
