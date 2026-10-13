@@ -2,7 +2,7 @@
   "use strict";
 
   /** Версия UI кабинета (этап 30+). Не путать с version API. */
-  var CABIN_UI_VERSION = "v3.3.10";
+  var CABIN_UI_VERSION = "v3.3.11";
 
   var ROUTES = [
     {
@@ -2209,48 +2209,157 @@
     });
   }
 
+  function fundScoreTone(score) {
+    var n = Number(score);
+    if (!isFinite(n)) return "fund-tone--muted";
+    if (n >= 70) return "fund-tone--good";
+    if (n >= 45) return "fund-tone--mid";
+    return "fund-tone--bad";
+  }
+
+  function fundScoreLabel(score) {
+    var n = Number(score);
+    if (!isFinite(n)) return "нет данных";
+    if (n >= 70) return "сильно";
+    if (n >= 45) return "средне";
+    return "слабо";
+  }
+
+  function fundPctLabel(value) {
+    if (value == null || value === "") return "—";
+    var n = Number(value);
+    if (!isFinite(n)) return "—";
+    var pct = Math.abs(n) <= 1.5 ? n * 100 : n;
+    return (Math.round(pct * 10) / 10).toFixed(1) + "%";
+  }
+
+  function fundToneCell(score, text) {
+    return (
+      '<td class="' +
+      fundScoreTone(score) +
+      '"><span class="fund-pill">' +
+      escapeHtml(text) +
+      "</span></td>"
+    );
+  }
+
   function renderCompanies() {
     var body = byId("page-body");
     var data = lastFundamentals || { items: [], disclaimer: "" };
-    var items = data.items || [];
+    var items = (data.items || []).slice().sort(function (a, b) {
+      var sa = Number((a.scores || {}).total);
+      var sb = Number((b.scores || {}).total);
+      if (!isFinite(sa)) sa = -1;
+      if (!isFinite(sb)) sb = -1;
+      return sb - sa;
+    });
+    var source = data.source === "demo" || /демо/i.test(String(data.disclaimer || ""))
+      ? "demo"
+      : "live";
+    var top = items.filter(function (row) {
+      return Number((row.scores || {}).total) >= 70;
+    }).slice(0, 5);
+    if (!top.length) top = items.slice(0, 5);
+    var topCards = top.length
+      ? '<div class="fund-top" data-tour="companies-top">' +
+        "<h4>Топ к покупке по скору</h4>" +
+        '<p class="fund-top-note">Зелёный ≥70 — относительно сильнее по оценке/качеству/дивидендам внутри этого списка. Не сигнал брокера.</p>' +
+        '<div class="fund-top-grid">' +
+        top
+          .map(function (row, idx) {
+            var scores = row.scores || {};
+            return (
+              '<article class="fund-top-card ' +
+              fundScoreTone(scores.total) +
+              '">' +
+              '<div class="fund-top-rank">#' +
+              (idx + 1) +
+              "</div>" +
+              "<h5>" +
+              escapeHtml(row.ticker || "—") +
+              '</h5><div class="fund-top-score">' +
+              escapeHtml(String(scores.total != null ? scores.total : "—")) +
+              ' <small>' +
+              escapeHtml(fundScoreLabel(scores.total)) +
+              "</small></div>" +
+              '<div class="fund-top-meta">оценка ' +
+              escapeHtml(String(scores.value != null ? scores.value : "—")) +
+              " · качество " +
+              escapeHtml(String(scores.quality != null ? scores.quality : "—")) +
+              " · див. " +
+              escapeHtml(String(scores.div != null ? scores.div : "—")) +
+              "</div></article>"
+            );
+          })
+          .join("") +
+        "</div></div>"
+      : "";
     var table = items.length
       ? wrapTableScroll(
-          '<table class="data-table" data-tour="companies-table">' +
+          '<table class="data-table fund-table" data-tour="companies-table">' +
             "<thead><tr>" +
-            "<th>тикер</th><th>скор</th><th>оценка</th><th>качество</th><th>дивиденды</th>" +
-            "<th>P/E</th><th>P/B</th><th>ROE</th><th>див.</th><th>почему</th>" +
+            "<th></th><th>тикер</th><th>скор</th><th>оценка</th><th>качество</th><th>дивиденды</th>" +
+            "<th>P/E</th><th>P/B</th><th>ROE</th><th>див.</th><th>вердикт</th>" +
             "</tr></thead><tbody>" +
             items
-              .map(function (row) {
+              .map(function (row, idx) {
                 var scores = row.scores || {};
+                var total = scores.total;
+                var isTop = idx < 5 && Number(total) >= 45;
                 return (
-                  "<tr>" +
+                  '<tr class="' +
+                  (isTop ? "fund-row--top " : "") +
+                  fundScoreTone(total) +
+                  '-row">' +
                   "<td>" +
-                  escapeHtml(row.ticker || "—") +
+                  (isTop
+                    ? '<span class="fund-rank">#' + (idx + 1) + "</span>"
+                    : '<span class="fund-rank muted">' + (idx + 1) + "</span>") +
                   "</td><td><strong>" +
-                  escapeHtml(String(scores.total != null ? scores.total : "—")) +
-                  "</strong></td><td>" +
-                  escapeHtml(String(scores.value != null ? scores.value : "—")) +
-                  "</td><td>" +
-                  escapeHtml(String(scores.quality != null ? scores.quality : "—")) +
-                  "</td><td>" +
-                  escapeHtml(String(scores.div != null ? scores.div : "—")) +
-                  "</td><td>" +
-                  escapeHtml(row.pe_ratio_ttm != null ? String(row.pe_ratio_ttm) : "—") +
-                  "</td><td>" +
+                  escapeHtml(row.ticker || "—") +
+                  "</strong></td>" +
+                  fundToneCell(
+                    total,
+                    String(total != null ? total : "—") +
+                      " · " +
+                      fundScoreLabel(total)
+                  ) +
+                  fundToneCell(
+                    scores.value,
+                    String(scores.value != null ? scores.value : "—")
+                  ) +
+                  fundToneCell(
+                    scores.quality,
+                    String(scores.quality != null ? scores.quality : "—")
+                  ) +
+                  fundToneCell(
+                    scores.div,
+                    String(scores.div != null ? scores.div : "—")
+                  ) +
+                  "<td>" +
                   escapeHtml(
-                    row.price_to_book_ttm != null ? String(row.price_to_book_ttm) : "—"
+                    row.pe_ratio_ttm != null ? String(row.pe_ratio_ttm) : "—"
                   ) +
                   "</td><td>" +
-                  escapeHtml(row.roe != null ? String(row.roe) : "—") +
-                  "</td><td>" +
                   escapeHtml(
-                    row.dividend_yield_ttm != null
-                      ? String(row.dividend_yield_ttm)
+                    row.price_to_book_ttm != null
+                      ? String(row.price_to_book_ttm)
                       : "—"
                   ) +
                   "</td><td>" +
-                  escapeHtml(row.rationale || "") +
+                  escapeHtml(fundPctLabel(row.roe)) +
+                  "</td><td>" +
+                  escapeHtml(fundPctLabel(row.dividend_yield_ttm)) +
+                  "</td><td class=\"fund-verdict " +
+                  fundScoreTone(total) +
+                  '">' +
+                  escapeHtml(
+                    Number(total) >= 70
+                      ? "интереснее к покупке"
+                      : Number(total) >= 45
+                        ? "нейтрально"
+                        : "слабее / дороже"
+                  ) +
                   "</td></tr>"
                 );
               })
@@ -2258,22 +2367,26 @@
             "</tbody></table>",
           true
         )
-      : '<p class="empty" data-tour="companies-empty">Снимков ещё нет. Если sandbox Тинькофф недоступен — нажмите «Демо-данные» (весь desk MOEX, синтетика). «Обновить с брокера» — только когда API отвечает.</p>';
+      : '<p class="empty" data-tour="companies-empty">Снимков ещё нет. Нажмите «Демо-данные» — заполним desk MOEX (~48 ликвидных имён) синтетикой. «Обновить с брокера» — только когда sandbox отвечает.</p>';
     body.innerHTML =
       '<section class="panel" data-tour="companies-panel">' +
       "<h3>Компании</h3>" +
-      "<p>Фундаментальные метрики и скор: оценка, качество и дивиденды. " +
-      'Кандидаты на вход — в <a class="panel-link" href="#/recommendations">Рекомендациях</a>. ' +
-      "Сейчас sandbox API часто недоступен (DNS/SSL) — тогда таблицу наполняет демо по desk MOEX, не брокер.</p>" +
+      '<div class="callout" data-tour="companies-explain">' +
+      "<strong>Что смотреть.</strong> Это не весь РФ-рынок, а <em>desk MOEX</em> лаборатории (~48 бумаг: ядро + отрасли). " +
+      "Список уже отсортирован: сверху выше скор → относительно интереснее к покупке по фундаменту. " +
+      'Дальше — <a class="panel-link" href="#/recommendations">Рекомендации</a>. ' +
+      (source === "demo"
+        ? "<br><strong>Источник сейчас: демо</strong> (синтетика), не котировки/отчётность брокера."
+        : "<br>Источник: снимки фундамента с брокера.") +
+      "</div>" +
       '<div class="panel-actions">' +
       '<button type="button" class="primary" id="companies-demo">Демо-данные</button>' +
       '<button type="button" class="ghost" id="companies-refresh">Обновить с брокера</button>' +
       "</div>" +
       '<p class="source-line" id="companies-status">' +
-      escapeHtml(
-        lastCompaniesNote || data.disclaimer || ""
-      ) +
+      escapeHtml(lastCompaniesNote || data.disclaimer || "") +
       "</p>" +
+      topCards +
       table +
       "</section>";
     var demoBtn = byId("companies-demo");

@@ -2036,6 +2036,145 @@ pre.payload {
   color: var(--muted);
 }
 
+.fund-top {
+  margin: 0.85rem 0 1rem;
+  padding: 0.85rem 0.9rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: linear-gradient(180deg, #f7faf7 0%, var(--bg-elev) 100%);
+}
+
+.fund-top h4 {
+  margin: 0 0 0.25rem;
+  font-size: 1rem;
+}
+
+.fund-top-note {
+  margin: 0 0 0.75rem;
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.fund-top-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
+  gap: 0.55rem;
+}
+
+.fund-top-card {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elev);
+  padding: 0.55rem 0.65rem 0.65rem;
+  border-left: 4px solid var(--line);
+}
+
+.fund-top-card.fund-tone--good {
+  border-left-color: var(--ok);
+  background: #f1f8f3;
+}
+
+.fund-top-card.fund-tone--mid {
+  border-left-color: var(--warn);
+  background: #fff8eb;
+}
+
+.fund-top-card.fund-tone--bad {
+  border-left-color: var(--bad);
+  background: #fdf2f2;
+}
+
+.fund-top-rank {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.fund-top-card h5 {
+  margin: 0.15rem 0 0.2rem;
+  font-size: 1.05rem;
+}
+
+.fund-top-score {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.fund-top-score small {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.fund-top-meta {
+  margin-top: 0.25rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.fund-table .fund-pill {
+  display: inline-block;
+  padding: 0.12rem 0.4rem;
+  border-radius: 999px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.fund-tone--good .fund-pill,
+.fund-tone--good.fund-verdict {
+  color: #145c34;
+  background: #d9f0e2;
+}
+
+.fund-tone--mid .fund-pill,
+.fund-tone--mid.fund-verdict {
+  color: #7a5600;
+  background: #f7e7c2;
+}
+
+.fund-tone--bad .fund-pill,
+.fund-tone--bad.fund-verdict {
+  color: #8f2424;
+  background: #f6d6d6;
+}
+
+.fund-tone--muted .fund-pill {
+  color: var(--muted);
+  background: var(--bg-soft);
+}
+
+.fund-row--top td:first-child,
+.fund-row--top td:nth-child(2) {
+  font-weight: 700;
+}
+
+.fund-tone--good-row {
+  background: rgba(27, 122, 74, 0.05);
+}
+
+.fund-tone--bad-row {
+  background: rgba(179, 51, 51, 0.04);
+}
+
+.fund-rank {
+  font-variant-numeric: tabular-nums;
+  font-size: 0.82rem;
+}
+
+.fund-rank.muted {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.fund-verdict {
+  font-size: 0.82rem;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
 .desk-check-group {
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
