@@ -5,6 +5,8 @@ from decimal import Decimal
 from pathlib import Path
 
 from app.strategy.abs_mom import (
+    AbsMomentum2Strategy,
+    AbsMomentum3Strategy,
     DEFAULT_BACKTEST_POSITION_SHARE as ABS_MOM_SHARE,
     DEFAULT_EXIT_ROC as ABS_MOM_EXIT_ROC,
     DEFAULT_LOOKBACK as ABS_MOM_LOOKBACK,
@@ -47,6 +49,26 @@ from app.strategy.scalp import (
     EmaScalpStrategy,
 )
 from app.strategy.sma import DEFAULT_FAST, DEFAULT_SLOW, SmaCrossStrategy
+from app.strategy.vol_scalp import (
+    DEFAULT_AVERAGE_TRIGGER_PCT as VOL_AVG,
+    DEFAULT_ATR_EXPAND as VOL_ATR_EXPAND,
+    DEFAULT_ATR_NORM_BARS as VOL_ATR_NORM,
+    DEFAULT_ATR_PERIOD as VOL_ATR_PERIOD,
+    DEFAULT_BACKTEST_POSITION_SHARE as VOL_SHARE,
+    DEFAULT_CLOSE_RANGE_MIN as VOL_CLOSE_RANGE_MIN,
+    DEFAULT_COOLDOWN_BARS as VOL_COOLDOWN,
+    DEFAULT_MAX_HOLD_BARS as VOL_MAX_HOLD,
+    DEFAULT_MAX_LAYER_HOLD_BARS as VOL_MAX_LAYER_HOLD,
+    DEFAULT_MAX_LAYERS as VOL_MAX_LAYERS,
+    DEFAULT_MIN_ATR_PCT as VOL_MIN_ATR,
+    DEFAULT_MIN_BODY_RATIO as VOL_MIN_BODY,
+    DEFAULT_REQUIRE_PULLBACK as VOL_REQUIRE_PULLBACK,
+    DEFAULT_SOFT_LOSS_PCT as VOL_SOFT_LOSS,
+    DEFAULT_STOP_PCT as VOL_STOP,
+    DEFAULT_TAKE_PROFIT_PCT as VOL_TP,
+    DEFAULT_TREND_BARS as VOL_TREND_BARS,
+    VolScalpStrategy,
+)
 
 DEFAULT_YAML = Path("config/sleeves.yaml")
 
@@ -79,6 +101,19 @@ def _decimal_field(section: str, key: str, default: Decimal) -> Decimal:
         stripped = line.strip()
         if stripped.startswith(key + ":"):
             return Decimal(stripped.split(":", 1)[1].strip())
+    return default
+
+
+def _bool_field(section: str, key: str, default: bool) -> bool:
+    for line in section.splitlines():
+        stripped = line.strip()
+        if stripped.startswith(key + ":"):
+            raw = stripped.split(":", 1)[1].strip().lower()
+            if raw in {"1", "true", "yes", "on"}:
+                return True
+            if raw in {"0", "false", "no", "off"}:
+                return False
+            return default
     return default
 
 
@@ -269,6 +304,113 @@ def scalp_from_config(
     return EmaScalpStrategy(fast=fast, slow=slow, stop_pct=stop)
 
 
+def vol_scalp_params(
+    env: Mapping[str, str],
+    yaml_text: str | None = None,
+) -> dict:
+    params = {
+        "take_profit_pct": VOL_TP,
+        "average_trigger_pct": VOL_AVG,
+        "max_layers": VOL_MAX_LAYERS,
+        "stop_pct": VOL_STOP,
+        "atr_period": VOL_ATR_PERIOD,
+        "min_atr_pct": VOL_MIN_ATR,
+        "atr_expand": VOL_ATR_EXPAND,
+        "atr_norm_bars": VOL_ATR_NORM,
+        "max_hold_bars": VOL_MAX_HOLD,
+        "max_layer_hold_bars": VOL_MAX_LAYER_HOLD,
+        "cooldown_bars": VOL_COOLDOWN,
+        "close_range_min": VOL_CLOSE_RANGE_MIN,
+        "min_body_ratio": VOL_MIN_BODY,
+        "soft_loss_pct": VOL_SOFT_LOSS,
+        "backtest_position_share": VOL_SHARE,
+        "require_pullback": VOL_REQUIRE_PULLBACK,
+        "trend_bars": VOL_TREND_BARS,
+    }
+    if yaml_text:
+        section = _section(yaml_text, "vol_scalp")
+        params["take_profit_pct"] = _decimal_field(
+            section, "take_profit_pct", params["take_profit_pct"]
+        )
+        params["average_trigger_pct"] = _decimal_field(
+            section, "average_trigger_pct", params["average_trigger_pct"]
+        )
+        params["max_layers"] = _int_field(
+            section, "max_layers", params["max_layers"]
+        )
+        params["stop_pct"] = _decimal_field(section, "stop_pct", params["stop_pct"])
+        params["atr_period"] = _int_field(
+            section, "atr_period", params["atr_period"]
+        )
+        params["min_atr_pct"] = _decimal_field(
+            section, "min_atr_pct", params["min_atr_pct"]
+        )
+        params["atr_expand"] = _decimal_field(
+            section, "atr_expand", params["atr_expand"]
+        )
+        params["atr_norm_bars"] = _int_field(
+            section, "atr_norm_bars", params["atr_norm_bars"]
+        )
+        params["max_hold_bars"] = _int_field(
+            section, "max_hold_bars", params["max_hold_bars"]
+        )
+        params["max_layer_hold_bars"] = _int_field(
+            section, "max_layer_hold_bars", params["max_layer_hold_bars"]
+        )
+        params["cooldown_bars"] = _int_field(
+            section, "cooldown_bars", params["cooldown_bars"]
+        )
+        params["close_range_min"] = _decimal_field(
+            section, "close_range_min", params["close_range_min"]
+        )
+        params["min_body_ratio"] = _decimal_field(
+            section, "min_body_ratio", params["min_body_ratio"]
+        )
+        params["soft_loss_pct"] = _decimal_field(
+            section, "soft_loss_pct", params["soft_loss_pct"]
+        )
+        params["backtest_position_share"] = _decimal_field(
+            section,
+            "backtest_position_share",
+            _decimal_field(section, "name_share", params["backtest_position_share"]),
+        )
+        params["require_pullback"] = _bool_field(
+            section, "require_pullback", params["require_pullback"]
+        )
+        params["trend_bars"] = _int_field(
+            section, "trend_bars", params["trend_bars"]
+        )
+    env_map = {
+        "VOL_SCALP_TAKE_PROFIT_PCT": ("take_profit_pct", Decimal),
+        "VOL_SCALP_AVERAGE_TRIGGER_PCT": ("average_trigger_pct", Decimal),
+        "VOL_SCALP_MAX_LAYERS": ("max_layers", int),
+        "VOL_SCALP_STOP_PCT": ("stop_pct", Decimal),
+        "VOL_SCALP_ATR_PERIOD": ("atr_period", int),
+        "VOL_SCALP_MIN_ATR_PCT": ("min_atr_pct", Decimal),
+        "VOL_SCALP_ATR_EXPAND": ("atr_expand", Decimal),
+        "VOL_SCALP_ATR_NORM_BARS": ("atr_norm_bars", int),
+        "VOL_SCALP_MAX_HOLD_BARS": ("max_hold_bars", int),
+        "VOL_SCALP_MAX_LAYER_HOLD_BARS": ("max_layer_hold_bars", int),
+        "VOL_SCALP_COOLDOWN_BARS": ("cooldown_bars", int),
+        "VOL_SCALP_CLOSE_RANGE_MIN": ("close_range_min", Decimal),
+        "VOL_SCALP_MIN_BODY_RATIO": ("min_body_ratio", Decimal),
+        "VOL_SCALP_SOFT_LOSS_PCT": ("soft_loss_pct", Decimal),
+        "VOL_SCALP_POSITION_SHARE": ("backtest_position_share", Decimal),
+        "VOL_SCALP_TREND_BARS": ("trend_bars", int),
+    }
+    for env_key, (name, caster) in env_map.items():
+        if env.get(env_key):
+            params[name] = caster(env[env_key])
+    return params
+
+
+def vol_scalp_from_config(
+    env: Mapping[str, str],
+    yaml_path: Path | None = DEFAULT_YAML,
+) -> VolScalpStrategy:
+    return VolScalpStrategy(**vol_scalp_params(env, _yaml_text(yaml_path)))
+
+
 def overnight_from_config(
     env: Mapping[str, str],
     yaml_path: Path | None = DEFAULT_YAML,
@@ -409,15 +551,94 @@ def abs_mom_from_config(
     return AbsMomentumStrategy(**abs_mom_params(env, _yaml_text(yaml_path)))
 
 
+def abs_mom2_params(
+    env: Mapping[str, str],
+    yaml_text: str | None = None,
+) -> dict:
+    params = abs_mom_params({}, None)
+    params["exit_roc"] = Decimal("-0.02")
+    params["trail_pct"] = Decimal("0.04")
+    if yaml_text:
+        section = _section(yaml_text, "abs_momentum_2")
+        params["lookback"] = _int_field(section, "lookback", params["lookback"])
+        params["sma_period"] = _int_field(
+            section, "sma_period", params["sma_period"]
+        )
+        params["min_roc"] = _decimal_field(section, "min_roc", params["min_roc"])
+        params["exit_roc"] = _decimal_field(
+            section, "exit_roc", params["exit_roc"]
+        )
+        params["stop_pct"] = _decimal_field(section, "stop_pct", params["stop_pct"])
+        params["trail_pct"] = _decimal_field(
+            section, "trail_pct", params["trail_pct"]
+        )
+        params["max_stretch"] = _decimal_field(
+            section, "max_stretch", params["max_stretch"]
+        )
+        params["backtest_position_share"] = _decimal_field(
+            section,
+            "backtest_position_share",
+            params["backtest_position_share"],
+        )
+    return params
+
+
+def abs_mom2_from_config(
+    env: Mapping[str, str],
+    yaml_path: Path | None = DEFAULT_YAML,
+) -> AbsMomentum2Strategy:
+    return AbsMomentum2Strategy(**abs_mom2_params(env, _yaml_text(yaml_path)))
+
+
+def abs_mom3_params(
+    env: Mapping[str, str],
+    yaml_text: str | None = None,
+) -> dict:
+    params = abs_mom2_params({}, None)
+    if yaml_text:
+        section = _section(yaml_text, "abs_momentum_3")
+        params["lookback"] = _int_field(section, "lookback", params["lookback"])
+        params["sma_period"] = _int_field(
+            section, "sma_period", params["sma_period"]
+        )
+        params["min_roc"] = _decimal_field(section, "min_roc", params["min_roc"])
+        params["exit_roc"] = _decimal_field(
+            section, "exit_roc", params["exit_roc"]
+        )
+        params["stop_pct"] = _decimal_field(section, "stop_pct", params["stop_pct"])
+        params["trail_pct"] = _decimal_field(
+            section, "trail_pct", params["trail_pct"]
+        )
+        params["max_stretch"] = _decimal_field(
+            section, "max_stretch", params["max_stretch"]
+        )
+        params["backtest_position_share"] = _decimal_field(
+            section,
+            "backtest_position_share",
+            params["backtest_position_share"],
+        )
+    return params
+
+
+def abs_mom3_from_config(
+    env: Mapping[str, str],
+    yaml_path: Path | None = DEFAULT_YAML,
+) -> AbsMomentum3Strategy:
+    return AbsMomentum3Strategy(**abs_mom3_params(env, _yaml_text(yaml_path)))
+
+
 def active_strategies(env: Mapping[str, str], yaml_path: Path | None = DEFAULT_YAML):
     return [
         sma_from_config(env, yaml_path),
         donchian_from_config(env, yaml_path),
         rsi_from_config(env, yaml_path),
         scalp_from_config(env, yaml_path),
+        vol_scalp_from_config(env, yaml_path),
         overnight_from_config(env, yaml_path),
         morning_from_config(env, yaml_path),
         abs_mom_from_config(env, yaml_path),
+        abs_mom2_from_config(env, yaml_path),
+        abs_mom3_from_config(env, yaml_path),
     ]
 
 
@@ -429,8 +650,13 @@ def daily_strategies(env: Mapping[str, str], yaml_path: Path | None = DEFAULT_YA
         overnight_from_config(env, yaml_path),
         morning_from_config(env, yaml_path),
         abs_mom_from_config(env, yaml_path),
+        abs_mom2_from_config(env, yaml_path),
+        abs_mom3_from_config(env, yaml_path),
     ]
 
 
 def scalp_strategies(env: Mapping[str, str], yaml_path: Path | None = DEFAULT_YAML):
-    return [scalp_from_config(env, yaml_path)]
+    return [
+        scalp_from_config(env, yaml_path),
+        vol_scalp_from_config(env, yaml_path),
+    ]

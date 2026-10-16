@@ -44,8 +44,8 @@ def test_cabin_shell_stage01_menu_and_router() -> None:
     css = CSS.read_text()
     js = JS.read_text()
     assert "<!DOCTYPE html>" in html
-    assert 'href="/cabin.css?v=3.0.9"' in html
-    assert 'src="/cabin.js?v=3.0.9"' in html
+    assert 'href="/cabin.css?v=3.3.24"' in html
+    assert 'src="/cabin.js?v=3.3.24"' in html
     assert "webpack" not in html.lower()
     assert "react" not in html.lower()
     assert "vite" not in html.lower()
@@ -187,12 +187,14 @@ def test_cabin_agents_queue_banner_stage15() -> None:
     assert "renderAgents" in js
     assert "AGENTS_TOUR_KEY" in js
     assert "agents-banner" in js
-    assert "Агенты выключены" in js
-    assert "ожидаемо, не авария" in js or "Это ожидаемо, не авария" in js
+    assert "Фоновые агенты выключены" in js
+    assert "планы появляются только из Рекомендаций" in js
+    assert "Небезопасные старые планы" not in js
+    assert "AGENTS_ENABLED" not in js
     assert "agents-how" in js
     assert "agents-stats" in js
     assert "Ждут решения" in js
-    assert "Недавние решения" in js
+    assert "Недавние" in js
     assert "sortProposalsProposedFirst" in js
     assert "Подробнее" in js
     assert "JSON wall" not in js
@@ -261,6 +263,8 @@ def test_cabin_strategies_compare_stage12() -> None:
     assert "strategies-row-donchian_breakout" in js
     assert "strategies-row-rsi_reversion" in js
     assert "strategies-row-ema_scalp" in js
+    assert "vol_scalp" in js
+    assert "Волатильный скальп" in js
     assert '"overnight_bounce"' in js
 
 
@@ -369,8 +373,8 @@ def test_cabin_tour_engine_stage05() -> None:
     js = JS.read_text()
     tour_js = (ROOT / "web" / "tour.js").read_text()
     tour_css = (ROOT / "web" / "tour.css").read_text()
-    assert 'href="/tour.css?v=3.0.9"' in html
-    assert 'src="/tour.js?v=3.0.9"' in html
+    assert 'href="/tour.css?v=3.3.24"' in html
+    assert 'src="/tour.js?v=3.3.24"' in html
     assert "CabinTour" in tour_js
     assert "cabin_tour_v1:" in tour_js
     assert "resetAll" in tour_js
@@ -420,7 +424,7 @@ def test_cabin_status_pills_stage03() -> None:
     assert "Воркер" in js
     assert "Торговля" in js
     assert "Агенты" in js
-    assert "выключены · очередь будет пустой, это нормально" in js
+    assert "флаг выкл · очередь из Рекомендаций" in js
     assert "стоп включён" in js
     assert "можно выставлять" in js
     assert 'fetchJson("/status"' in js or 'fetch("/status"' in js

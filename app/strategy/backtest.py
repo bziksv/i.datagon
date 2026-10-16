@@ -32,6 +32,35 @@ def load_bars(path: Path) -> list[CandleBar]:
     return bars
 
 
+class _BarPrefix:
+    """Вид bars[:end] без копии списка на каждом баре."""
+
+    __slots__ = ("_bars", "_end")
+
+    def __init__(self, bars: Sequence[CandleBar], end: int) -> None:
+        self._bars = bars
+        self._end = end
+
+    def __len__(self) -> int:
+        return self._end
+
+    def __iter__(self):
+        bars = self._bars
+        for index in range(self._end):
+            yield bars[index]
+
+    def __getitem__(self, item: int | slice):
+        if isinstance(item, slice):
+            start, stop, step = item.indices(self._end)
+            return self._bars[start:stop:step]
+        if not isinstance(item, int):
+            raise TypeError(type(item))
+        index = item + self._end if item < 0 else item
+        if index < 0 or index >= self._end:
+            raise IndexError(item)
+        return self._bars[index]
+
+
 def replay(
     strategy: Strategy,
     ticker: str,
@@ -39,7 +68,7 @@ def replay(
 ) -> list[Signal]:
     signals: list[Signal] = []
     for end in range(1, len(bars) + 1):
-        got = strategy.on_bar(BarContext(ticker, bars[:end]))
+        got = strategy.on_bar(BarContext(ticker, _BarPrefix(bars, end)))
         if got is not None:
             signals.append(got)
     return signals
@@ -76,6 +105,10 @@ class BacktestTrade:
     costs: Decimal
     net_pnl: Decimal
     exit_reason: str
+    layers: int = 1
+    added_qty: int = 0
+    buy_notional: Decimal = Decimal("0")
+    sell_notional: Decimal = Decimal("0")
 
 
 def _bps(value: Decimal) -> Decimal:
@@ -168,6 +201,9 @@ def run_backtest(
     first_entry_price: Decimal | None = None
     entry_ts: datetime | None = None
     entry_cost = Decimal("0")
+    buy_notional = Decimal("0")
+    layers = 0
+    added_qty = 0
     pending: str | None = None
     pending_reason = ""
     pending_add = False
@@ -189,7 +225,8 @@ def run_backtest(
         *,
         add: bool = False,
     ) -> None:
-        nonlocal cash, qty, entry_price, first_entry_price, entry_ts, entry_cost, turnover
+        nonlocal cash, qty, entry_price, first_entry_price, entry_ts, entry_cost
+        nonlocal turnover, buy_notional, layers, added_qty
         if add and (qty <= 0 or entry_price is None):
             add = False
         if not add and qty > 0:
@@ -218,7 +255,9 @@ def run_backtest(
             return
         cash -= notional + fee
         turnover += notional
-        fills.append(BacktestFill(bar.ts, "buy", wanted, price, fee, reason))
+        buy_notional += notional
+        fill_reason = "average" if add else reason
+        fills.append(BacktestFill(bar.ts, "buy", wanted, price, fee, fill_reason))
         if add and entry_price is not None and qty > 0:
             total_qty = qty + wanted
             entry_price = (
@@ -226,15 +265,20 @@ def run_backtest(
             ) / Decimal(total_qty)
             entry_cost += fee
             qty = total_qty
+            layers += 1
+            added_qty += wanted
             return
         qty = wanted
         entry_price = price
         first_entry_price = price
         entry_ts = bar.ts
         entry_cost = fee
+        layers = 1
+        added_qty = 0
 
     def sell(bar: CandleBar, reason: str, raw_price: Decimal | None = None) -> None:
-        nonlocal cash, qty, entry_price, first_entry_price, entry_ts, entry_cost, turnover
+        nonlocal cash, qty, entry_price, first_entry_price, entry_ts, entry_cost
+        nonlocal turnover, buy_notional, layers, added_qty
         if qty <= 0 or entry_price is None or entry_ts is None:
             return
         price = _execution_price(
@@ -257,6 +301,10 @@ def run_backtest(
                 costs=costs,
                 net_pnl=gross - costs,
                 exit_reason=reason,
+                layers=max(layers, 1),
+                added_qty=added_qty,
+                buy_notional=buy_notional,
+                sell_notional=notional,
             )
         )
         cash += notional - fee
@@ -267,6 +315,9 @@ def run_backtest(
         first_entry_price = None
         entry_ts = None
         entry_cost = Decimal("0")
+        buy_notional = Decimal("0")
+        layers = 0
+        added_qty = 0
 
     for index, bar in enumerate(bars):
         evaluating = index >= evaluation_start
@@ -327,7 +378,7 @@ def run_backtest(
         signal = strategy.on_bar(
             BarContext(
                 ticker=ticker,
-                bars=bars[: index + 1],
+                bars=_BarPrefix(bars, index + 1),
                 entry_price=entry_price,
             )
         )
@@ -476,6 +527,11 @@ def run_backtest(
                 "gross_pnl": _money(trade.gross_pnl),
                 "costs": _money(trade.costs),
                 "net_pnl": _money(trade.net_pnl),
+                "buy_notional": _money(trade.buy_notional),
+                "sell_notional": _money(trade.sell_notional),
+                "buy_qty": trade.qty,
+                "sell_qty": trade.qty,
+                "averaged": trade.layers > 1,
             }
             for trade in trades
         ],

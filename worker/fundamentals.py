@@ -193,6 +193,12 @@ async def run_fundamentals_refresh(fetch: FetchFn | None = None) -> int:
 
     dumped = dump_moex_instruments(instruments, shares)
     await _persist_instruments(dumped)
+    async with maker() as session:
+        from app.universe.ensure import sync_universe_members
+
+        synced = await sync_universe_members(session)
+        if synced:
+            await session.commit()
 
     # Все TQBR с Тинькофф, не только desk.
     want = all_share_tickers(shares)

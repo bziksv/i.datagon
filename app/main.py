@@ -19,6 +19,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.requests import Request
 
 from app import __version__
+from app.advisory.price import resolve_mark_price
 from app.advisory.screener import (
     fund_screener_plan_error,
     propose_from_scores,
@@ -116,6 +117,7 @@ from app.strategy.paper_forward import (
 from app.strategy.qualification import backtest_admission
 from app.strategy.view import sleeve_view, sleeves_view
 from app.universe.cap import resolve_universe_max
+from app.universe.ensure import sync_universe_members
 from app.universe.view import universe_view
 
 PUBLIC_PATHS = frozenset(
@@ -815,7 +817,7 @@ def create_app() -> FastAPI:
     @app.get("/desk/candles")
     def desk_candles(tf: str = "1d") -> dict:
         frame = tf.strip().lower()
-        if frame not in {"1d", "15m"}:
+        if frame not in {"1d", "10m", "15m"}:
             raise HTTPException(status_code=422, detail="unsupported tf")
         return list_candle_universe(tf=frame)
 
@@ -958,6 +960,72 @@ def create_app() -> FastAPI:
         rows = list(await session.scalars(select(Fundamental)))
         return fundamentals_view(rows)
 
+    @app.get("/candles/coverage")
+    async def candles_coverage(session: AsyncSession = Depends(get_db)) -> dict:
+        """Сколько тикеров из fundamentals имеют дневные CSV (~2 года)."""
+        import os
+        from datetime import datetime
+        from pathlib import Path
+
+        rows = list(await session.scalars(select(Fundamental)))
+        tickers = sorted(
+            {
+                str(row.ticker).upper()
+                for row in rows
+                if row.ticker and not (row.raw or {}).get("demo")
+            }
+        )
+        root = Path(os.environ.get("CANDLE_DIR", "data/candles"))
+        ready = 0
+        missing = 0
+        short = 0
+        details: list[dict] = []
+        for ticker in tickers:
+            path = root / f"{ticker}.csv"
+            if not path.exists() or path.stat().st_size < 100:
+                missing += 1
+                details.append({"ticker": ticker, "status": "missing", "bars": 0})
+                continue
+            try:
+                lines = path.read_text(encoding="utf-8").splitlines()
+            except OSError:
+                missing += 1
+                details.append({"ticker": ticker, "status": "missing", "bars": 0})
+                continue
+            bars = max(0, len(lines) - 1)
+            # ~2 года торг. дней ≈ 400+; ниже 300 считаем коротким рядом
+            if bars >= 300:
+                ready += 1
+                status = "ready"
+            else:
+                short += 1
+                status = "short"
+            first = last = None
+            if bars >= 1 and len(lines) >= 2:
+                try:
+                    first = lines[1].split(",", 1)[0]
+                    last = lines[-1].split(",", 1)[0]
+                except Exception:  # noqa: BLE001
+                    first = last = None
+            details.append(
+                {
+                    "ticker": ticker,
+                    "status": status,
+                    "bars": bars,
+                    "first": first,
+                    "last": last,
+                }
+            )
+        return {
+            "total": len(tickers),
+            "ready": ready,
+            "missing": missing,
+            "short": short,
+            "root": str(root),
+            "as_of": datetime.now(UTC).isoformat(),
+            "items": details,
+        }
+
     @app.get("/recommendations")
     async def recommendations(
         limit: int = 10,
@@ -978,6 +1046,7 @@ def create_app() -> FastAPI:
         session: AsyncSession = Depends(get_db),
     ) -> dict:
         rows = list(await session.scalars(select(Fundamental)))
+        await sync_universe_members(session)
         members = list(
             await session.scalars(
                 select(UniverseMember).where(UniverseMember.active.is_(True))
@@ -985,6 +1054,7 @@ def create_app() -> FastAPI:
         )
         instruments = list(await session.scalars(select(Instrument)))
         candles = list(await session.scalars(select(Candle)))
+        await session.commit()
         active_ids = {member.instrument_id for member in members}
         active_instruments = {
             instrument.ticker.upper(): instrument
@@ -1002,33 +1072,41 @@ def create_app() -> FastAPI:
         )
         trade_plans: dict[str, dict[str, object]] = {}
         skipped: list[dict[str, str]] = []
+        # Топ по скору часто без свечей (префы/тонкие бумаги) — ищем шире,
+        # пока не наберём limit планов с ценой.
+        scan_limit = max(body.limit * 20, 100)
         for candidate in rank_candidates(
             rows,
-            limit=body.limit,
+            limit=scan_limit,
             min_score=body.min_score,
         ):
+            if len(trade_plans) >= body.limit:
+                break
             ticker = candidate["ticker"].upper()
             instrument = active_instruments.get(ticker)
             reason = None
-            candle = latest.get(instrument.id) if instrument is not None else None
+            mark = None
             if instrument is None:
                 reason = "not_in_active_universe"
-            elif candle is None:
-                reason = "market_price_missing"
             else:
-                price_as_of = (
-                    candle.ts
-                    if candle.ts.tzinfo is not None
-                    else candle.ts.replace(tzinfo=UTC)
+                mark = resolve_mark_price(
+                    ticker=ticker,
+                    instrument_id=instrument.id,
+                    latest_by_instrument=latest,
                 )
-                if now - price_as_of > stale_after:
-                    reason = "market_price_stale"
-                elif Decimal(str(candle.c)) <= 0:
-                    reason = "market_price_invalid"
+                if mark is None:
+                    reason = "market_price_missing"
+                else:
+                    price, price_as_of = mark
+                    if now - price_as_of > stale_after:
+                        reason = "market_price_stale"
+                    elif price <= 0:
+                        reason = "market_price_invalid"
             if reason is not None:
                 skipped.append({"ticker": ticker, "reason": reason})
                 continue
-            price = Decimal(str(candle.c))
+            assert mark is not None and instrument is not None
+            price, price_as_of = mark
             stop = price * (Decimal("1") - Decimal(str(body.stop_pct)))
             lot = max(int(instrument.lot or 1), 1)
             trade_plans[ticker] = {
@@ -1041,7 +1119,7 @@ def create_app() -> FastAPI:
         created = propose_from_scores(
             rows,
             trade_plans=trade_plans,
-            limit=body.limit,
+            limit=scan_limit,
             min_score=body.min_score,
         )
         return {

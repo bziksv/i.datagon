@@ -1773,6 +1773,15 @@ button.danger:hover {
   padding: 0.28rem 0.4rem;
 }
 
+.desk-batch-trades tr.is-averaged td {
+  background: #eef5f0;
+}
+
+.desk-batch-trades tr.is-averaged td:nth-child(3) {
+  color: #1f5c3a;
+  font-weight: 600;
+}
+
 .desk-batch-summary {
   margin: 0 0 1.1rem;
   padding: 0.85rem 0.95rem 1rem;

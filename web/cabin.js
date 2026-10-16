@@ -2,7 +2,7 @@
   "use strict";
 
   /** Версия UI кабинета (этап 30+). Не путать с version API. */
-  var CABIN_UI_VERSION = "v3.3.18";
+  var CABIN_UI_VERSION = "v3.3.31";
 
   var ROUTES = [
     {
@@ -101,6 +101,7 @@
   ];
   var lastFundamentals = null;
   var lastCompaniesNote = "";
+  var lastCandlesCoverage = null;
   var lastCompaniesSector = "all";
   var lastCompaniesQuery = "";
   var companiesPollTimer = null;
@@ -150,7 +151,8 @@
   var routeLoading = false;
   var refreshBusy = false;
   var FETCH_TIMEOUT_MS = 12000;
-  var FETCH_TIMEOUT_BATCH_MS = 120000;
+  // Полный TQBR × M10 не укладывался в 10 минут: страница обрывала уже идущий расчёт.
+  var FETCH_TIMEOUT_BATCH_MS = 1800000;
   var confirmResolver = null;
   var confirmReturnFocus = null;
   var mobileMoreOpen = false;
@@ -207,18 +209,24 @@
     "donchian_breakout",
     "rsi_reversion",
     "ema_scalp",
+    "vol_scalp",
     "overnight_bounce",
     "morning_bounce",
     "abs_momentum",
+    "abs_momentum_2",
+    "abs_momentum_3",
   ];
   var SLEEVE_NAMES = {
     sma_cross: "Пересечение средних",
     donchian_breakout: "Пробой Дончиана",
     rsi_reversion: "RSI-возврат",
     ema_scalp: "EMA-скальп",
+    vol_scalp: "Волатильный скальп",
     overnight_bounce: "Вечерний докуп",
     morning_bounce: "Утренний докуп",
     abs_momentum: "Абс. моментум",
+    abs_momentum_2: "Абс. моментум-2",
+    abs_momentum_3: "Абс. моментум-3",
     fund_screener: "Фундамент-скринер",
   };
   var authed = false;
@@ -252,12 +260,18 @@
       "Дневной RSI(14): ниже 30 — покупка (перепроданность), выше 70 — продажа (перекупленность); иначе плоско. Mean-reversion.",
     ema_scalp:
       "Скальп на M15: пересечение EMA 3/8. Короткий стоп 1.5%. Нужны свечи в CANDLE_M15_DIR (data/candles_m15).",
+    vol_scalp:
+      "M10 (~2г): вход выше SMA100 + ATR↑ + импульс. В минусе усредняем каждые −0.5% (до 6 слоёв) только пока рынок волатильный; тейк +1% или выход от средней. Нужны M10.",
     overnight_bounce:
       "Защитный overnight: вход только после зелёного дня, на красном ≤−1%, close внизу диапазона, ≤SMA5 и RSI≤40. Тейк +3.5%, стоп 3.5% от первой цены, удержание 2 бара, редкое усреднение 2-м слоем, пауза 5 дней после стопа.",
     morning_bounce:
       "Зеркало вечернего: после слабого дня покупаем на следующем open, днём тейк/стоп 3.5%, под вечер продаём по close; если в минусе — утром докупаем 2-м слоем. Пауза 5 дней после стопа.",
     abs_momentum:
       "Вход только в силе без перегрева: close > SMA40, ROC20 ≥ +2% и close/SMA ≤ 1.10. Выход мягче (ROC < −1% или ниже SMA) + трейл 10% от пика. Гистерезис и анти-FOMO — сетка MOEX+S&P 2024–2026; desk на полный кэш имени.",
+    abs_momentum_2:
+      "Вход как у абсолютного моментума, плюс оборот, день не выше +7% и фильтр широты: покупаем, только если выше SMA40 хотя бы 45% списка этого рынка. Для S&P список — файлы S&P, не календарь TQBR. Слабый ROC один день ещё держим, выход со второго. Трейл 4% после +20% от входа. На TQBR 2024–2026 это +25.2%. Это история, не обещание вперёд.",
+    abs_momentum_3:
+      "Те же правила, что у абсолютного моментума-2. Для S&P широта считается по файлам S&P и их датам, не по календарю TQBR. На TQBR 2024–2026 это +25.2%.",
   };
   var SIGNAL_KIND_RU = {
     buy: "покупка",
@@ -348,8 +362,8 @@
       : "можно выставлять";
     var agentsTone = agents ? "ok" : "warn";
     var agentsText = agents
-      ? "включены"
-      : "выключены · очередь будет пустой, это нормально";
+      ? "флаг вкл · очередь из Рекомендаций"
+      : "флаг выкл · очередь из Рекомендаций";
 
     strip.innerHTML = [
       pillHtml("Система", systemText, systemTone),
@@ -974,19 +988,19 @@
   function proposalExpiredReasonLabel(row) {
     var reason = row && row.payload && row.payload.expired_reason;
     if (reason === "recommendation_plan_incomplete") {
-      return "Старый план без зафиксированной цены, времени и биржевого лота";
+      return "не хватало цены или лота";
     }
     if (reason === "recommendation_lot_invalid") {
-      return "Объём не соответствует биржевому лоту";
+      return "объём не кратен лоту";
     }
     if (reason === "recommendation_stop_invalid") {
-      return "Стоп некорректен относительно зафиксированной цены";
+      return "стоп некорректен";
     }
     if (reason === "recommendation_price_stale") {
-      return "Зафиксированная рыночная цена устарела";
+      return "цена устарела";
     }
     if (reason === "recommendation_price_invalid") {
-      return "Время рыночной цены некорректно";
+      return "цена некорректна";
     }
     return reason || "";
   }
@@ -1628,13 +1642,13 @@
     if (on) {
       return (
         '<div class="attention info" data-tour="agents-banner">' +
-        "<span><strong>Агенты включены.</strong> Они только предлагают. Сделка или веса — после вашего «Принять» и риск-правил. В брокер ничего не уходит.</span>" +
+        "<span><strong>Очередь решений.</strong> Сейчас планы появляются только из Рекомендаций → «В очередь». Фоновые агенты ордера сами не кладут. В брокер ничего не уходит.</span>" +
         "</div>"
       );
     }
     return (
       '<div class="attention calm" data-tour="agents-banner">' +
-      "<span><strong>Агенты выключены.</strong> Это ожидаемо, не авария. Фоновые предложения не создаются. Планы из Рекомендаций («В очередь») здесь всё равно видны.</span>" +
+      "<span><strong>Фоновые агенты выключены.</strong> Планы всё равно можно добавить из Рекомендаций → «В очередь».</span>" +
       "</div>"
     );
   }
@@ -1642,9 +1656,9 @@
   function agentsHowHtml() {
     return (
       '<div class="agents-how" data-tour="agents-how">' +
-      '<div class="agents-how-step"><span>1</span><strong>Предложение</strong><p>Из Рекомендаций или от агента</p></div>' +
+      '<div class="agents-how-step"><span>1</span><strong>Предложение</strong><p>Рекомендации → «В очередь»</p></div>' +
       '<div class="agents-how-step"><span>2</span><strong>Ваше решение</strong><p>Принять или отклонить</p></div>' +
-      '<div class="agents-how-step"><span>3</span><strong>Paper / журнал</strong><p>Только внутренняя книга</p></div>' +
+      '<div class="agents-how-step"><span>3</span><strong>Paper</strong><p>Только внутренняя книга</p></div>' +
       "</div>"
     );
   }
@@ -1661,7 +1675,6 @@
       '<div class="metric"><div class="k">недавние</div><div class="v">' +
       escapeHtml(String(recentCount)) +
       "</div></div>" +
-      '<div class="metric"><div class="k">куда смотреть</div><div class="v agents-stats-link"><a class="panel-link" href="#/recommendations">Рекомендации</a></div></div>' +
       "</div>"
     );
   }
@@ -1949,12 +1962,6 @@
     var waiting = proposedList(lastProposals);
     var recent = recentProposals(lastProposals);
     var agentsOn = !!(lastStatus && lastStatus.agents_enabled);
-    var archivedPlans = recent.filter(function (row) {
-      return !!proposalExpiredReasonLabel(row);
-    });
-    var archiveNotice = archivedPlans.length
-      ? '<div class="attention warn" role="status"><span><strong>Небезопасные старые планы архивированы.</strong> У них не было зафиксированной рыночной цены и биржевого лота, поэтому принять их больше нельзя.</span></div>'
-      : "";
     var waitingHtml = "";
     if (waiting.length) {
       waitingHtml =
@@ -1970,18 +1977,18 @@
     } else if (loadErrors.proposals) {
       waitingHtml =
         blockErrorHtml("proposals") ||
-        '<p class="empty" data-tour="agents-waiting-empty">Очередь не загрузилась — это не пустая очередь.</p>';
+        '<p class="empty" data-tour="agents-waiting-empty">Очередь не загрузилась.</p>';
     } else if (!agentsOn) {
       waitingHtml =
         '<div class="agents-empty" data-tour="agents-waiting-empty">' +
-        "<strong>Очередь пуста: агенты выключены.</strong>" +
-        "<p>Это нормально, не ошибка системы. Включите <code>AGENTS_ENABLED</code> на сервере или добавьте план из Рекомендаций.</p>" +
+        "<strong>Очередь пуста.</strong>" +
+        "<p>Добавьте план из Рекомендаций → «В очередь».</p>" +
         '<a class="panel-link" href="#/recommendations">Открыть Рекомендации</a></div>';
     } else {
       waitingHtml =
         '<div class="agents-empty" data-tour="agents-waiting-empty">' +
         "<strong>Сейчас нечего решать.</strong>" +
-        "<p>Когда появится предложение — карточка будет здесь. Можно добавить план из Рекомендаций.</p>" +
+        "<p>Когда появится предложение — карточка будет здесь.</p>" +
         '<a class="panel-link" href="#/recommendations">Открыть Рекомендации → В очередь</a></div>';
     }
     var recentHtml = "";
@@ -1991,6 +1998,7 @@
           "<thead><tr><th>тип</th><th>статус</th><th>кратко</th></tr></thead><tbody>" +
           recent
             .map(function (row) {
+              var expired = proposalExpiredReasonLabel(row);
               return (
                 "<tr><td>" +
                 escapeHtml(proposalKindLabel(row.kind)) +
@@ -2000,10 +2008,7 @@
                 escapeHtml(proposalStatusLabel(row.status)) +
                 "</span></td><td>" +
                 escapeHtml(
-                  proposalSummary(row) +
-                    (proposalExpiredReasonLabel(row)
-                      ? ". Причина: " + proposalExpiredReasonLabel(row)
-                      : "")
+                  proposalSummary(row) + (expired ? " · " + expired : "")
                 ) +
                 "</td></tr>"
               );
@@ -2013,27 +2018,25 @@
       );
     } else {
       recentHtml =
-        '<p class="empty">Недавних решений ещё нет. После принятия или отклонения они появятся здесь; факт сделок — в Журнале.</p>';
+        '<p class="empty">Пока пусто. После принятия или отклонения строки появятся здесь.</p>';
     }
     body.innerHTML =
       '<section class="panel agents-panel" data-tour="agents-panel">' +
       "<h3>Агенты</h3>" +
+      '<p class="muted-note">Это очередь решений, не лента «умных агентов». Paper — не брокер.</p>' +
       agentsBannerHtml() +
       agentsHowHtml() +
       agentsStatsHtml(waiting.length, recent.length, agentsOn) +
       agentsFlashHtml() +
-      archiveNotice +
       "</section>" +
       '<section class="panel" id="agents-waiting" data-tour="agents-waiting">' +
       "<h3>Ждут решения · " +
       escapeHtml(String(waiting.length)) +
       "</h3>" +
-      "<p>Только статус «ждёт решения». Кнопки — ваше действие; детали под «Подробнее».</p>" +
       waitingHtml +
       "</section>" +
       '<section class="panel" data-tour="agents-recent-panel">' +
-      "<h3>Недавние решения</h3>" +
-      "<p>Принятые, отклонённые и истекшие. Paper-заявки — в <a class=\"panel-link\" href=\"#/journal?tab=orders\">Журнале</a>.</p>" +
+      "<h3>Недавние</h3>" +
       recentHtml +
       "</section>";
     bindAgentsActions();
@@ -2588,11 +2591,12 @@
       '<section class="panel" data-tour="companies-panel">' +
       "<h3>Компании</h3>" +
       '<div class="callout" data-tour="companies-explain">' +
-      "<strong>Что смотреть.</strong> Акции РФ (MOEX TQBR): название компании, отрасль и скор. " +
-      "Сверху — топ к покупке; ниже — разбивка по секторам. " +
+      "<strong>Что смотреть.</strong> Все акции РФ с Тинькофф (MOEX TQBR): " +
+      escapeHtml(String(items.length || data.count || 0)) +
+      " шт. Название, отрасль и скор. Сверху — топ; ниже — сектора. " +
       'Дальше — <a class="panel-link" href="#/recommendations">Рекомендации</a>. ' +
-      "<br>Источник: живой фундамент с брокера Тинькофф (sandbox API). " +
-      "Воркер обновляет снимки автоматически каждые 6 часов; кнопка — вне очереди." +
+      "<br>Источник: живой фундамент с брокера Тинькофф. " +
+      "Воркер обновляет снимки каждые 6 часов; кнопка — вне очереди." +
       "</div>" +
       '<div class="panel-actions">' +
       '<button type="button" class="primary" id="companies-refresh">Обновить с брокера</button>' +
@@ -2600,10 +2604,26 @@
       '<p class="source-line" id="companies-status">' +
       escapeHtml(
         lastCompaniesNote ||
-          "Автообновление с брокера каждые 6 часов. " +
+          "Всего с брокера: " +
+            String(items.length || data.count || 0) +
+            ". Автообновление каждые 6 часов. " +
             (data.disclaimer || "")
       ) +
       "</p>" +
+      (lastCandlesCoverage
+        ? '<p class="source-line" id="companies-candles">' +
+          escapeHtml(
+            "Дневные свечи ~2г: " +
+              String(lastCandlesCoverage.ready || 0) +
+              "/" +
+              String(lastCandlesCoverage.total || items.length || 0) +
+              " · нет файла: " +
+              String(lastCandlesCoverage.missing || 0) +
+              " · коротких: " +
+              String(lastCandlesCoverage.short || 0)
+          ) +
+          "</p>"
+        : "") +
       (items.length ? searchBar + sectorChips + topCards + sectorBlocks : empty) +
       "</section>";
     var refreshBtn = byId("companies-refresh");
@@ -2667,11 +2687,17 @@
   }
 
   function refreshCompanies() {
-    return apiGet("/fundamentals")
-      .then(function (data) {
-        lastFundamentals = data;
+    return Promise.all([
+      apiGet("/fundamentals"),
+      apiGet("/candles/coverage").catch(function () {
+        return null;
+      }),
+    ])
+      .then(function (pair) {
+        lastFundamentals = pair[0];
+        lastCandlesCoverage = pair[1];
         if (currentRoute === "companies") renderCompanies();
-        return data;
+        return pair[0];
       })
       .catch(function (err) {
         lastFundamentals = { items: [], disclaimer: err.message || "" };
@@ -2696,6 +2722,45 @@
       }
       refreshCompanies();
     }, COMPANIES_POLL_MS);
+  }
+
+  function recsSkipReasonLabel(code) {
+    var key = String(code || "");
+    if (key === "not_in_active_universe") return "вне вселенной";
+    if (key === "market_price_missing") return "нет цены";
+    if (key === "market_price_stale") return "цена устарела";
+    if (key === "market_price_invalid") return "цена битая";
+    return key || "пропуск";
+  }
+
+  function formatRecsProposeStatus(payload) {
+    var count = (payload && payload.count) || 0;
+    var skipped = (payload && payload.skipped) || [];
+    if (count > 0) {
+      return (
+        "В очереди: " +
+        count +
+        " paper-планов" +
+        (skipped.length ? "; пропущено: " + skipped.length : "") +
+        ". Открываю Агенты…"
+      );
+    }
+    if (!skipped.length) {
+      return "Нечего ставить в очередь — нет подходящих кандидатов.";
+    }
+    var tallies = {};
+    skipped.forEach(function (row) {
+      var label = recsSkipReasonLabel(row.reason);
+      tallies[label] = (tallies[label] || 0) + 1;
+    });
+    var parts = Object.keys(tallies).map(function (label) {
+      return label + " · " + tallies[label];
+    });
+    return (
+      "В очередь не попало ничего. Причины: " +
+      parts.join("; ") +
+      ". Нужны тикер во вселенной и свежая цена (свечи)."
+    );
   }
 
   function renderRecommendations() {
@@ -2775,15 +2840,13 @@
         apiPost("/recommendations/propose", { limit: 5, min_score: 40 })
           .then(function (payload) {
             if (status) {
-              var skipped = (payload.skipped || []).length;
-              status.textContent =
-                "В очереди: " +
-                (payload.count || 0) +
-                " paper-планов" +
-                (skipped ? "; пропущено без свежего торгового плана: " + skipped : "") +
-                ". Откройте Агенты → Одобрить/Отклонить.";
+              status.textContent = formatRecsProposeStatus(payload);
             }
-            return refreshProposals();
+            return refreshProposals().then(function () {
+              if ((payload.count || 0) > 0) {
+                setHash("agents");
+              }
+            });
           })
           .catch(function (err) {
             if (status) {
@@ -3142,6 +3205,16 @@
     });
   }
 
+  function deskExitReasonLabel(reason) {
+    var raw = String(reason || "").trim();
+    if (!raw) return "—";
+    if (raw === "take_profit") return "тейк";
+    if (raw === "stop") return "стоп";
+    if (raw === "signal:exit") return "выход (soft/время)";
+    if (raw.indexOf("signal:") === 0) return raw.slice("signal:".length);
+    return raw;
+  }
+
   function deskBatchSleeveSelection() {
     if (lastDeskBatchSleeves == null) {
       return ACTIVE_SLEEVE_IDS.slice();
@@ -3229,10 +3302,11 @@
   function deskPeriodLabel(fromIso, toIso, bars, tf) {
     var from = deskDateLabel(fromIso);
     var to = deskDateLabel(toIso);
-    var tfLabel = tf === "15m" ? "15 минут" : "дневки";
+    var tfLabel =
+      tf === "10m" ? "10 минут" : tf === "15m" ? "15 минут" : "дневки";
     var count = bars != null ? String(bars) : "—";
     var years =
-      bars != null && tf !== "15m"
+      bars != null && tf !== "15m" && tf !== "10m"
         ? " (~" + (Math.round((Number(bars) / 252) * 10) / 10) + " торг. лет)"
         : "";
     return (
@@ -3676,6 +3750,11 @@
         (oos.insufficient_statistics
           ? '<p class="warning-text">Сделок вне выборки мало: стратегия пока не допущена к выделению капитала.</p>'
           : "") +
+        (Number(summary.open_qty) > 0
+          ? '<p class="warning-text">В конце ряда ещё открыта позиция (' +
+            escapeHtml(String(summary.open_qty)) +
+            " шт.) — её переоценка уже сидит в итоговом капитале и может сильно тянуть результат вниз.</p>"
+          : "") +
         '<p class="source-line">файл ' +
         escapeHtml(result.path || "") +
         (result.experiment_id
@@ -3693,7 +3772,7 @@
         "</div>";
     } else {
       resultHtml =
-        '<p class="empty">Выберите рукав и тикер, затем «Прогнать» — или сразу «Прогнать все». Ордера не ставятся — только модель по локальному файлу свечей. Диапазон дат берётся из всего файла (для дневных обычно ~2 года).</p>';
+        '<p class="empty">Выберите рукав и тикер, затем «Прогнать» — или сразу «Прогнать все». Ордера не ставятся — только модель по локальному файлу свечей. Диапазон = весь CSV: дневки ~2 года, vol_scalp — M10 ~2 года (fallback M15).</p>';
     }
     var batchHtml = "";
     if (lastDeskBatch && lastDeskBatch.error) {
@@ -3729,25 +3808,64 @@
             escapeHtml(key) +
             '"><td colspan="8">' +
             (tradeRows.length
-              ? '<div class="desk-batch-trades"><table class="data-table compact"><thead><tr>' +
-                "<th>вход</th><th>выход</th><th>шт</th><th>цена входа</th>" +
-                "<th>сумма</th><th>цена выхода</th><th>PnL</th>" +
+              ? '<div class="desk-batch-trades">' +
+                '<p class="muted-note">Куплено / продано — штуки по сделке. «Усреднение» = докуп (2-й слой), цена входа — средняя. Колонка «выход» — почему закрыли: тейк / стоп / soft / время.</p>' +
+                '<table class="data-table compact"><thead><tr>' +
+                "<th>вход</th><th>выход</th><th>тип</th><th>причина</th>" +
+                "<th>куплено</th><th>продано</th>" +
+                "<th>цена входа</th><th>сумма покупки</th>" +
+                "<th>цена выхода</th><th>сумма продажи</th><th>PnL</th>" +
                 "</tr></thead><tbody>" +
                 tradeRows
                   .map(function (trade) {
+                    var averaged = !!trade.averaged || Number(trade.layers || 1) > 1;
+                    var added = Number(trade.added_qty || 0);
+                    var typeLabel = averaged
+                      ? "усреднение · +" +
+                        (added || "?") +
+                        " шт · слоёв " +
+                        String(trade.layers || 2)
+                      : "обычная";
+                    var reason = deskExitReasonLabel(trade.exit_reason);
+                    var buyQty =
+                      trade.buy_qty != null
+                        ? trade.buy_qty
+                        : trade.qty != null
+                          ? trade.qty
+                          : "—";
+                    var sellQty =
+                      trade.sell_qty != null
+                        ? trade.sell_qty
+                        : trade.qty != null
+                          ? trade.qty
+                          : "—";
                     return (
-                      "<tr><td>" +
+                      '<tr class="' +
+                      (averaged ? "is-averaged" : "") +
+                      '"><td>' +
                       deskDateLabel(trade.entry_ts) +
                       "</td><td>" +
                       deskDateLabel(trade.exit_ts) +
                       "</td><td>" +
-                      escapeHtml(String(trade.qty != null ? trade.qty : "—")) +
+                      escapeHtml(typeLabel) +
+                      "</td><td>" +
+                      escapeHtml(reason) +
+                      "</td><td>" +
+                      escapeHtml(String(buyQty)) +
+                      "</td><td>" +
+                      escapeHtml(String(sellQty)) +
                       "</td><td>" +
                       money(trade.entry_price) +
                       "</td><td>" +
-                      money(trade.notional) +
+                      money(
+                        trade.buy_notional != null
+                          ? trade.buy_notional
+                          : trade.notional
+                      ) +
                       "</td><td>" +
                       money(trade.exit_price) +
+                      "</td><td>" +
+                      money(trade.sell_notional) +
                       "</td><td>" +
                       money(trade.net_pnl) +
                       "</td></tr>"
@@ -3941,7 +4059,7 @@
       "<h3>Прогон на истории</h3>" +
       "<p>" +
       "<strong>Не путать с гарантией прибыли.</strong> Модель сделок по локальному файлу свечей (MOEX по отраслям и S&P 500 с Yahoo, не из Тинькофф API): исполнение на открытии следующего бара, с комиссией и проскальзыванием, сравнение с «купить и держать». " +
-      "Даты не выбираются вручную — берётся весь файл тикера (по умолчанию ~2 года дневок). Сейчас доступно: " +
+      "Даты не выбираются вручную — берётся весь файл тикера (дневки ~2 года; vol_scalp — M10 ~2 года). Сейчас доступно: " +
       escapeHtml(String(moexTickers.length)) +
       " MOEX + " +
       escapeHtml(String(sp500Tickers.length)) +

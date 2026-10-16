@@ -25,6 +25,8 @@ def test_cabin_advisory_ui() -> None:
     assert 'apiGet("/fundamentals")' in js
     assert 'apiGet("/recommendations' in js
     assert 'apiPost("/recommendations/propose"' in js
+    assert "formatRecsProposeStatus" in js
+    assert "recsSkipReasonLabel" in js
     assert 'apiPost("/fundamentals/refresh"' in js
     assert 'apiPost("/fundamentals/demo"' not in js
     assert "companies-demo" not in js
@@ -41,7 +43,7 @@ class _RecommendationSession:
             id=uuid4(),
             ticker="SBER",
             lot=10,
-            currency="RUB",
+            currency="rub",
             class_code="TQBR",
         )
         self.member = UniverseMember(
@@ -50,6 +52,7 @@ class _RecommendationSession:
             reason="test",
             active=active,
         )
+        self.members = [self.member]
         self.candle = Candle(
             id=uuid4(),
             instrument_id=self.instrument.id,
@@ -72,12 +75,23 @@ class _RecommendationSession:
             raw={"roe": 0.22, "dividend_yield_daily_ttm": 0.09},
         )
 
+    def add(self, row) -> None:
+        if isinstance(row, UniverseMember):
+            self.members.append(row)
+
+    async def flush(self) -> None:
+        return None
+
+    async def commit(self) -> None:
+        return None
+
     async def scalars(self, stmt):
         entity = stmt.column_descriptions[0].get("entity")
         if entity is Fundamental:
             return [self.fundamental]
         if entity is UniverseMember:
-            return [self.member] if self.member.active else []
+            # sync_universe_members читает всех; propose — только active
+            return list(self.members)
         if entity is Instrument:
             return [self.instrument]
         if entity is Candle:

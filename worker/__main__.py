@@ -7,7 +7,7 @@ from pathlib import Path
 from app.logging import setup_logging
 from app.ops.envfile import load_env_file
 from app.ops.ready import write_beat
-from app.ops.refresh_candles import refresh as refresh_candles
+from app.ops.refresh_candles import csv_tickers, refresh as refresh_candles
 from app.ops.safety import assert_paper_mode
 from app.strategy.config import daily_strategies, scalp_strategies
 
@@ -58,14 +58,26 @@ async def run_worker() -> None:
             (now - last_candle_refresh).total_seconds() >= candle_interval
         )
         if candle_due:
+            daily_root = Path(os.environ.get("CANDLE_DIR", "data/candles"))
+            daily_tickers = csv_tickers(daily_root)
+            for ticker in paper_tickers:
+                if ticker not in daily_tickers:
+                    daily_tickers.append(ticker)
+            ok = skip = 0
+            for ticker in daily_tickers:
+                try:
+                    await asyncio.to_thread(
+                        refresh_candles,
+                        [ticker],
+                        days=730,
+                        tf="1d",
+                        root=daily_root,
+                    )
+                    ok += 1
+                except Exception:
+                    skip += 1
+                    log.exception("daily candle refresh failed ticker=%s", ticker)
             try:
-                await asyncio.to_thread(
-                    refresh_candles,
-                    paper_tickers,
-                    days=730,
-                    tf="1d",
-                    root=Path(os.environ.get("CANDLE_DIR", "data/candles")),
-                )
                 await asyncio.to_thread(
                     refresh_candles,
                     paper_tickers,
@@ -78,11 +90,16 @@ async def run_worker() -> None:
                         )
                     ),
                 )
-                log.info("candle refresh tickers=%s", paper_tickers)
             except Exception:
-                log.exception("candle refresh failed")
-            finally:
-                last_candle_refresh = now
+                log.exception("m15 candle refresh failed")
+            log.info(
+                "candle refresh daily=%s ok=%s skip=%s m15=%s",
+                len(daily_tickers),
+                ok,
+                skip,
+                paper_tickers,
+            )
+            last_candle_refresh = now
         books = load_daily_books(os.environ.get("CANDLE_DIR"))
         m15_books = load_m15_books(os.environ.get("CANDLE_M15_DIR", "data/candles_m15"))
         if snapshot_due(last_snapshot, now, SNAPSHOT_INTERVAL_SEC):

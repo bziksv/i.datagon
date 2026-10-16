@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from urllib.parse import urlencode
@@ -21,7 +21,7 @@ MOSCOW = ZoneInfo("Europe/Moscow")
 
 
 def _request_json(url: str) -> dict:
-    with urlopen(url, timeout=30) as response:  # noqa: S310
+    with urlopen(url, timeout=90) as response:  # noqa: S310
         return json.loads(response.read())
 
 
@@ -84,6 +84,66 @@ def fetch_moex_candles(
             break
         start += len(data)
     return sorted(bars, key=lambda bar: bar.ts)
+
+
+def fetch_moex_candles_chunked(
+    ticker: str,
+    *,
+    from_day: date,
+    till_day: date,
+    interval: int = 1,
+    chunk_days: int = 14,
+    request_json: Callable[[str], dict] = _request_json,
+) -> list[CandleBar]:
+    """Тянем историю короткими окнами и склеиваем (для 1m→15m за длинный срок)."""
+    if chunk_days < 1:
+        raise ValueError("chunk_days")
+    if till_day < from_day:
+        return []
+    merged: list[CandleBar] = []
+    seen: set[datetime] = set()
+    cursor = from_day
+    total_days = max((till_day - from_day).days + 1, 1)
+    while cursor <= till_day:
+        window_end = min(cursor + timedelta(days=chunk_days - 1), till_day)
+        chunk: list[CandleBar] = []
+        last_err: Exception | None = None
+        for attempt in (1, 2, 3):
+            try:
+                chunk = fetch_moex_candles(
+                    ticker,
+                    from_day=cursor,
+                    till_day=window_end,
+                    interval=interval,
+                    request_json=request_json,
+                )
+                last_err = None
+                break
+            except Exception as exc:  # noqa: BLE001
+                last_err = exc
+                print(
+                    f"    chunk {ticker} {cursor}..{window_end}: "
+                    f"retry {attempt}/3 · {exc}",
+                    flush=True,
+                )
+        if last_err is not None and not chunk:
+            print(
+                f"    chunk {ticker} {cursor}..{window_end}: SKIP окно · {last_err}",
+                flush=True,
+            )
+        for bar in chunk:
+            if bar.ts not in seen:
+                seen.add(bar.ts)
+                merged.append(bar)
+        done_days = min((window_end - from_day).days + 1, total_days)
+        print(
+            f"    chunk {ticker} {cursor}..{window_end}: "
+            f"+{len(chunk)} bars · total={len(merged)} · "
+            f"окна {done_days}/{total_days}д",
+            flush=True,
+        )
+        cursor = window_end + timedelta(days=1)
+    return sorted(merged, key=lambda bar: bar.ts)
 
 
 def aggregate_candles(

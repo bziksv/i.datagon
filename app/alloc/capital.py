@@ -11,7 +11,10 @@ def allocate(sleeves: Sequence[str]) -> dict[str, Decimal]:
     if n == 0:
         return {}
     share = Decimal("1") / Decimal(n)
-    return {name: share for name in sleeves}
+    weights = {name: share for name in sleeves}
+    last = sleeves[-1]
+    weights[last] = Decimal("1") - share * (n - 1)
+    return weights
 
 
 def sleeve_capital(

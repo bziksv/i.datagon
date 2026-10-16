@@ -18,6 +18,8 @@ from app.strategy.abs_mom import (
     DEFAULT_SMA_PERIOD as ABS_SMA,
     DEFAULT_TRAIL_PCT as ABS_TRAIL,
     SLEEVE as ABS_MOM,
+    SLEEVE_V2 as ABS_MOM2,
+    SLEEVE_V3 as ABS_MOM3,
 )
 from app.strategy.donchian import DEFAULT_PERIOD, SLEEVE as DONCHIAN
 from app.strategy.morning import (
@@ -52,6 +54,19 @@ from app.strategy.scalp import (
 from app.strategy.size import name_budget, position_qty
 from app.strategy.sma import DEFAULT_FAST, DEFAULT_SLOW, SLEEVE as SMA
 from app.strategy.stop import DEFAULT_STOP_PCT
+from app.strategy.vol_scalp import (
+    DEFAULT_AVERAGE_TRIGGER_PCT as VOL_AVG,
+    DEFAULT_ATR_EXPAND as VOL_ATR_EXPAND,
+    DEFAULT_ATR_PERIOD as VOL_ATR_PERIOD,
+    DEFAULT_COOLDOWN_BARS as VOL_COOLDOWN,
+    DEFAULT_MAX_HOLD_BARS as VOL_MAX_HOLD,
+    DEFAULT_MAX_LAYERS as VOL_MAX_LAYERS,
+    DEFAULT_MIN_ATR_PCT as VOL_MIN_ATR,
+    DEFAULT_STOP_PCT as VOL_STOP,
+    DEFAULT_TAKE_PROFIT_PCT as VOL_TP,
+    SLEEVE as VOL_SCALP,
+    TIMEFRAME as VOL_TF,
+)
 
 SLEEVE_HOWTO = {
     SMA: {
@@ -100,6 +115,22 @@ SLEEVE_HOWTO = {
         "holds": (
             "Короткий горизонт: те же лимиты капитала на имя, но быстрее оборачивает "
             "позицию. Нужны свечи M15 (CANDLE_M15_DIR)."
+        ),
+    },
+    VOL_SCALP: {
+        "title": "Волатильный скальп",
+        "horizon": VOL_TF,
+        "signal": (
+            f"На {VOL_TF}: выше SMA тренда; ATR({VOL_ATR_PERIOD})/close ≥ "
+            f"{float(VOL_MIN_ATR)*100:g}% и ≥ {float(VOL_ATR_EXPAND):g}× нормы; "
+            f"импульсный зелёный. В минусе — усреднение каждые "
+            f"−{float(VOL_AVG)*100:g}% (до {VOL_MAX_LAYERS} слоёв) только пока ATR живой. "
+            f"Выход: тейк +{float(VOL_TP)*100:g}% от средней или возврат к средней "
+            f"(стоп {'выкл' if float(VOL_STOP) == 0 else f'{float(VOL_STOP)*100:g}%'})."
+        ),
+        "holds": (
+            "Усредняем в живой волатильности; из мешка выходим от средней или по тейку. "
+            "Нужны M10 ~2г (CANDLE_M10_DIR), иначе fallback на M15."
         ),
     },
     OVERNIGHT: {
@@ -152,6 +183,35 @@ SLEEVE_HOWTO = {
         "holds": (
             "Гистерезис + анти-FOMO: не гонится за растяжкой, дольше держит тренд. "
             "Desk-бэктест на полный кэш имени. In-sample — не гарантия вперёд."
+        ),
+    },
+    ABS_MOM2: {
+        "title": "Абс. моментум-2",
+        "horizon": "дневки",
+        "signal": (
+            "Вход: close > SMA40, ROC20 ≥ +2%, close/SMA ≤ 1.10, оборот дня "
+            "не ниже среднего за 20 дней, день не вырос больше 7% и выше SMA40 "
+            "хотя бы 45% списка этого рынка. Для бумаги из файлов S&P широта "
+            "считается по ним, не по календарю TQBR. Выход по ROC < −2% два дня "
+            "подряд (прокол SMA не продаёт) и по трейлу 4% после +20% от входа. "
+            "На TQBR 2024–2026 это +25.2%. Это история, не обещание вперёд."
+        ),
+        "holds": (
+            "Первая версия не трогается. Трейл молчит, пока бумага не дала +20%, "
+            "чтобы откат к средней не выбивал тренд. In-sample — не гарантия вперёд."
+        ),
+    },
+    ABS_MOM3: {
+        "title": "Абс. моментум-3",
+        "horizon": "дневки",
+        "signal": (
+            "Те же правила, что у абсолютного моментума-2. Для бумаги из файлов S&P "
+            "широта считается по этим файлам и их датам, не по календарю TQBR. "
+            "На TQBR 2024–2026 это +25.2%. Дальше дожимаем эту версию."
+        ),
+        "holds": (
+            "Копия второй версии на момент +25.2%. Вторая остаётся как есть. "
+            "In-sample — не гарантия вперёд."
         ),
     },
 }

@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from collections import defaultdict
 from collections.abc import Sequence
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from decimal import Decimal
 from pathlib import Path
 
@@ -17,7 +18,11 @@ from app.strategy.backtest import (
     run_walk_forward,
 )
 from app.strategy.abs_mom import SLEEVE as ABS_MOM_SLEEVE
+from app.strategy.abs_mom import SLEEVE_V2 as ABS_MOM2_SLEEVE
+from app.strategy.abs_mom import SLEEVE_V3 as ABS_MOM3_SLEEVE
 from app.strategy.config import (
+    abs_mom2_from_config,
+    abs_mom3_from_config,
     abs_mom_from_config,
     donchian_from_config,
     morning_from_config,
@@ -25,6 +30,7 @@ from app.strategy.config import (
     rsi_from_config,
     scalp_from_config,
     sma_from_config,
+    vol_scalp_from_config,
 )
 from app.strategy.moex_groups import (
     MOEX_DESK_CORE,
@@ -38,6 +44,7 @@ from app.strategy.qualification import backtest_admission
 from app.strategy.rsi import SLEEVE as RSI_SLEEVE
 from app.strategy.scalp import SLEEVE as SCALP_SLEEVE
 from app.strategy.sma import SLEEVE as SMA_SLEEVE
+from app.strategy.vol_scalp import SLEEVE as VOL_SCALP_SLEEVE
 
 
 def candle_dir() -> Path:
@@ -46,6 +53,10 @@ def candle_dir() -> Path:
 
 def candle_m15_dir() -> Path:
     return Path(os.environ.get("CANDLE_M15_DIR", "data/candles_m15"))
+
+
+def candle_m10_dir() -> Path:
+    return Path(os.environ.get("CANDLE_M10_DIR", "data/candles_m10"))
 
 
 def candle_sp500_dir() -> Path:
@@ -65,12 +76,33 @@ def _list_csv_tickers(root: Path) -> list[str]:
 def list_candle_tickers(*, tf: str = "1d") -> list[str]:
     if tf == "15m":
         return _list_csv_tickers(candle_m15_dir())
+    if tf == "10m":
+        return _list_csv_tickers(candle_m10_dir())
     universe = list_candle_universe(tf=tf)
     return list(universe["tickers"])
 
 
 def list_candle_universe(*, tf: str = "1d") -> dict:
     """MOEX (по отраслям) и S&P 500; плоский tickers — для batch/API."""
+    if tf == "10m":
+        m10 = _list_csv_tickers(candle_m10_dir())
+        return {
+            "tf": "10m",
+            "tickers": m10,
+            "count": len(m10),
+            "groups": {
+                "moex": m10,
+                "sp500": [],
+                "sectors": [
+                    {
+                        "id": "moex_m10",
+                        "title": "MOEX · M10",
+                        "default_on": True,
+                        "tickers": m10,
+                    }
+                ],
+            },
+        }
     if tf == "15m":
         m15 = _list_csv_tickers(candle_m15_dir())
         return {
@@ -142,16 +174,29 @@ def strategy_for(sleeve: str, env: dict[str, str] | None = None):
         return rsi_from_config(env)
     if sleeve == SCALP_SLEEVE:
         return scalp_from_config(env)
+    if sleeve == VOL_SCALP_SLEEVE:
+        return vol_scalp_from_config(env)
     if sleeve == OVERNIGHT_SLEEVE:
         return overnight_from_config(env)
     if sleeve == MORNING_SLEEVE:
         return morning_from_config(env)
     if sleeve == ABS_MOM_SLEEVE:
         return abs_mom_from_config(env)
+    if sleeve == ABS_MOM2_SLEEVE:
+        return abs_mom2_from_config(env)
+    if sleeve == ABS_MOM3_SLEEVE:
+        return abs_mom3_from_config(env)
     raise ValueError(f"unknown sleeve: {sleeve}")
 
 
 def _bars_path(sleeve: str, symbol: str) -> Path:
+    if sleeve == VOL_SCALP_SLEEVE:
+        m10 = candle_m10_dir() / f"{symbol}.csv"
+        if m10.exists():
+            return m10
+        m15 = candle_m15_dir() / f"{symbol}.csv"
+        if m15.exists():
+            return m15
     if sleeve == SCALP_SLEEVE:
         m15 = candle_m15_dir() / f"{symbol}.csv"
         if m15.exists():
@@ -198,8 +243,13 @@ def desk_backtest(
         slippage_bps=Decimal(config_values.get("BACKTEST_SLIPPAGE_BPS", "5")),
         lot=int(config_values.get("BACKTEST_LOT", "1")),
         periods_per_year=(
-            int(config_values.get("BACKTEST_PERIODS_PER_YEAR", "6552"))
-            if tf == "15m"
+            int(
+                config_values.get(
+                    "BACKTEST_PERIODS_PER_YEAR",
+                    "9828" if tf == "10m" else "6552",
+                )
+            )
+            if tf in {"10m", "15m"}
             else int(config_values.get("BACKTEST_PERIODS_PER_YEAR", "252"))
         ),
     )
@@ -266,28 +316,61 @@ def desk_backtest(
 
 def _batch_trade_rows(report: dict) -> list[dict]:
     raw = (report.get("backtest") or {}).get("trades") or []
+    fills = (report.get("backtest") or {}).get("fills") or []
     rows: list[dict] = []
     for trade in raw:
         qty = int(trade.get("qty") or 0)
+        buy_qty = int(trade.get("buy_qty") or qty)
+        sell_qty = int(trade.get("sell_qty") or qty)
+        layers = int(trade.get("layers") or 1)
+        added_qty = int(trade.get("added_qty") or 0)
+        averaged = bool(trade.get("averaged")) or layers > 1
         entry_price = trade.get("entry_price")
-        try:
-            notional = (
-                round(float(entry_price) * qty, 2)
-                if entry_price is not None
-                else None
-            )
-        except (TypeError, ValueError):
-            notional = None
+        buy_notional = trade.get("buy_notional")
+        sell_notional = trade.get("sell_notional")
+        if buy_notional is None and entry_price is not None:
+            try:
+                buy_notional = round(float(entry_price) * buy_qty, 2)
+            except (TypeError, ValueError):
+                buy_notional = None
+        if sell_notional is None and trade.get("exit_price") is not None:
+            try:
+                sell_notional = round(float(trade["exit_price"]) * sell_qty, 2)
+            except (TypeError, ValueError):
+                sell_notional = None
+        entry_ts = trade.get("entry_ts")
+        exit_ts = trade.get("exit_ts")
+        average_fills = [
+            {
+                "ts": fill.get("ts"),
+                "qty": fill.get("qty"),
+                "price": fill.get("price"),
+            }
+            for fill in fills
+            if fill.get("side") == "buy"
+            and fill.get("reason") == "average"
+            and entry_ts
+            and exit_ts
+            and str(entry_ts) <= str(fill.get("ts") or "") <= str(exit_ts)
+        ]
         rows.append(
             {
-                "entry_ts": trade.get("entry_ts"),
-                "exit_ts": trade.get("exit_ts"),
+                "entry_ts": entry_ts,
+                "exit_ts": exit_ts,
                 "qty": qty,
+                "buy_qty": buy_qty,
+                "sell_qty": sell_qty,
+                "added_qty": added_qty,
+                "layers": layers,
+                "averaged": averaged,
                 "entry_price": entry_price,
                 "exit_price": trade.get("exit_price"),
-                "notional": notional,
+                "notional": buy_notional,
+                "buy_notional": buy_notional,
+                "sell_notional": sell_notional,
                 "net_pnl": trade.get("net_pnl"),
                 "exit_reason": trade.get("exit_reason"),
+                "average_fills": average_fills,
             }
         )
     return rows
@@ -527,47 +610,65 @@ def desk_backtest_batch(
 
     rows: list[dict] = []
     sleeve_parts: dict[str, list[dict]] = defaultdict(list)
-    for sleeve in selected_sleeves:
-        for ticker in selected_tickers:
-            try:
-                report = desk_backtest(sleeve=sleeve, ticker=ticker, env=env)
-                row = _batch_row(report)
-                rows.append(row)
-                backtest = report.get("backtest") or {}
-                summary = backtest.get("summary") or {}
-                config = backtest.get("config") or {}
-                initial = summary.get("initial_cash")
-                if initial is None:
-                    initial = config.get("initial_cash")
-                sleeve_parts[sleeve].append(
-                    {
-                        "ticker": ticker,
-                        "curve": backtest.get("equity_curve") or [],
-                        "initial_cash": initial,
-                        "net_pnl": row.get("net_pnl"),
-                        "total_return": row.get("total_return"),
-                        "max_drawdown": row.get("max_drawdown"),
-                        "trades": row.get("trades") or 0,
-                    }
-                )
-            except FileNotFoundError:
-                rows.append(
-                    _empty_batch_row(
-                        status="skipped",
-                        sleeve=sleeve,
-                        ticker=ticker,
-                        error="нет файла свечей",
-                    )
-                )
-            except Exception as exc:  # noqa: BLE001 — сводка пакета fail-soft
-                rows.append(
-                    _empty_batch_row(
-                        status="error",
-                        sleeve=sleeve,
-                        ticker=ticker,
-                        error=str(exc) or "ошибка прогона",
-                    )
-                )
+    jobs = [
+        (sleeve, ticker)
+        for sleeve in selected_sleeves
+        for ticker in selected_tickers
+    ]
+    workers = min(4, max(1, len(jobs)))
+
+    def _run_one(pair: tuple[str, str]) -> dict:
+        sleeve, ticker = pair
+        try:
+            report = desk_backtest(sleeve=sleeve, ticker=ticker, env=env)
+            row = _batch_row(report)
+            backtest = report.get("backtest") or {}
+            summary = backtest.get("summary") or {}
+            config = backtest.get("config") or {}
+            initial = summary.get("initial_cash")
+            if initial is None:
+                initial = config.get("initial_cash")
+            return {
+                "row": row,
+                "part": {
+                    "ticker": ticker,
+                    "curve": backtest.get("equity_curve") or [],
+                    "initial_cash": initial,
+                    "net_pnl": row.get("net_pnl"),
+                    "total_return": row.get("total_return"),
+                    "max_drawdown": row.get("max_drawdown"),
+                    "trades": row.get("trades") or 0,
+                },
+            }
+        except FileNotFoundError:
+            return {
+                "row": _empty_batch_row(
+                    status="skipped",
+                    sleeve=sleeve,
+                    ticker=ticker,
+                    error="нет файла свечей",
+                ),
+                "part": None,
+            }
+        except Exception as exc:  # noqa: BLE001 — сводка пакета fail-soft
+            return {
+                "row": _empty_batch_row(
+                    status="error",
+                    sleeve=sleeve,
+                    ticker=ticker,
+                    error=str(exc) or "ошибка прогона",
+                ),
+                "part": None,
+            }
+
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {pool.submit(_run_one, job): job for job in jobs}
+        for future in as_completed(futures):
+            sleeve, _ticker = futures[future]
+            result = future.result()
+            rows.append(result["row"])
+            if result["part"] is not None:
+                sleeve_parts[sleeve].append(result["part"])
 
     ok_rows = [row for row in rows if row["status"] == "ok"]
     ranked = sorted(

@@ -7,21 +7,27 @@ from app.alloc.capital import sleeve_capital
 from app.alloc.weights_store import load_weights
 from app.risk.sleeve import DEFAULT_SLEEVE_SHARE
 from app.strategy.abs_mom import SLEEVE as ABS_MOM_SLEEVE
+from app.strategy.abs_mom import SLEEVE_V2 as ABS_MOM2_SLEEVE
+from app.strategy.abs_mom import SLEEVE_V3 as ABS_MOM3_SLEEVE
 from app.strategy.donchian import SLEEVE as DONCHIAN_SLEEVE
 from app.strategy.morning import SLEEVE as MORNING_SLEEVE
 from app.strategy.overnight import SLEEVE as OVERNIGHT_SLEEVE
 from app.strategy.rsi import SLEEVE as RSI_SLEEVE
 from app.strategy.scalp import SLEEVE as SCALP_SLEEVE
 from app.strategy.sma import SLEEVE as SMA_SLEEVE
+from app.strategy.vol_scalp import SLEEVE as VOL_SCALP_SLEEVE
 
 ACTIVE_SLEEVES = (
     SMA_SLEEVE,
     DONCHIAN_SLEEVE,
     RSI_SLEEVE,
     SCALP_SLEEVE,
+    VOL_SCALP_SLEEVE,
     OVERNIGHT_SLEEVE,
     MORNING_SLEEVE,
     ABS_MOM_SLEEVE,
+    ABS_MOM2_SLEEVE,
+    ABS_MOM3_SLEEVE,
 )
 
 

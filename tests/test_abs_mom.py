@@ -22,6 +22,163 @@ def _bar(day: int, c: float, *, o: float | None = None, h: float | None = None, 
     )
 
 
+def test_abs_mom2_holds_longer_and_trails_tighter() -> None:
+    from app.strategy.abs_mom import AbsMomentum2Strategy
+
+    sleeve = AbsMomentum2Strategy()
+    assert sleeve.sleeve == "abs_momentum_2"
+    assert sleeve.exit_roc == Decimal("-0.02")
+    assert sleeve._trail_base == Decimal("0.04")
+    assert sleeve.trail_arm == Decimal("1.20")
+    assert sleeve.require_volume is True
+    assert sleeve.max_day_up == Decimal("0.07")
+    assert sleeve.breadth_min == Decimal("0.45")
+    assert sleeve.exit_streak == 2
+    assert sleeve.min_roc == Decimal("0.02")
+
+
+def test_abs_mom3_copies_v2_rules() -> None:
+    from app.strategy.abs_mom import AbsMomentum2Strategy, AbsMomentum3Strategy
+
+    current = AbsMomentum2Strategy()
+    nxt = AbsMomentum3Strategy()
+    assert nxt.sleeve == "abs_momentum_3"
+    assert nxt.exit_roc == current.exit_roc
+    assert nxt._trail_base == current._trail_base
+    assert nxt.trail_arm == current.trail_arm
+    assert nxt.max_day_up == current.max_day_up
+    assert nxt.breadth_min == current.breadth_min
+    assert nxt.exit_streak == current.exit_streak
+    assert nxt.require_volume is True
+
+
+def test_abs_mom2_skips_a_day_that_already_ran() -> None:
+    from app.strategy.abs_mom import AbsMomentum2Strategy
+
+    kwargs = dict(
+        lookback=5,
+        sma_period=5,
+        min_roc=Decimal("0"),
+        exit_roc=Decimal("0"),
+        max_stretch=Decimal("0"),
+        trail_pct=Decimal("0"),
+        trail_arm=Decimal("0"),
+        require_volume=False,
+        breadth_min=Decimal("0"),
+    )
+    smooth = [_bar(i, 50 + i) for i in range(12)]
+    assert AbsMomentum2Strategy(**kwargs).on_bar(BarContext("SBER", smooth)).kind == "buy"
+    spike = smooth[:-1] + [_bar(11, 70)]
+    signal = AbsMomentum2Strategy(**kwargs).on_bar(BarContext("SBER", spike))
+    assert signal is not None
+    assert signal.kind == "flat"
+
+
+def test_abs_mom2_keeps_position_through_sma_dip() -> None:
+    from app.strategy.abs_mom import AbsMomentum2Strategy
+
+    sleeve = AbsMomentum2Strategy(
+        lookback=5,
+        sma_period=5,
+        min_roc=Decimal("0.02"),
+        exit_roc=Decimal("-0.05"),
+        trail_pct=Decimal("0"),
+        trail_arm=Decimal("0"),
+        max_stretch=Decimal("0"),
+        require_volume=False,
+        breadth_min=Decimal("0"),
+    )
+    up = [_bar(i, 50 + i) for i in range(12)]
+    assert sleeve.on_bar(BarContext("SBER", up)).kind == "buy"
+    # Цена чуть под SMA5, ROC за 5 дней ещё выше порога выхода.
+    dip = up[:-1] + [_bar(11, 58)]
+    signal = sleeve.on_bar(BarContext("SBER", dip, entry_price=Decimal("55")))
+    assert signal is not None
+    assert signal.kind == "flat"
+
+
+def test_abs_mom2_sells_only_on_the_second_weak_day() -> None:
+    from app.strategy.abs_mom import AbsMomentum2Strategy
+
+    sleeve = AbsMomentum2Strategy(
+        lookback=5,
+        sma_period=5,
+        min_roc=Decimal("0"),
+        exit_roc=Decimal("0"),
+        trail_pct=Decimal("0"),
+        trail_arm=Decimal("0"),
+        max_stretch=Decimal("0"),
+        require_volume=False,
+        breadth_min=Decimal("0"),
+        max_day_up=Decimal("0"),
+    )
+    # ROC за 5 дней уходит ниже нуля только на последнем баре.
+    bars = [_bar(i, 100) for i in range(6)] + [_bar(6, 90)]
+    first = sleeve.on_bar(BarContext("SBER", bars, entry_price=Decimal("100")))
+    assert first is not None and first.kind == "flat"
+    second = sleeve.on_bar(
+        BarContext("SBER", bars + [_bar(7, 89)], entry_price=Decimal("100"))
+    )
+    assert second is not None and second.kind == "sell"
+
+
+def test_abs_mom2_uses_sp_breadth_for_us_ticker(monkeypatch, tmp_path) -> None:
+    from app.strategy import abs_mom
+    from app.strategy.abs_mom import AbsMomentum2Strategy
+
+    sp = tmp_path / "sp"
+    sp.mkdir()
+    (sp / "AAPL.csv").write_text("ts,o,h,l,c,v\n")
+    monkeypatch.setenv("CANDLE_SP500_DIR", str(sp))
+    monkeypatch.setenv("CANDLE_DIR", str(tmp_path / "moex"))
+    abs_mom._SP_BREADTH = {"2025-01-12": 0.80}
+    abs_mom._BREADTH = {"2025-01-12": 0.10}
+    try:
+        sleeve = AbsMomentum2Strategy(
+            lookback=5,
+            sma_period=5,
+            min_roc=Decimal("0"),
+            exit_roc=Decimal("0"),
+            max_stretch=Decimal("0"),
+            trail_pct=Decimal("0"),
+            trail_arm=Decimal("0"),
+            require_volume=False,
+            max_day_up=Decimal("0"),
+        )
+        bars = [_bar(i, 50 + i) for i in range(12)]
+        signal = sleeve.on_bar(BarContext("AAPL", bars))
+        assert signal is not None
+        assert signal.kind == "buy"
+    finally:
+        abs_mom._SP_BREADTH = None
+        abs_mom._BREADTH = None
+
+
+def test_abs_mom2_skips_entry_when_the_market_is_narrow() -> None:
+    from app.strategy import abs_mom
+    from app.strategy.abs_mom import AbsMomentum2Strategy
+
+    abs_mom._BREADTH = {"2025-01-12": 0.10}
+    try:
+        sleeve = AbsMomentum2Strategy(
+            lookback=5,
+            sma_period=5,
+            min_roc=Decimal("0"),
+            exit_roc=Decimal("0"),
+            max_stretch=Decimal("0"),
+            trail_pct=Decimal("0"),
+            trail_arm=Decimal("0"),
+            require_volume=False,
+            max_day_up=Decimal("0"),
+        )
+        bars = [_bar(i, 50 + i) for i in range(12)]
+        signal = sleeve.on_bar(BarContext("SBER", bars))
+        assert signal is not None
+        assert signal.kind == "flat"
+    finally:
+        abs_mom._BREADTH = None
+
+
 def test_abs_mom_defaults_tuned_for_both_universes() -> None:
     sleeve = AbsMomentumStrategy()
     assert sleeve.sma_period == 40

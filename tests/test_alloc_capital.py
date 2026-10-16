@@ -18,22 +18,21 @@ def test_one_sleeve_gets_full_cap_within_101() -> None:
 
 def test_active_sleeves_equal_weight_within_101() -> None:
     weights = allocate(ACTIVE_SLEEVES)
-    assert len(ACTIVE_SLEEVES) == 7
+    assert len(ACTIVE_SLEEVES) == 10
     share = Decimal("1") / Decimal(len(ACTIVE_SLEEVES))
     assert weights[SLEEVE] == share
     assert weights[DONCHIAN] == share
     assert sum(weights.values()) == Decimal("1")
     for name in ACTIVE_SLEEVES:
         capital = sleeve_capital(Decimal("1000000"), weight=weights[name])
-        assert capital == Decimal("1000000") * DEFAULT_SLEEVE_SHARE * share
+        assert capital == Decimal("1000000") * DEFAULT_SLEEVE_SHARE * weights[name]
         assert capital <= Decimal("1000000") * DEFAULT_SLEEVE_SHARE
 
 
 def test_allocation_weights_in_view(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("SLEEVE_WEIGHTS_PATH", str(tmp_path / "missing.json"))
     view = allocation_view(ACTIVE_SLEEVES, equity=Decimal("1000000"))
-    share = 1 / 7
-    capital = round(1000000 * 0.4 * share, 2)
+    weights = allocate(ACTIVE_SLEEVES)
     assert view["sleeve_share"] == 0.4
     assert view["equity"] == 1000000.0
     assert [row["sleeve"] for row in view["sleeves"]] == [
@@ -41,12 +40,20 @@ def test_allocation_weights_in_view(tmp_path, monkeypatch) -> None:
         "donchian_breakout",
         "rsi_reversion",
         "ema_scalp",
+        "vol_scalp",
         "overnight_bounce",
         "morning_bounce",
         "abs_momentum",
+        "abs_momentum_2",
+        "abs_momentum_3",
     ]
-    assert [row["weight"] for row in view["sleeves"]] == [share] * 7
-    assert [row["capital"] for row in view["sleeves"]] == [capital] * 7
+    assert [row["weight"] for row in view["sleeves"]] == [
+        float(weights[name]) for name in ACTIVE_SLEEVES
+    ]
+    assert [row["capital"] for row in view["sleeves"]] == [
+        round(float(Decimal("1000000") * Decimal("0.4") * weights[name]), 2)
+        for name in ACTIVE_SLEEVES
+    ]
 
 
 def test_allocation_unauthorized(monkeypatch) -> None:

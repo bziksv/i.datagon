@@ -14,49 +14,57 @@ def test_weights_roundtrip(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("SLEEVE_WEIGHTS_PATH", str(tmp_path / "w.json"))
     save_weights(
         {
-            "sma_cross": 0.3,
-            "donchian_breakout": 0.25,
-            "rsi_reversion": 0.2,
-            "ema_scalp": 0.15,
-            "overnight_bounce": 0.05,
-            "morning_bounce": 0.03,
-            "abs_momentum": 0.02,
+            "sma_cross": 0.25,
+            "donchian_breakout": 0.2,
+            "rsi_reversion": 0.15,
+            "ema_scalp": 0.12,
+            "vol_scalp": 0.1,
+            "overnight_bounce": 0.08,
+            "morning_bounce": 0.05,
+            "abs_momentum": 0.05,
+            "abs_momentum_2": 0,
+            "abs_momentum_3": 0,
         }
     )
     got = load_weights(ACTIVE_SLEEVES)
-    assert got["sma_cross"] == Decimal("0.3")
-    assert got["donchian_breakout"] == Decimal("0.25")
-    assert got["rsi_reversion"] == Decimal("0.2")
-    assert got["ema_scalp"] == Decimal("0.15")
-    assert got["overnight_bounce"] == Decimal("0.05")
-    assert got["morning_bounce"] == Decimal("0.03")
-    assert got["abs_momentum"] == Decimal("0.02")
+    assert got["sma_cross"] == Decimal("0.25")
+    assert got["donchian_breakout"] == Decimal("0.2")
+    assert got["rsi_reversion"] == Decimal("0.15")
+    assert got["ema_scalp"] == Decimal("0.12")
+    assert got["vol_scalp"] == Decimal("0.1")
+    assert got["overnight_bounce"] == Decimal("0.08")
+    assert got["morning_bounce"] == Decimal("0.05")
+    assert got["abs_momentum"] == Decimal("0.05")
     view = allocation_view(ACTIVE_SLEEVES, equity=Decimal("1000000"))
     by = {row["sleeve"]: row for row in view["sleeves"]}
-    assert by["sma_cross"]["weight"] == 0.3
-    assert by["sma_cross"]["capital"] == 120000.0  # 1e6 * 0.4 * 0.3
+    assert by["sma_cross"]["weight"] == 0.25
+    assert by["sma_cross"]["capital"] == 100000.0  # 1e6 * 0.4 * 0.25
 
 
 def test_put_allocation_weights_persists(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("APP_AUTH_TOKEN", "secret")
     monkeypatch.setenv("SLEEVE_WEIGHTS_PATH", str(tmp_path / "alloc.json"))
     # без БД endpoint вернёт 503 — проверяем store + view, как кабинет читает после save
-    equal = 1 / 7
+    equal = 1 / 8
     save_weights(
         {
             "sma_cross": equal,
             "donchian_breakout": equal,
             "rsi_reversion": equal,
             "ema_scalp": equal,
+            "vol_scalp": equal,
             "overnight_bounce": equal,
             "morning_bounce": equal,
             "abs_momentum": equal,
+            "abs_momentum_2": 0,
+            "abs_momentum_3": 0,
         }
     )
     view = allocation_view(ACTIVE_SLEEVES, equity=Decimal("1000000"))
     by = {row["sleeve"]: row for row in view["sleeves"]}
     assert by["sma_cross"]["weight"] == equal
     assert by["ema_scalp"]["weight"] == equal
+    assert by["vol_scalp"]["weight"] == equal
     assert by["overnight_bounce"]["weight"] == equal
     assert by["morning_bounce"]["weight"] == equal
     assert by["abs_momentum"]["weight"] == equal
@@ -70,9 +78,12 @@ def test_explicit_cash_reserve_is_not_renormalized(tmp_path, monkeypatch) -> Non
             "donchian_breakout": 0,
             "rsi_reversion": 0,
             "ema_scalp": 0,
+            "vol_scalp": 0,
             "overnight_bounce": 0,
             "morning_bounce": 0,
             "abs_momentum": 0,
+            "abs_momentum_2": 0,
+            "abs_momentum_3": 0,
             "cash": 0.5,
         }
     )
@@ -159,13 +170,13 @@ def test_desk_backtest_batch_api(tmp_path, monkeypatch) -> None:
     )
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body["count"] == 14  # 7 sleeves × 2 daily tickers
-    assert body["ok"] == 14
+    assert body["count"] == 20  # 10 sleeves × 2 daily tickers
+    assert body["ok"] == 20
     assert body["skipped"] == 0
-    assert len(body["rows"]) == 14
+    assert len(body["rows"]) == 20
     assert "top" in body
     assert "by_sleeve" in body
-    assert len(body["by_sleeve"]) == 7
+    assert len(body["by_sleeve"]) == 10
     sample_sum = body["by_sleeve"][0]
     assert "net_pnl" in sample_sum
     assert "max_drawdown" in sample_sum
@@ -179,9 +190,12 @@ def test_desk_backtest_batch_api(tmp_path, monkeypatch) -> None:
         "donchian_breakout",
         "rsi_reversion",
         "ema_scalp",
+        "vol_scalp",
         "overnight_bounce",
         "morning_bounce",
         "abs_momentum",
+        "abs_momentum_2",
+        "abs_momentum_3",
     }
     assert tickers == {"SBER", "GAZP"}
     # без m15 для GAZP скальп падает на дневки (как одиночный desk_backtest)
@@ -198,6 +212,9 @@ def test_desk_backtest_batch_api(tmp_path, monkeypatch) -> None:
     if sample["trades"]:
         trade = sample["trade_rows"][0]
         assert "qty" in trade
+        assert "buy_qty" in trade
+        assert "sell_qty" in trade
+        assert "averaged" in trade
         assert "entry_price" in trade
         assert "notional" in trade
         assert "net_pnl" in trade
