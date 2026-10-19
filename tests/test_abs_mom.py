@@ -43,13 +43,31 @@ def test_abs_mom3_copies_v2_rules() -> None:
     current = AbsMomentum2Strategy()
     nxt = AbsMomentum3Strategy()
     assert nxt.sleeve == "abs_momentum_3"
-    assert nxt.exit_roc == current.exit_roc
+    assert nxt.lookback == 15
+    assert nxt.sma_period == 30
+    assert nxt.min_roc == Decimal("0")
+    assert nxt.exit_roc == Decimal("-0.01")
+    assert nxt.exit_streak == 4
+    assert nxt.vol_mult == Decimal("0.6")
+    assert current.exit_streak == 2
+    assert current.vol_mult == Decimal("1")
     assert nxt._trail_base == current._trail_base
     assert nxt.trail_arm == current.trail_arm
     assert nxt.max_day_up == current.max_day_up
     assert nxt.breadth_min == current.breadth_min
-    assert nxt.exit_streak == current.exit_streak
     assert nxt.require_volume is True
+    from app.strategy.abs_mom import AbsMomentum4Strategy
+
+    fourth = AbsMomentum4Strategy()
+    assert fourth.sleeve == "abs_momentum_4"
+    assert fourth.lookback == nxt.lookback
+    assert fourth.sma_period == nxt.sma_period
+    assert fourth.min_roc == nxt.min_roc
+    assert fourth.exit_roc == nxt.exit_roc
+    assert fourth.exit_streak == nxt.exit_streak
+    assert fourth.vol_mult == nxt.vol_mult
+    assert fourth.breadth_min == Decimal("0.42")
+    assert nxt.breadth_min == Decimal("0.45")
 
 
 def test_abs_mom2_skips_a_day_that_already_ran() -> None:

@@ -34,12 +34,13 @@ def test_allocation_plan_one_million_sleeve(tmp_path, monkeypatch) -> None:
         "abs_momentum",
         "abs_momentum_2",
         "abs_momentum_3",
+        "abs_momentum_4",
     }
     sma = by["sma_cross"]
-    assert sma["capital"] == 200000.0
-    assert sma["name_budget"] == 20000.0
-    assert sma["example"]["qty"] == 80
-    assert sma["example"]["notional"] == 20000.0
+    assert sma["capital"] == 181818.18
+    assert sma["name_budget"] == 18181.82
+    assert sma["example"]["qty"] == 72
+    assert sma["example"]["notional"] == 18000.0
     assert sma["signal"]
     assert sma["holds"]
     assert by["ema_scalp"]["horizon"] == "15m"
@@ -50,6 +51,7 @@ def test_allocation_plan_one_million_sleeve(tmp_path, monkeypatch) -> None:
     assert by["abs_momentum"]["title"] == "Абс. моментум"
     assert by["abs_momentum_2"]["title"] == "Абс. моментум-2"
     assert by["abs_momentum_3"]["title"] == "Абс. моментум-3"
+    assert by["abs_momentum_4"]["title"] == "Абс. моментум-4"
     assert by["rsi_reversion"]["title"]
 
 

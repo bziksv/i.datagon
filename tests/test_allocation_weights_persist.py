@@ -24,6 +24,7 @@ def test_weights_roundtrip(tmp_path, monkeypatch) -> None:
             "abs_momentum": 0.05,
             "abs_momentum_2": 0,
             "abs_momentum_3": 0,
+            "abs_momentum_4": 0,
         }
     )
     got = load_weights(ACTIVE_SLEEVES)
@@ -58,6 +59,7 @@ def test_put_allocation_weights_persists(tmp_path, monkeypatch) -> None:
             "abs_momentum": equal,
             "abs_momentum_2": 0,
             "abs_momentum_3": 0,
+            "abs_momentum_4": 0,
         }
     )
     view = allocation_view(ACTIVE_SLEEVES, equity=Decimal("1000000"))
@@ -84,6 +86,7 @@ def test_explicit_cash_reserve_is_not_renormalized(tmp_path, monkeypatch) -> Non
             "abs_momentum": 0,
             "abs_momentum_2": 0,
             "abs_momentum_3": 0,
+            "abs_momentum_4": 0,
             "cash": 0.5,
         }
     )
@@ -170,13 +173,13 @@ def test_desk_backtest_batch_api(tmp_path, monkeypatch) -> None:
     )
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body["count"] == 20  # 10 sleeves × 2 daily tickers
-    assert body["ok"] == 20
+    assert body["count"] == 22  # 11 sleeves × 2 daily tickers
+    assert body["ok"] == 22
     assert body["skipped"] == 0
-    assert len(body["rows"]) == 20
+    assert len(body["rows"]) == 22
     assert "top" in body
     assert "by_sleeve" in body
-    assert len(body["by_sleeve"]) == 10
+    assert len(body["by_sleeve"]) == 11
     sample_sum = body["by_sleeve"][0]
     assert "net_pnl" in sample_sum
     assert "max_drawdown" in sample_sum
@@ -196,6 +199,7 @@ def test_desk_backtest_batch_api(tmp_path, monkeypatch) -> None:
         "abs_momentum",
         "abs_momentum_2",
         "abs_momentum_3",
+        "abs_momentum_4",
     }
     assert tickers == {"SBER", "GAZP"}
     # без m15 для GAZP скальп падает на дневки (как одиночный desk_backtest)

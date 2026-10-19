@@ -18,7 +18,7 @@ def test_one_sleeve_gets_full_cap_within_101() -> None:
 
 def test_active_sleeves_equal_weight_within_101() -> None:
     weights = allocate(ACTIVE_SLEEVES)
-    assert len(ACTIVE_SLEEVES) == 10
+    assert len(ACTIVE_SLEEVES) == 11
     share = Decimal("1") / Decimal(len(ACTIVE_SLEEVES))
     assert weights[SLEEVE] == share
     assert weights[DONCHIAN] == share
@@ -46,6 +46,7 @@ def test_allocation_weights_in_view(tmp_path, monkeypatch) -> None:
         "abs_momentum",
         "abs_momentum_2",
         "abs_momentum_3",
+        "abs_momentum_4",
     ]
     assert [row["weight"] for row in view["sleeves"]] == [
         float(weights[name]) for name in ACTIVE_SLEEVES

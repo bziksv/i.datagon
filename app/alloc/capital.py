@@ -13,7 +13,7 @@ def allocate(sleeves: Sequence[str]) -> dict[str, Decimal]:
     share = Decimal("1") / Decimal(n)
     weights = {name: share for name in sleeves}
     last = sleeves[-1]
-    weights[last] = Decimal("1") - share * (n - 1)
+    weights[last] = Decimal("1") - sum(weights[name] for name in sleeves[:-1])
     return weights
 
 

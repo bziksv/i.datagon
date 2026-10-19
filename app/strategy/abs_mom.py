@@ -18,6 +18,7 @@ from app.strategy.base import BarContext, Signal, Strategy
 SLEEVE = "abs_momentum"
 SLEEVE_V2 = "abs_momentum_2"
 SLEEVE_V3 = "abs_momentum_3"
+SLEEVE_V4 = "abs_momentum_4"
 TIMEFRAME = "1d"
 DEFAULT_LOOKBACK = 20
 DEFAULT_SMA_PERIOD = 40
@@ -263,6 +264,7 @@ class AbsMomentum2Strategy(AbsMomentumStrategy):
         max_day_up: Decimal = V2_MAX_DAY_UP,
         breadth_min: Decimal = V2_BREADTH_MIN,
         exit_streak: int = V2_EXIT_STREAK,
+        vol_mult: Decimal = Decimal("1"),
     ) -> None:
         super().__init__(
             lookback=lookback,
@@ -280,6 +282,7 @@ class AbsMomentum2Strategy(AbsMomentumStrategy):
         self.max_day_up = Decimal(max_day_up)
         self.breadth_min = Decimal(breadth_min)
         self.exit_streak = exit_streak
+        self.vol_mult = Decimal(vol_mult)
         self._armed = False
         self._weak = 0
 
@@ -313,7 +316,7 @@ class AbsMomentum2Strategy(AbsMomentumStrategy):
                     (Decimal(bar.v) * Decimal(bar.c) for bar in bars[-21:-1]),
                     Decimal("0"),
                 ) / Decimal(20)
-                if avg <= 0 or last < avg:
+                if avg <= 0 or last < avg * self.vol_mult:
                     return False
             if self.max_day_up > 0 and len(ctx.bars) >= 2:
                 prev = Decimal(ctx.bars[-2].c)
@@ -349,6 +352,34 @@ class AbsMomentum2Strategy(AbsMomentumStrategy):
 
 
 class AbsMomentum3Strategy(AbsMomentum2Strategy):
-    """Те же правила, что у второй версии. Дальше дожимаем уже её."""
+    """Короче тренд и дольше держим слабый день, чем вторая версия.
+
+    Сетка TQBR 2024–2026, 177k вариантов: SMA30, ROC15 ≥ 0, выход после
+    четырёх дней с ROC < −1%, оборот от 60% среднего за 20 дней.
+    Широта, потолок дня и трейл после +20% те же. In-sample, не прогноз.
+    """
 
     sleeve = SLEEVE_V3
+
+    def __init__(self, **kwargs):
+        kwargs.setdefault("lookback", 15)
+        kwargs.setdefault("sma_period", 30)
+        kwargs.setdefault("min_roc", Decimal("0"))
+        kwargs.setdefault("exit_roc", Decimal("-0.01"))
+        kwargs.setdefault("exit_streak", 4)
+        kwargs.setdefault("vol_mult", Decimal("0.6"))
+        super().__init__(**kwargs)
+
+
+class AbsMomentum4Strategy(AbsMomentum3Strategy):
+    """Те же правила, что у третьей, но широта 42% вместо 45%.
+
+    На сетке в 251 тысячу вариантов остальное не обогнало третью версию,
+    если держать обе половины выборки. In-sample, не прогноз.
+    """
+
+    sleeve = SLEEVE_V4
+
+    def __init__(self, **kwargs):
+        kwargs.setdefault("breadth_min", Decimal("0.42"))
+        super().__init__(**kwargs)

@@ -7,6 +7,7 @@ from pathlib import Path
 from app.strategy.abs_mom import (
     AbsMomentum2Strategy,
     AbsMomentum3Strategy,
+    AbsMomentum4Strategy,
     DEFAULT_BACKTEST_POSITION_SHARE as ABS_MOM_SHARE,
     DEFAULT_EXIT_ROC as ABS_MOM_EXIT_ROC,
     DEFAULT_LOOKBACK as ABS_MOM_LOOKBACK,
@@ -627,6 +628,43 @@ def abs_mom3_from_config(
     return AbsMomentum3Strategy(**abs_mom3_params(env, _yaml_text(yaml_path)))
 
 
+def abs_mom4_params(
+    env: Mapping[str, str],
+    yaml_text: str | None = None,
+) -> dict:
+    params = abs_mom2_params({}, None)
+    if yaml_text:
+        section = _section(yaml_text, "abs_momentum_4")
+        params["lookback"] = _int_field(section, "lookback", params["lookback"])
+        params["sma_period"] = _int_field(
+            section, "sma_period", params["sma_period"]
+        )
+        params["min_roc"] = _decimal_field(section, "min_roc", params["min_roc"])
+        params["exit_roc"] = _decimal_field(
+            section, "exit_roc", params["exit_roc"]
+        )
+        params["stop_pct"] = _decimal_field(section, "stop_pct", params["stop_pct"])
+        params["trail_pct"] = _decimal_field(
+            section, "trail_pct", params["trail_pct"]
+        )
+        params["max_stretch"] = _decimal_field(
+            section, "max_stretch", params["max_stretch"]
+        )
+        params["backtest_position_share"] = _decimal_field(
+            section,
+            "backtest_position_share",
+            params["backtest_position_share"],
+        )
+    return params
+
+
+def abs_mom4_from_config(
+    env: Mapping[str, str],
+    yaml_path: Path | None = DEFAULT_YAML,
+) -> AbsMomentum4Strategy:
+    return AbsMomentum4Strategy(**abs_mom4_params(env, _yaml_text(yaml_path)))
+
+
 def active_strategies(env: Mapping[str, str], yaml_path: Path | None = DEFAULT_YAML):
     return [
         sma_from_config(env, yaml_path),
@@ -639,6 +677,7 @@ def active_strategies(env: Mapping[str, str], yaml_path: Path | None = DEFAULT_Y
         abs_mom_from_config(env, yaml_path),
         abs_mom2_from_config(env, yaml_path),
         abs_mom3_from_config(env, yaml_path),
+        abs_mom4_from_config(env, yaml_path),
     ]
 
 
@@ -652,6 +691,7 @@ def daily_strategies(env: Mapping[str, str], yaml_path: Path | None = DEFAULT_YA
         abs_mom_from_config(env, yaml_path),
         abs_mom2_from_config(env, yaml_path),
         abs_mom3_from_config(env, yaml_path),
+        abs_mom4_from_config(env, yaml_path),
     ]
 
 
