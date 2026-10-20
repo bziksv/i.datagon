@@ -48,3 +48,6 @@ def test_status_endpoint_for_cabin(monkeypatch, tmp_path) -> None:
     assert "portfolio" in body
     assert "vault" in body
     assert body["worker_beat"] == beat.isoformat()
+    assert "refresh" in body
+    assert body["refresh"]["candles"]["interval_sec"] >= 0
+    assert body["refresh"]["fundamentals"]["interval_sec"] >= 0

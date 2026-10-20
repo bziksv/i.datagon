@@ -1,6 +1,9 @@
 """Локальный запуск API: python -m app. Не source .env."""
 
+import os
 from pathlib import Path
+
+os.environ.setdefault("GRPC_DNS_RESOLVER", "native")
 
 import uvicorn
 

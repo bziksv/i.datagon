@@ -20,6 +20,7 @@ MENU = (
     "Новости",
     "Рынок",
     "Журнал",
+    "Работа",
     "Настройки",
     "Помощь",
 )
@@ -34,6 +35,9 @@ ROUTES = (
     "news",
     "market",
     "journal",
+    "work",
+    "home",
+    "candles",
     "settings",
     "help",
 )
@@ -44,8 +48,8 @@ def test_cabin_shell_stage01_menu_and_router() -> None:
     css = CSS.read_text()
     js = JS.read_text()
     assert "<!DOCTYPE html>" in html
-    assert 'href="/cabin.css?v=3.3.24"' in html
-    assert 'src="/cabin.js?v=3.3.24"' in html
+    assert 'href="/cabin.css?v=3.3.86"' in html
+    assert 'src="/cabin.js?v=3.3.86"' in html
     assert "webpack" not in html.lower()
     assert "react" not in html.lower()
     assert "vite" not in html.lower()
@@ -424,7 +428,7 @@ def test_cabin_status_pills_stage03() -> None:
     assert "Воркер" in js
     assert "Торговля" in js
     assert "Агенты" in js
-    assert "флаг выкл · очередь из Рекомендаций" in js
+    assert "выключены" in js
     assert "стоп включён" in js
     assert "можно выставлять" in js
     assert 'fetchJson("/status"' in js or 'fetch("/status"' in js

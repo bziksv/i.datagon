@@ -175,6 +175,64 @@ def aggregate_candles(
     ]
 
 
+def moscow_calendar_day(raw: datetime | str) -> date | None:
+    """Торговый день в Москве. 21:00 UTC — это уже полночь следующего дня."""
+    if isinstance(raw, datetime):
+        ts = raw
+    else:
+        try:
+            ts = datetime.fromisoformat(str(raw))
+        except ValueError:
+            return None
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=UTC)
+    return ts.astimezone(MOSCOW).date()
+
+
+def missing_session_ranges(days: list[date], *, until: date) -> list[tuple[date, date]]:
+    """Будни от первой свечи до закрытого дня, которых нет в файле. Пятница и понедельник — один отрезок."""
+    if not days:
+        return []
+    have = set(days)
+    cursor = min(days)
+    end = until if until >= cursor else max(days)
+    missing: list[date] = []
+    while cursor <= end:
+        if cursor.weekday() < 5 and cursor not in have:
+            missing.append(cursor)
+        cursor += timedelta(days=1)
+    ranges: list[tuple[date, date]] = []
+    start = prev = None
+    for day in missing:
+        if prev is not None and _next_weekday(prev) == day:
+            prev = day
+            continue
+        if start is not None and prev is not None:
+            ranges.append((start, prev))
+        start = prev = day
+    if start is not None and prev is not None:
+        ranges.append((start, prev))
+    return ranges
+
+
+def _next_weekday(day: date) -> date:
+    nxt = day + timedelta(days=1)
+    while nxt.weekday() >= 5:
+        nxt += timedelta(days=1)
+    return nxt
+
+
+def latest_closed_session(now: datetime | None = None) -> date:
+    """Последний день, у которого дневная свеча уже должна быть. До 19:00 МСК это вчера."""
+    local = (now or datetime.now(UTC)).astimezone(MOSCOW)
+    day = local.date()
+    if local.hour < 19:
+        day -= timedelta(days=1)
+    while day.weekday() >= 5:
+        day -= timedelta(days=1)
+    return day
+
+
 def write_candle_csv(path: Path, bars: list[CandleBar]) -> Path:
     if not bars:
         raise ValueError("no candles")

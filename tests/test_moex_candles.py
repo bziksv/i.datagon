@@ -5,6 +5,7 @@ from pathlib import Path
 from app.broker.moex_candles import (
     aggregate_candles,
     fetch_moex_candles,
+    missing_session_ranges,
     write_candle_csv,
 )
 from app.strategy.backtest import load_bars
@@ -101,3 +102,14 @@ def test_minute_candles_aggregate_to_15m_ohlcv() -> None:
     assert aggregated[0].low == Decimal("99")
     assert aggregated[0].c == Decimal("105")
     assert aggregated[0].v == Decimal("30")
+
+
+def test_missing_session_ranges_groups_weekdays_through_the_weekend() -> None:
+    days = [date(2026, 1, 5), date(2026, 1, 6)]
+    assert missing_session_ranges(days, until=date(2026, 1, 12)) == [
+        (date(2026, 1, 7), date(2026, 1, 12)),
+    ]
+    assert missing_session_ranges(
+        [date(2026, 1, 5), date(2026, 1, 6), date(2026, 1, 9)],
+        until=date(2026, 1, 9),
+    ) == [(date(2026, 1, 7), date(2026, 1, 8))]

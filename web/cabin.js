@@ -6,78 +6,116 @@
 
   var ROUTES = [
     {
+      id: "home",
+      title: "Среды",
+      group: "fork",
+      hint: "Тест или работа",
+      intro: "Слева проверка стратегий. Справа счёт у брокера.",
+    },
+    {
+      id: "candles",
+      title: "Свечи",
+      group: "test",
+      hint: "Форматы под стратегии",
+      intro: "Дневки, 15 минут и 10 минут — те файлы, на которых гоняют рукава.",
+    },
+    {
       id: "overview",
       title: "Обзор",
-      hint: "Что сейчас важно",
+      group: "start",
+      step: "1",
+      hint: "Контур жив",
       intro:
         "Сводка лаборатории: живость системы, деньги, решения, которые ждут вас, и состояние рукавов.",
     },
     {
       id: "portfolio",
       title: "Портфель",
-      hint: "Где деньги и позиции",
+      group: "start",
+      step: "5",
+      hint: "Книга после решений",
       intro:
         "Тестовая книга лаборатории: где лежат деньги и какие позиции открыты. Это не экран приложения брокера.",
     },
     {
       id: "strategies",
       title: "Стратегии",
-      hint: "Что делают рукава",
-      intro:
-        "Сначала деньги и лимиты (Настройки), потом доли рукавов, затем карточка «как торгует». Прогон моделирует бумажные сделки по файлу свечей с исполнением на следующем баре и расходами.",
+      group: "start",
+      step: "3",
+      hint: "Прогон рукава",
+      intro: "",
     },
     {
       id: "companies",
       title: "Компании",
-      hint: "Фундамент и скор",
+      group: "aside",
+      hint: "По отраслям",
       intro:
-        "Снимки метрик эмитентов (P/E, P/B, ROE, дивиденды) и прозрачный скор. Не торговый сигнал сам по себе.",
+        "Кого показатели выделяют внутри отрасли. Скор ≥70 — рекомендуем смотреть; это аналитика лаборатории, не сигнал брокера.",
     },
     {
       id: "recommendations",
       title: "Рекомендации",
-      hint: "Кандидаты в очередь",
+      group: "aside",
+      hint: "Скор, не рукав",
       intro:
         "Топ имён по фундаментальному скору → paper-план по свежей цене и лоту → вы решаете в Агентах. Аналитика лаборатории, не ИК.",
     },
     {
       id: "agents",
       title: "Агенты",
-      hint: "Что решить вам",
+      group: "start",
+      step: "4",
+      hint: "Принять или отклонить",
       intro:
         "Очередь решений: агент или Рекомендации предлагают план → вы принимаете или отклоняете → paper в Журнале. В T‑Invest ничего не уходит.",
     },
     {
       id: "news",
       title: "Новости",
-      hint: "Внешний контур",
+      group: "aside",
+      hint: "Сделки не открывает",
       intro:
         "Внешний информационный контур. Новости не открывают сделки сами. Research считается offline.",
     },
     {
       id: "market",
       title: "Рынок",
-      hint: "Периметр и правила",
+      group: "aside",
+      hint: "Периметр и стоп-правила",
       intro:
         "Периметр торговли: какие бумаги допущены и какие правила режут ордера.",
     },
     {
       id: "journal",
       title: "Журнал",
-      hint: "Ордера и проводки",
+      group: "start",
+      step: "6",
+      hint: "Что записала книга",
       intro: "Факт лабораторной истории: ордера и проводки книги.",
+    },
+    {
+      id: "work",
+      title: "Работа",
+      group: "work",
+      hint: "Счёт песочницы",
+      intro:
+        "Счёт песочницы. Торгует только Абс. моментум-4. Из теста заявки сюда не приходят.",
     },
     {
       id: "settings",
       title: "Настройки",
-      hint: "Депозит и лимиты",
+      group: "start",
+      step: "2",
+      hint: "Депозит и лимит",
       intro:
         "Капитал лаборатории: депозит (торговый кэш) и максимум на одну бумагу. Бюджеты рукавов — в Стратегиях.",
     },
     {
       id: "help",
       title: "Помощь",
-      hint: "Как пользоваться",
+      group: "aside",
+      hint: "Справочник",
       intro:
         "Карта кабинета, легенда статусов, словарь терминов и управление обучением.",
     },
@@ -86,24 +124,38 @@
   /** Основные вкладки на мобиле; остальное — в «Ещё» (G3). */
   var MOBILE_PRIMARY_IDS = [
     "overview",
-    "portfolio",
-    "recommendations",
-    "companies",
     "settings",
-  ];
-  var MOBILE_MORE_IDS = [
     "strategies",
     "agents",
-    "news",
-    "market",
+  ];
+  var MOBILE_MORE_IDS = [
+    "portfolio",
     "journal",
+    "companies",
+    "recommendations",
+    "market",
+    "news",
     "help",
   ];
   var lastFundamentals = null;
   var lastCompaniesNote = "";
   var lastCandlesCoverage = null;
   var lastCompaniesSector = "all";
+  var lastFundMode = "all";
+  var lastFundLens = "strong";
   var lastCompaniesQuery = "";
+  var lastCandleFilter = "gaps";
+  var lastCandleQuery = "";
+  var lastCandleTf = "1d";
+  var candleQueue = false;
+  var candlePullNote = "";
+  var candleLog = [];
+  var candleJob = null;
+  var CANDLE_TF_HINT = {
+    "1d": "Пересечение средних, Дончиан, RSI, докупы, моментум",
+    "15m": "EMA-скальп",
+    "10m": "Волатильный скальп",
+  };
   var companiesPollTimer = null;
   var COMPANIES_POLL_MS = 10 * 60 * 1000;
   var lastRecommendations = null;
@@ -146,6 +198,7 @@
   var lastDeskTicker = "SBER";
   var lastDeskTickers = [];
   var lastDeskGroups = { moex: [], sp500: [], sectors: [] };
+  var deskListTried = false;
   var loadErrors = {};
   var blockLoading = {};
   var routeLoading = false;
@@ -217,6 +270,25 @@
     "abs_momentum_3",
     "abs_momentum_4",
   ];
+  var SLEEVE_GROUPS = [
+    { title: "Дневные", ids: ["sma_cross", "donchian_breakout", "rsi_reversion"] },
+    { title: "Скальп", ids: ["ema_scalp", "vol_scalp"] },
+    { title: "Докуп", ids: ["overnight_bounce", "morning_bounce"] },
+    { title: "Моментум", ids: ["abs_momentum", "abs_momentum_2", "abs_momentum_3", "abs_momentum_4"] },
+  ];
+  var SLEEVE_LINE = {
+    sma_cross: "Дневки. Быстрая средняя пересекла медленную.",
+    donchian_breakout: "Дневки. Цена вышла из канала.",
+    rsi_reversion: "Дневки. Покупка, когда бумага слишком упала, продажа — когда слишком выросла.",
+    ema_scalp: "Свечи 15 минут. Короткие пересечения средних.",
+    vol_scalp: "Свечи 10 минут. Вход, когда рынок разгоняется.",
+    overnight_bounce: "Дневки. Покупка вечером после слабого дня.",
+    morning_bounce: "Дневки. Покупка утром после слабого дня.",
+    abs_momentum: "Дневки. Покупка в силе, без перегрева.",
+    abs_momentum_2: "Как моментум, плюс фильтр: рынок в целом должен быть сильным.",
+    abs_momentum_3: "Короче окно и мягче выход.",
+    abs_momentum_4: "Как моментум-3, порог широты чуть ниже. Эта стратегия стоит в рабочей среде.",
+  };
   var SLEEVE_NAMES = {
     sma_cross: "Пересечение средних",
     donchian_breakout: "Пробой Дончиана",
@@ -318,22 +390,35 @@
   }
 
   function humanBeat(iso) {
-    if (!iso) return "пульса ещё не было";
+    if (!iso) return "ещё не откликался";
     var beat = new Date(iso);
-    if (isNaN(beat.getTime())) return "время пульса неизвестно";
+    if (isNaN(beat.getTime())) return "время неизвестно";
     var sec = Math.max(0, Math.round((Date.now() - beat.getTime()) / 1000));
-    if (sec < 60) return "пульс " + sec + " с назад";
+    if (sec < 60) return sec + " с назад";
     var min = Math.round(sec / 60);
-    if (min < 60) return "пульс " + min + " мин назад";
+    if (min < 60) return min + " мин назад";
     var hours = Math.round(min / 60);
-    return "пульс " + hours + " ч назад";
+    return hours + " ч назад";
   }
 
-  function pillHtml(label, value, tone) {
+  function whatis(title, text) {
+    return (
+      '<span class="whatis" tabindex="0" data-tip="' +
+      escapeHtml(text) +
+      '" aria-label="' +
+      escapeHtml(title + ": " + text) +
+      '">?</span>'
+    );
+  }
+
+  function pillHtml(label, value, tone, tip) {
     return (
       '<div class="status-pill">' +
       '<div class="k">' +
+      "<span>" +
       escapeHtml(label) +
+      "</span>" +
+      (tip ? whatis(label, tip) : "") +
       "</div>" +
       '<div class="v"><span class="dot ' +
       tone +
@@ -343,12 +428,74 @@
     );
   }
 
+  function intervalRu(sec) {
+    var n = Number(sec) || 0;
+    if (n < 1) return "";
+    if (n === 3600) return "час";
+    if (n === 86400) return "сутки";
+    if (n < 60) return n + " с";
+    if (n < 3600) return Math.round(n / 60) + " мин";
+    if (n % 86400 === 0) return n / 86400 + " сут";
+    if (n % 3600 === 0) return n / 3600 + " ч";
+    return (n / 3600).toLocaleString("ru-RU", { maximumFractionDigits: 1 }) + " ч";
+  }
+
+  function humanUntil(iso) {
+    if (!iso) return "";
+    var at = new Date(iso);
+    if (isNaN(at.getTime())) return "";
+    var sec = Math.max(0, Math.round((at.getTime() - Date.now()) / 1000));
+    if (sec < 60) return "через " + sec + " с";
+    var min = Math.round(sec / 60);
+    if (min < 60) return "через " + min + " мин";
+    return "через " + Math.round(min / 60) + " ч";
+  }
+
+  function rememberRefresh(kind, refresh) {
+    if (!refresh) return;
+    lastStatus = lastStatus || {};
+    lastStatus.refresh = lastStatus.refresh || {};
+    lastStatus.refresh[kind] = refresh;
+    if (authed) renderStatus(lastStatus, {});
+  }
+
+  function refreshModTone(mod) {
+    if (!mod || !mod.enabled) return "warn";
+    if (!mod.last_at) return "warn";
+    if (mod.next_at) return "ok";
+    return "warn";
+  }
+
+  function refreshPillHtml(label, mod, tipLead, manual) {
+    var enabled = !!(mod && mod.enabled);
+    var pace = enabled
+      ? "раз в " + (intervalRu(mod.interval_sec) || "—")
+      : "выкл.";
+    var last = mod && mod.last_at ? humanBeat(mod.last_at) : "ещё не было";
+    var next = !enabled
+      ? "только вручную"
+      : mod.next_at
+        ? humanUntil(mod.next_at)
+        : "в очереди у воркера";
+    var tip =
+      tipLead +
+      " Последний прогон — " +
+      last +
+      ". Следующий — " +
+      next +
+      ". Вручную: «" +
+      manual +
+      "».";
+    return pillHtml(label, pace + " · " + last, refreshModTone(mod), tip);
+  }
+
   function renderStatus(data, meta) {
     var strip = byId("status-strip");
     if (!strip) return;
     var alive = !!(data && data.worker_alive);
     var killed = !!(data && data.killed);
     var agents = !!(data && data.agents_enabled);
+    var refresh = (data && data.refresh) || {};
     var systemTone = meta && meta.error ? "bad" : "ok";
     var systemText =
       meta && meta.error
@@ -358,22 +505,52 @@
           : "нет ответа";
     var workerTone = alive ? "ok" : "warn";
     var workerText = alive
-      ? "в сети · " + humanBeat(data.worker_beat)
-      : "нет сигнала · " + humanBeat(data && data.worker_beat);
+      ? "на связи · " + humanBeat(data.worker_beat)
+      : "нет связи · " + humanBeat(data && data.worker_beat);
     var tradeTone = killed ? "bad" : "ok";
     var tradeText = killed
       ? "стоп включён · новые ордера нельзя"
       : "можно выставлять";
     var agentsTone = agents ? "ok" : "warn";
-    var agentsText = agents
-      ? "флаг вкл · очередь из Рекомендаций"
-      : "флаг выкл · очередь из Рекомендаций";
+    var agentsText = agents ? "включены" : "выключены";
 
     strip.innerHTML = [
-      pillHtml("Система", systemText, systemTone),
-      pillHtml("Воркер", workerText, workerTone),
-      pillHtml("Торговля", tradeText, tradeTone),
-      pillHtml("Агенты", agentsText, agentsTone),
+      pillHtml(
+        "Система",
+        systemText,
+        systemTone,
+        "Ответ API кабинета. Если связи нет — страница не получает свежие данные."
+      ),
+      pillHtml(
+        "Воркер",
+        workerText,
+        workerTone,
+        "Фоновый процесс: свечи, цифры компаний, сигналы. Время — когда последний раз отозвался."
+      ),
+      pillHtml(
+        "Торговля",
+        tradeText,
+        tradeTone,
+        "Стоп-кран лаборатории. При стопе новые ордера отклоняются; уже открытые позиции сами не закрываются."
+      ),
+      pillHtml(
+        "Агенты",
+        agentsText,
+        agentsTone,
+        "Фоновые агенты могут класть предложения в очередь. Принимаете или отклоняете вы."
+      ),
+      refreshPillHtml(
+        "Свечи",
+        refresh.candles || {},
+        "Воркер сам докачивает дневки, 15 минут и 10 минут по всем бумагам.",
+        "Докачать"
+      ),
+      refreshPillHtml(
+        "Компании",
+        refresh.fundamentals || {},
+        "Воркер тянет P/E, P/B, EPS, ROE, дивиденд и капитализацию с брокера.",
+        "Обновить с брокера"
+      ),
     ].join("");
 
     var env = (data && data.env) || "dev";
@@ -552,6 +729,9 @@
     if (status === 503) {
       return "API недоступен или не готов. Проверьте, что сервер и база запущены локально.";
     }
+    if (status === 502) {
+      return "Брокер не отдал свечи. Повторите позже или проверьте токен песочницы.";
+    }
     if (status === "timeout" || status === 408) {
       return "Превышено время ожидания ответа API. Обновите ещё раз или проверьте сервер.";
     }
@@ -701,6 +881,45 @@
         maximumFractionDigits: 2,
       }) + " ₽"
     );
+  }
+
+  function rubles(value) {
+    if (value === null || value === undefined || value === "") return "—";
+    var n = Number(value);
+    if (!isFinite(n)) return "—";
+    var whole = Math.abs(n - Math.round(n)) < 0.005;
+    return (
+      n.toLocaleString("ru-RU", {
+        minimumFractionDigits: whole ? 0 : 2,
+        maximumFractionDigits: whole ? 0 : 2,
+      }) + " ₽"
+    );
+  }
+
+  function plainNumber(value) {
+    var n = Number(value);
+    if (!isFinite(n)) return "—";
+    var whole = Math.abs(n - Math.round(n)) < 0.000001;
+    return n.toLocaleString("ru-RU", {
+      minimumFractionDigits: whole ? 0 : 2,
+      maximumFractionDigits: whole ? 0 : 2,
+    });
+  }
+
+  function shareToPercent(raw) {
+    var n = Number(raw);
+    if (!isFinite(n)) return "";
+    return String(Math.round(n * 100));
+  }
+
+  function readPercent(input, label) {
+    var raw = String(input.value || "").trim().replace(",", ".");
+    if (!/^\d{1,2}$/.test(raw)) {
+      throw new Error(label + ": целое число от 1 до 99");
+    }
+    var n = Number(raw);
+    if (n < 1 || n > 99) throw new Error(label + ": от 1 до 99");
+    return (n / 100).toFixed(2);
   }
 
   function refreshStatus() {
@@ -883,14 +1102,22 @@
 
   function routeFromHash() {
     var raw = hashPath();
-    if (!raw) return "overview";
+    if (!raw || raw === "home") return raw === "home" ? "home" : "home";
+    if (raw === "candles") return "candles";
     if (raw === "strategies" || raw.indexOf("strategies/") === 0) {
       return "strategies";
     }
     for (var i = 0; i < ROUTES.length; i++) {
       if (ROUTES[i].id === raw) return raw;
     }
-    return "overview";
+    return "home";
+  }
+
+  function deskMode() {
+    var id = routeFromHash();
+    if (id === "work") return "work";
+    if (id === "home") return "home";
+    return "test";
   }
 
   function strategiesSleeveFromHash() {
@@ -912,26 +1139,83 @@
     else showRoute(routeId);
   }
 
+  function appendNavLabel(nav, text) {
+    var label = document.createElement("div");
+    label.className = "nav-label";
+    label.textContent = text;
+    nav.appendChild(label);
+  }
+
+  function appendNavLink(nav, id, title, hint) {
+    var a = document.createElement("a");
+    a.href = "#/" + id;
+    a.dataset.route = id;
+    a.innerHTML =
+      '<span class="nav-copy"><span>' +
+      title +
+      '</span><span class="nav-hint">' +
+      hint +
+      "</span></span>";
+    nav.appendChild(a);
+  }
+
+  function appendMobileLink(mobile, id, title) {
+    var m = document.createElement("a");
+    m.href = "#/" + id;
+    m.dataset.route = id;
+    m.textContent = title;
+    mobile.appendChild(m);
+  }
+
+  function markDeskSwitch() {
+    var mode = deskMode();
+    document.body.dataset.desk = mode;
+    ["home", "test", "work"].forEach(function (name) {
+      var link = byId("desk-link-" + name);
+      if (!link) return;
+      if (name === mode) link.setAttribute("aria-current", "page");
+      else link.removeAttribute("aria-current");
+    });
+    var badge = byId("env-badge");
+    if (badge) {
+      badge.textContent = mode === "work" ? "работа" : mode === "test" ? "тест" : "выбор";
+    }
+  }
+
   function renderNav() {
     var nav = byId("nav");
     var mobile = byId("mobile-nav");
     var moreLinks = byId("mobile-more-links");
-    nav.innerHTML = '<div class="nav-label">Разделы</div>';
+    nav.innerHTML = "";
     mobile.innerHTML = "";
     if (moreLinks) moreLinks.innerHTML = "";
-    ROUTES.forEach(function (route) {
-      var a = document.createElement("a");
-      a.href = "#/" + route.id;
-      a.dataset.route = route.id;
-      a.dataset.tour = "nav-" + route.id;
-      a.innerHTML =
-        "<span>" +
-        route.title +
-        '</span><span class="nav-hint">' +
-        route.hint +
-        "</span>";
-      nav.appendChild(a);
-    });
+    markDeskSwitch();
+    if (deskMode() === "work") {
+      appendNavLabel(nav, "Работа · брокер");
+      appendNavLink(nav, "work", "Счёт", "Кэш, сделки, заявка");
+      appendNavLink(nav, "home", "К средам", "Вернуться к выбору");
+      appendMobileLink(mobile, "work", "Счёт");
+      appendMobileLink(mobile, "home", "Среды");
+      return;
+    }
+    if (deskMode() === "home") {
+      appendNavLabel(nav, "Выбор");
+      appendNavLink(nav, "candles", "Тест", "Свечи и прогон");
+      appendNavLink(nav, "work", "Работа", "Счёт песочницы");
+      appendMobileLink(mobile, "candles", "Тест");
+      appendMobileLink(mobile, "work", "Работа");
+      return;
+    }
+    if (deskMode() === "test") {
+      appendNavLabel(nav, "Тест");
+      appendNavLink(nav, "candles", "Свечи", "Дневки, 15м, 10м");
+      appendNavLink(nav, "strategies", "Стратегии", "Проверка на истории");
+      appendNavLink(nav, "companies", "Компании", "По отраслям");
+      appendMobileLink(mobile, "candles", "Свечи");
+      appendMobileLink(mobile, "strategies", "Стратегии");
+      appendMobileLink(mobile, "companies", "Компании");
+      return;
+    }
     MOBILE_PRIMARY_IDS.forEach(function (id) {
       var route = routeById(id);
       if (!route) return;
@@ -1480,6 +1764,14 @@
       blockErrorHtml("sleeves") +
       blockErrorHtml("capital") +
       '<div class="overview-home">' +
+      '<section class="activation"><h3>Запуск кабинета</h3><ol class="activation-steps">' +
+      '<li><a href="#/overview"><strong>Обзор.</strong> Контур жив, воркер на связи.</a></li>' +
+      '<li><a href="#/settings"><strong>Настройки.</strong> Депозит и потолок на одну бумагу.</a></li>' +
+      '<li><a href="#/strategies"><strong>Стратегии.</strong> Рукав и прогон по файлу свечей.</a></li>' +
+      '<li><a href="#/agents"><strong>Агенты.</strong> Принять или отклонить план. В Тинькофф заявка не уходит.</a></li>' +
+      '<li><a href="#/portfolio"><strong>Портфель.</strong> Книга: кэш, сейф, позиции.</a></li>' +
+      '<li><a href="#/journal"><strong>Журнал.</strong> Что лаборатория записала.</a></li>' +
+      "</ol></section>" +
       '<section class="overview-welcome"><div><span class="overview-eyebrow">Главная · тестовый контур</span>' +
       "<h3>" +
       (killed ? "Торговля остановлена" : waiting.length ? "Есть решения, которые ждут вас" : "Капитал под контролем") +
@@ -2412,6 +2704,10 @@
   }
 
   function renderCompanies(opts) {
+    if (deskMode() === "test") {
+      renderTestCompanies();
+      return;
+    }
     opts = opts || {};
     var body = byId("page-body");
     var data = lastFundamentals || { items: [], disclaimer: "", sectors: [] };
@@ -2700,6 +2996,8 @@
       .then(function (pair) {
         lastFundamentals = pair[0];
         lastCandlesCoverage = pair[1];
+        rememberRefresh("fundamentals", pair[0] && pair[0].refresh);
+        rememberRefresh("candles", pair[1] && pair[1].refresh);
         if (currentRoute === "companies") renderCompanies();
         return pair[0];
       })
@@ -4062,7 +4360,7 @@
       '<section class="panel" data-tour="strategies-desk">' +
       "<h3>Прогон на истории</h3>" +
       "<p>" +
-      "<strong>Не путать с гарантией прибыли.</strong> Модель сделок по локальному файлу свечей (MOEX по отраслям и S&P 500 с Yahoo, не из Тинькофф API): исполнение на открытии следующего бара, с комиссией и проскальзыванием, сравнение с «купить и держать». " +
+      "<strong>Не путать с гарантией прибыли.</strong> Модель по файлу свечей: файл можно скачать с брокера кнопкой выше или оставить уже лежащий CSV. Исполнение на открытии следующего бара, комиссия и проскальзывание, сравнение с «купить и держать». Заявка не ставится. " +
       "Даты не выбираются вручную — берётся весь файл тикера (дневки ~2 года; vol_scalp — M10 ~2 года). Сейчас доступно: " +
       escapeHtml(String(moexTickers.length)) +
       " MOEX + " +
@@ -4439,7 +4737,1127 @@
     }
   }
 
+  function candlePullHtml() {
+    return (
+      '<section class="candle-pull">' +
+      "<h3>Свечи с брокера</h3>" +
+      "<p>Дневки пишутся в файл лаборатории. Это тест: заявка не ставится.</p>" +
+      '<label>Тикер <input id="candle-ticker" value="SBER" maxlength="12"></label>' +
+      '<button type="button" id="candle-pull">Скачать с брокера</button>' +
+      '<p id="candle-pull-note" class="muted"></p>' +
+      "</section>"
+    );
+  }
+
+  function bindCandlePull() {
+    var button = byId("candle-pull");
+    if (!button) return;
+    button.onclick = function () {
+      var ticker = (byId("candle-ticker").value || "").trim();
+      var note = byId("candle-pull-note");
+      button.disabled = true;
+      if (note) note.textContent = "Качаю " + ticker + "…";
+      apiPost("/desk/candles/pull", { ticker: ticker, days: 730 })
+        .then(function (row) {
+          if (note) note.textContent = row.ticker + ": " + row.bars + " дневных баров в файле.";
+        })
+        .catch(function (err) {
+          if (note) note.textContent = err.message || "не скачалось";
+        })
+        .finally(function () {
+          button.disabled = false;
+        });
+    };
+  }
+
+  function ruDay(iso) {
+    var raw = String(iso || "").trim();
+    if (!raw) return "—";
+    var ms = Date.parse(raw.length === 10 ? raw + "T00:00:00Z" : raw);
+    if (!isFinite(ms)) return "—";
+    var shifted = new Date(ms + 3 * 60 * 60 * 1000);
+    function pad(n) { return (n < 10 ? "0" : "") + n; }
+    return pad(shifted.getUTCDate()) + "." + pad(shifted.getUTCMonth() + 1) + "." + shifted.getUTCFullYear();
+  }
+
+  function gapText(row) {
+    return (row && row.gaps || []).map(function (gap) {
+      var from = ruDay(gap.from);
+      var to = ruDay(gap.to);
+      return from === to ? from : from + " — " + to;
+    }).join(", ");
+  }
+
+  function candleCount(row) {
+    if (!row || row.status === "missing") return "файла нет";
+    var session = (lastCandlesCoverage && lastCandlesCoverage.session) || "";
+    var need = Number((lastCandlesCoverage && lastCandlesCoverage.min_bars) || 300);
+    var reached = session && row.session_day && row.session_day >= session;
+    if (row.status === "ready" && reached) return plainNumber(row.bars);
+    var holes = gapText(row);
+    if (holes) return "нет " + holes;
+    if (row.status === "short") {
+      if (!reached) return plainNumber(row.bars) + ", не доходит до закрытого дня";
+      return plainNumber(row.bars) + " из " + plainNumber(need) + ", в этих датах дыр нет";
+    }
+    return plainNumber(row.bars);
+  }
+
+  function setCandleNote(text) {
+    candlePullNote = text || "";
+    var note = byId("candle-board-note");
+    if (note) note.textContent = candlePullNote;
+  }
+
+  function pushCandleLog(text) {
+    if (!text) return;
+    candleLog.push(text);
+    if (candleLog.length > 40) candleLog.shift();
+  }
+
+  function candleWho(row) {
+    var ticker = String(row.ticker || "");
+    var name = String(row.name || "").trim();
+    if (name && name.toUpperCase() !== ticker.toUpperCase()) return name + " (" + ticker + ")";
+    return ticker;
+  }
+
+  function candlesWord(n) {
+    var x = Math.abs(Number(n) || 0) % 100;
+    var d = x % 10;
+    if (x > 10 && x < 20) return "свечей";
+    if (d === 1) return "свеча";
+    if (d > 1 && d < 5) return "свечи";
+    return "свечей";
+  }
+
+  function pullLine() {
+    if (!candleJob) {
+      return '<p id="candle-board-note" class="tape-note">' + escapeHtml(candlePullNote) + "</p>";
+    }
+    var items = (lastCandlesCoverage && lastCandlesCoverage.items) || [];
+    var current = null;
+    for (var i = 0; i < items.length; i++) {
+      if (items[i].ticker === candleJob.ticker) current = items[i];
+    }
+    var name = current ? candleWho(current) : candleJob.ticker;
+    var pct = candleJob.total ? Math.round((candleJob.index / candleJob.total) * 100) : 0;
+    return '<div class="pull-line" id="candle-board-note">' +
+      '<div class="pull-meter" role="progressbar" aria-valuemin="0" aria-valuemax="' + candleJob.total + '" aria-valuenow="' + candleJob.index + '"><span style="width:' + pct + '%"></span></div>' +
+      "<p>" + escapeHtml((candleJob.index + 1) + " из " + candleJob.total + " · " + name) + "</p></div>";
+  }
+
+  function candleJournal(data) {
+    var session = data.session || "";
+    var sessionLabel = session ? ruDay(session) : "";
+    var head = session
+      ? "До закрытого дня " + sessionLabel + " доходят " + plainNumber(data.on_session != null ? data.on_session : 0) + " из " + plainNumber(data.total || 0) + ". Сегодня " + ruDay(new Date().toISOString()) + ", дневная свеча этого дня ещё не закрыта."
+      : "";
+    var run = candleLog.map(function (line) {
+      return "<li>" + escapeHtml(line) + "</li>";
+    }).join("");
+    if (!head && !run) return "";
+    return '<section class="tape-log">' +
+      (head ? "<p>" + escapeHtml(head) + "</p>" : "") +
+      (run ? "<p>Ход докачки</p><ol>" + run + "</ol>" : "") +
+      "</section>";
+  }
+
+  function refreshCandles() {
+    var tf = candleTf();
+    return apiGet("/candles/coverage?tf=" + encodeURIComponent(tf)).then(function (data) {
+      lastCandlesCoverage = data;
+      if (data && data.tf) lastCandleTf = data.tf;
+      rememberRefresh("candles", data && data.refresh);
+      if (currentRoute === "candles") renderCandles();
+    }).catch(function (err) {
+      var note = byId("candle-board-note");
+      if (note) note.textContent = err.message || "список не загрузился";
+    });
+  }
+
+  function candleTf() {
+    return lastCandleTf === "15m" || lastCandleTf === "10m" ? lastCandleTf : "1d";
+  }
+
+  function candleGapKey(row) {
+    var base = candleTf() + "|";
+    if (!row || row.status === "missing" || !row.last) return base + "missing";
+    return base + (row.gaps || []).map(function (gap) {
+      return (gap.from || "") + ":" + (gap.to || "");
+    }).join("|") + "|" + String(row.bars || 0) + "|" + String(row.session_day || "");
+  }
+
+  function readCandleOk() {
+    try {
+      var raw = JSON.parse(localStorage.getItem("cabin_candle_ok") || "{}");
+      return raw && typeof raw === "object" ? raw : {};
+    } catch (err) {
+      return {};
+    }
+  }
+
+  function candleAcked(row) {
+    var ticker = String((row && row.ticker) || "");
+    if (!ticker) return false;
+    return readCandleOk()[ticker] === candleGapKey(row);
+  }
+
+  function setCandleAck(row, on) {
+    var all = readCandleOk();
+    var ticker = String(row.ticker || "");
+    if (!ticker) return;
+    if (on) all[ticker] = candleGapKey(row);
+    else delete all[ticker];
+    localStorage.setItem("cabin_candle_ok", JSON.stringify(all));
+  }
+
+  function companyCell(row) {
+    var ticker = String(row.ticker || "");
+    var name = String(row.name || "")
+      .trim()
+      .replace(/\s*[—–-]\s*привилегированные акции/i, " прив.")
+      .replace(/\s+привилегированные$/i, " прив.");
+    var titled = name && name.toUpperCase() !== ticker.toUpperCase();
+    var label = titled ? name : ticker;
+    return (
+      '<td class="co-name" title="' +
+      escapeHtml(titled ? name + " · " + ticker : ticker) +
+      '"><span class="co-name__line"><strong>' +
+      escapeHtml(label) +
+      "</strong>" +
+      (titled ? "<small>" + escapeHtml(ticker) + "</small>" : "") +
+      "</span></td>"
+    );
+  }
+
+  function renderCandles() {
+    var data = lastCandlesCoverage || { items: [], ready: 0, short: 0, missing: 0, total: 0 };
+    var items = data.items || [];
+    var query = (lastCandleQuery || "").trim().toUpperCase();
+    var filter = lastCandleFilter || "gaps";
+    var tf = candleTf();
+    var need = Number(data.min_bars || 300);
+    var openGaps = items.filter(function (row) {
+      return row.status !== "ready" && !candleAcked(row);
+    });
+    var hiddenGaps = items.filter(function (row) {
+      return row.status !== "ready" && candleAcked(row);
+    }).length;
+    var shown = items.filter(function (row) {
+      var blob = ((row.name || "") + " " + (row.ticker || "")).toUpperCase();
+      if (query && blob.indexOf(query) === -1) return false;
+      if (filter === "ready") return row.status === "ready";
+      if (filter === "gaps") return row.status !== "ready" && !candleAcked(row);
+      return true;
+    });
+    var loaded = !!lastCandlesCoverage;
+    var gaps = openGaps.length;
+    var rows = shown.map(function (row) {
+      var period = row.first && row.last ? ruDay(row.first) + " — " + ruDay(row.last) : "—";
+      var ticker = String(row.ticker || "");
+      var action = row.status === "ready" ? "Обновить" : "Докачать";
+      var mark = "";
+      if (candleJob && candleJob.fail && candleJob.fail[ticker]) {
+        action = "Ошибка";
+        mark = "is-fail";
+      } else if (candleJob && candleJob.done && candleJob.done[ticker]) {
+        action = "Скачано";
+        mark = "is-done";
+      } else if (candleJob && candleJob.ticker === ticker) {
+        action = "Качаю";
+        mark = "is-pull";
+      } else if (candleQueue) {
+        action = "Ждёт";
+      }
+      var acked = candleAcked(row);
+      var okBtn = row.status === "ready" ? "" : '<button type="button" data-candle-ok="' + escapeHtml(ticker) + '">' + (acked ? "Вернуть" : "Ок") + "</button>";
+      return "<tr" + (mark ? ' class="' + mark + '"' : "") + ">" + companyCell(row) + "<td class=\"candle-" + escapeHtml(row.status || "missing") + "\">" + candleCount(row) + "</td><td>" + escapeHtml(period) + "</td><td><span class=\"row-actions\"><button type=\"button\" data-pull=\"" + escapeHtml(ticker) + "\"" + (candleQueue ? " disabled" : "") + ">" + action + "</button>" + okBtn + "</span></td></tr>";
+    }).join("");
+    var fillLabel = candleJob
+      ? (candleJob.index + 1) + " из " + candleJob.total
+      : (loaded && gaps ? "Докачать эти " + plainNumber(gaps) : "Докачать");
+    var formats = data.formats || [
+      { id: "1d", title: "Дневки", sleeves: CANDLE_TF_HINT["1d"] },
+      { id: "15m", title: "15 минут", sleeves: CANDLE_TF_HINT["15m"] },
+      { id: "10m", title: "10 минут", sleeves: CANDLE_TF_HINT["10m"] },
+    ];
+    var tfButtons = formats.map(function (fmt) {
+      return '<button type="button" data-candle-tf="' + escapeHtml(fmt.id) + '"' + (fmt.id === tf ? ' aria-pressed="true"' : "") + "><span>" + escapeHtml(fmt.title) + "</span></button>";
+    }).join("");
+    var sleeveHint = (data.sleeves || CANDLE_TF_HINT[tf] || "") + ". Полный ряд — от " + plainNumber(need) + " свечей.";
+    byId("page-body").innerHTML =
+      '<section class="tape">' +
+      '<div class="tape-bar">' +
+      '<div class="tape-filters" role="group" aria-label="Формат свечей">' + tfButtons + "</div>" +
+      "</div>" +
+      '<div class="tape-head"><p class="tape-lead">' +
+      (loaded
+        ? (gaps
+          ? "Не хватает у " + plainNumber(gaps) + " компаний. " + sleeveHint
+          : (hiddenGaps ? "Скрыто " + plainNumber(hiddenGaps) + ". " : "") + "По этому формату хватает у всех " + plainNumber(data.total || items.length) + ". " + sleeveHint)
+        : "Считаю файлы…") +
+      '</p><button type="button" class="primary" id="candle-fill"' + (loaded && gaps && !candleQueue ? "" : " disabled") + ">" +
+      fillLabel +
+      "</button></div>" +
+      pullLine() +
+      '<div class="tape-bar">' +
+      '<div class="tape-filters" role="group" aria-label="Какие компании показать">' +
+      '<button type="button" data-candle-filter="gaps"' + (filter === "gaps" ? ' aria-pressed="true"' : "") + "><span>Не хватает</span><strong>" + plainNumber(gaps) + "</strong></button>" +
+      '<button type="button" data-candle-filter="ready"' + (filter === "ready" ? ' aria-pressed="true"' : "") + "><span>Хватает</span><strong>" + plainNumber(data.ready || 0) + "</strong></button>" +
+      '<button type="button" data-candle-filter="all"' + (filter === "all" ? ' aria-pressed="true"' : "") + "><span>Все</span><strong>" + plainNumber(data.total || items.length) + "</strong></button>" +
+      "</div>" +
+      '<input id="candle-find" class="tape-find" type="search" placeholder="Тикер или имя" value="' + escapeHtml(lastCandleQuery || "") + '" aria-label="Найти компанию">' +
+      "</div>" +
+      '<div class="table-scroll"><table class="data-table"><thead><tr><th>Компания</th><th>Свечей</th><th>Даты</th><th>Действие</th></tr></thead><tbody>' +
+      (rows || '<tr><td colspan="4">' + (query ? "Такого тикера нет" : (filter === "gaps" && hiddenGaps ? "Скрыты кнопкой Ок" : "Таких компаний нет")) + "</td></tr>") +
+      "</tbody></table></div>" +
+      candleJournal(data) +
+      "</section>";
+    bindCandles();
+  }
+
+  function pullTicker(ticker) {
+    var tf = candleTf();
+    var days = tf === "1d" ? 730 : 180;
+    return apiPost("/desk/candles/pull", { ticker: ticker, days: days, tf: tf }, { timeoutMs: 180000 });
+  }
+
+  function bindCandles() {
+    document.querySelectorAll("[data-candle-tf]").forEach(function (btn) {
+      btn.onclick = function () {
+        if (candleQueue) return;
+        var next = btn.getAttribute("data-candle-tf") || "1d";
+        if (next === candleTf()) return;
+        lastCandleTf = next;
+        lastCandlesCoverage = null;
+        renderCandles();
+        refreshCandles();
+      };
+    });
+    document.querySelectorAll("[data-candle-filter]").forEach(function (btn) {
+      btn.onclick = function () {
+        lastCandleFilter = btn.getAttribute("data-candle-filter") || "all";
+        renderCandles();
+      };
+    });
+    var find = byId("candle-find");
+    if (find) find.oninput = function () {
+      lastCandleQuery = find.value || "";
+      var pos = find.selectionStart;
+      renderCandles();
+      var again = byId("candle-find");
+      if (again) {
+        again.focus();
+        again.selectionStart = again.selectionEnd = pos;
+      }
+    };
+    document.querySelectorAll("[data-candle-ok]").forEach(function (btn) {
+      btn.onclick = function () {
+        var ticker = btn.getAttribute("data-candle-ok");
+        var row = null;
+        ((lastCandlesCoverage || {}).items || []).forEach(function (item) {
+          if (item.ticker === ticker) row = item;
+        });
+        if (!row) return;
+        setCandleAck(row, !candleAcked(row));
+        renderCandles();
+      };
+    });
+    document.querySelectorAll("[data-pull]").forEach(function (btn) {
+      btn.onclick = function () {
+        var ticker = btn.getAttribute("data-pull");
+        btn.disabled = true;
+        setCandleNote("Качаю " + ticker + "…");
+        pullTicker(ticker).then(function (row) {
+          var line = (row.ticker || ticker) + ": в файле " + plainNumber(row.bars) + " свечей.";
+          pushCandleLog(line);
+          setCandleNote(line);
+          return refreshCandles();
+        }).catch(function (err) {
+          var line = (ticker || "") + ": " + (err.message || "не скачалось");
+          pushCandleLog(line);
+          setCandleNote(line);
+        });
+      };
+    });
+    var fill = byId("candle-fill");
+    if (fill) fill.onclick = function () {
+      if (candleQueue) return;
+      var gaps = ((lastCandlesCoverage || {}).items || []).filter(function (row) {
+        return row.status !== "ready" && !candleAcked(row);
+      });
+      if (!gaps.length) {
+        setCandleNote("Качать нечего: у всех компаний ряд от 300 дней.");
+        return;
+      }
+      candleQueue = true;
+      candleJob = { total: gaps.length, index: 0, ticker: gaps[0].ticker, done: {}, fail: {} };
+      renderCandles();
+      var i = 0;
+      function next() {
+        if (i >= gaps.length) {
+          candleQueue = false;
+          candleJob = null;
+          pushCandleLog("Докачка закончилась.");
+          setCandleNote("Докачка закончилась.");
+          refreshCandles();
+          return;
+        }
+        var ticker = gaps[i].ticker;
+        candleJob.index = i;
+        candleJob.ticker = ticker;
+        renderCandles();
+        pullTicker(ticker).then(function () {
+          candleJob.done[ticker] = 1;
+          i += 1;
+          next();
+        }).catch(function (err) {
+          candleJob.fail[ticker] = err.message || "пропуск";
+          pushCandleLog(ticker + ": " + candleJob.fail[ticker]);
+          i += 1;
+          next();
+        });
+      }
+      next();
+    };
+  }
+
+  function capLabel(value) {
+    var n = Number(value);
+    if (!isFinite(n)) return "—";
+    var abs = Math.abs(n);
+    var scaled = n;
+    var unit = "";
+    if (abs >= 1e12) {
+      scaled = n / 1e12;
+      unit = "\u00a0трлн";
+    } else if (abs >= 1e9) {
+      scaled = n / 1e9;
+      unit = "\u00a0млрд";
+    } else if (abs >= 1e6) {
+      scaled = n / 1e6;
+      unit = "\u00a0млн";
+    } else {
+      return Math.round(n).toLocaleString("ru-RU");
+    }
+    return (
+      scaled.toLocaleString("ru-RU", {
+        minimumFractionDigits: 1,
+        maximumFractionDigits: 1,
+      }) + unit
+    );
+  }
+
+  function fundFields(row) {
+    return [
+      ["P/E", row.pe_ratio_ttm],
+      ["P/B", row.price_to_book_ttm],
+      ["EPS", row.eps_ttm],
+      ["ROE", row.roe],
+      ["Дивиденд", row.dividend_yield_ttm],
+      ["Капитализация", row.market_capitalization],
+    ];
+  }
+
+  function asPercentPoints(value) {
+    var n = Number(value);
+    if (!isFinite(n)) return null;
+    return Math.abs(n) <= 1.5 ? n * 100 : n;
+  }
+
+  function epsLabel(value) {
+    var n = Number(value);
+    if (!isFinite(n)) return null;
+    var digits = Math.abs(n) >= 100 ? 0 : 2;
+    return n.toLocaleString("ru-RU", {
+      minimumFractionDigits: digits,
+      maximumFractionDigits: digits,
+    });
+  }
+
+  function fundPoint(row, key) {
+    if (key === "score") {
+      var total = Number((row.scores || {}).total);
+      return isFinite(total) ? total : null;
+    }
+    if (key === "roe") {
+      if (row.roe === null || row.roe === undefined || row.roe === "") return null;
+      return asPercentPoints(row.roe);
+    }
+    var raw = row[key];
+    if (raw === null || raw === undefined || raw === "") return null;
+    var n = Number(raw);
+    return isFinite(n) ? n : null;
+  }
+
+  function fundPercentile(sorted, p) {
+    if (!sorted.length) return null;
+    var i = (sorted.length - 1) * p;
+    var lo = Math.floor(i);
+    var hi = Math.ceil(i);
+    if (lo === hi) return sorted[lo];
+    return sorted[lo] + (sorted[hi] - sorted[lo]) * (i - lo);
+  }
+
+  var FUND_BARS = [
+    { key: "score", title: "Оценка", fixed: [0, 100] },
+    { key: "pe_ratio_ttm", title: "P/E" },
+    { key: "price_to_book_ttm", title: "P/B" },
+    { key: "eps_ttm", title: "EPS", unit: "₽", tip: "Прибыль на акцию, ₽" },
+    { key: "roe", title: "ROE" },
+    { key: "dividend_yield_ttm", title: "Дивиденд" },
+    {
+      key: "market_capitalization",
+      title: "Кап.",
+      unit: "₽",
+      tip: "Рыночная капитализация, ₽",
+      log: true,
+    },
+  ];
+
+  function fundScaleLabel(key, n) {
+    if (n === null || !isFinite(Number(n))) return "—";
+    if (key === "score") return String(Math.round(Number(n)));
+    if (key === "roe" || key === "dividend_yield_ttm") {
+      return Number(n).toLocaleString("ru-RU", { maximumFractionDigits: 1 }) + "%";
+    }
+    if (key === "eps_ttm") return epsLabel(n);
+    if (key === "market_capitalization") return capLabel(n);
+    return plainNumber(n);
+  }
+
+  function fundScales(items) {
+    var scales = {};
+    FUND_BARS.forEach(function (bar) {
+      if (bar.fixed) {
+        scales[bar.key] = { lo: bar.fixed[0], hi: bar.fixed[1], labelLo: bar.fixed[0], labelHi: bar.fixed[1] };
+        return;
+      }
+      var values = [];
+      items.forEach(function (row) {
+        var n = fundPoint(row, bar.key);
+        if (n === null || (bar.log && n <= 0)) return;
+        values.push(n);
+      });
+      values.sort(function (a, b) { return a - b; });
+      var labelLo = values.length < 8 ? values[0] : fundPercentile(values, 0.1);
+      var labelHi = values.length < 8 ? values[values.length - 1] : fundPercentile(values, 0.9);
+      if (labelLo == null) labelLo = 0;
+      if (labelHi == null) labelHi = 0;
+      var lo = labelLo;
+      var hi = labelHi;
+      if (bar.log && labelLo > 0 && labelHi > 0) {
+        lo = Math.log(labelLo);
+        hi = Math.log(labelHi);
+      }
+      scales[bar.key] = { lo: lo, hi: hi, log: !!bar.log, labelLo: labelLo, labelHi: labelHi };
+    });
+    return scales;
+  }
+
+  function fundValueText(row, bar) {
+    var n = fundPoint(row, bar.key);
+    if (n === null) return "—";
+    if (bar.key === "score") return String(Math.round(n));
+    if (bar.key === "roe" || bar.key === "dividend_yield_ttm") return fundScaleLabel(bar.key, n);
+    if (bar.key === "eps_ttm") return epsLabel(n);
+    if (bar.key === "market_capitalization") return capLabel(n);
+    return plainNumber(n);
+  }
+
+  function fundBar(row, bar, scale) {
+    var n = fundPoint(row, bar.key);
+    var text = fundValueText(row, bar);
+    var width = 0;
+    if (n !== null && scale && isFinite(scale.lo) && isFinite(scale.hi)) {
+      if (scale.hi === scale.lo) width = 100;
+      else {
+        var point = n;
+        if (scale.log) point = n > 0 ? Math.log(n) : scale.lo;
+        width = Math.max(0, Math.min(1, (point - scale.lo) / (scale.hi - scale.lo))) * 100;
+      }
+    }
+    var range = fundScaleLabel(bar.key, scale.labelLo) + " — " + fundScaleLabel(bar.key, scale.labelHi);
+    return '<td class="num' + (n === null ? " num-miss" : "") + '" title="' + escapeHtml(bar.title + " " + text + ", шкала " + range) + '"><span class="num-scale"><span>' + escapeHtml(text) + '</span><span class="scale-track" aria-hidden="true"><span class="scale-fill" style="width:' + width.toFixed(1) + '%"></span></span></span></td>';
+  }
+
+  function fundPlainCell(row, bar) {
+    var n = fundPoint(row, bar.key);
+    var text = fundValueText(row, bar);
+    return (
+      '<td class="num' +
+      (n === null ? " num-miss" : "") +
+      '">' +
+      escapeHtml(text) +
+      "</td>"
+    );
+  }
+
+  function fundScoreTip(row) {
+    var scores = row.scores || {};
+    var total = fundScoreTotal(row);
+    var v = scores.value != null ? Math.round(scores.value) : "—";
+    var q = scores.quality != null ? Math.round(scores.quality) : "—";
+    var d = scores.div != null ? Math.round(scores.div) : "—";
+    return (
+      "Итого " +
+      (total >= 0 ? Math.round(total) : "—") +
+      " из 100 = дешево (P/E, P/B) " +
+      v +
+      " · качество (ROE, EPS) " +
+      q +
+      " · дивиденд " +
+      d +
+      ". Веса 40% / 35% / 25%."
+    );
+  }
+
+  function fundScoreCell(row) {
+    var total = fundScoreTotal(row);
+    var text = total >= 0 ? String(Math.round(total)) : "—";
+    var mark = total >= 70 ? '<span class="ind-mark">рек.</span>' : "";
+    return (
+      '<td class="num ind-score ' +
+      fundScoreTone(total) +
+      '" title="' +
+      escapeHtml(fundScoreTip(row)) +
+      '"><span class="ind-score__val">' +
+      escapeHtml(text) +
+      "</span>" +
+      mark +
+      "</td>"
+    );
+  }
+
+  function fundMissing(row) {
+    return fundFields(row).filter(function (pair) {
+      return pair[1] === null || pair[1] === undefined || pair[1] === "";
+    }).map(function (pair) { return pair[0]; });
+  }
+
+  function fundFresh(ts) {
+    if (!ts) return "нет даты";
+    var hours = (Date.now() - new Date(ts).getTime()) / 36e5;
+    if (!isFinite(hours) || hours < 0) return "нет даты";
+    if (hours < 24) return "свежие";
+    if (hours < 24 * 7) return "старше суток";
+    return "устарели";
+  }
+
+  function fundScoreTotal(row) {
+    var n = Number((row.scores || {}).total);
+    return isFinite(n) ? n : -1;
+  }
+
+  function fundPassesDataMode(row, mode) {
+    var missing = fundMissing(row);
+    var fresh = fundFresh(row.ts);
+    if (mode === "gaps") return missing.length > 0;
+    if (mode === "full") return missing.length === 0;
+    if (mode === "stale") return fresh !== "свежие";
+    return true;
+  }
+
+  function fundPassesLens(row, lens) {
+    var score = fundScoreTotal(row);
+    if (lens === "strong") return score >= 70;
+    if (lens === "weak") return score >= 0 && score < 70;
+    return true;
+  }
+
+  function fundSectorId(row) {
+    return String(row.sector || "other");
+  }
+
+  function renderTestCompanies() {
+    var data = lastFundamentals || { items: [], sectors: [] };
+    var items = (data.items || []).slice();
+    var query = (lastCompaniesQuery || "").trim().toUpperCase();
+    var modeAllowed = { gaps: 1, full: 1, stale: 1, all: 1 };
+    var lensAllowed = { strong: 1, all: 1, weak: 1 };
+    var mode = modeAllowed[lastFundMode] ? lastFundMode : "all";
+    var lens = lensAllowed[lastFundLens] ? lastFundLens : "strong";
+    var sector = lastCompaniesSector || "all";
+
+    var afterQuery = items.filter(function (row) {
+      var blob = ((row.ticker || "") + " " + (row.name || "")).toUpperCase();
+      return !query || blob.indexOf(query) !== -1;
+    });
+    var afterData = afterQuery.filter(function (row) {
+      return fundPassesDataMode(row, mode);
+    });
+
+    var strongCount = 0;
+    var weakCount = 0;
+    var holeNames = 0;
+    var staleNames = 0;
+    afterQuery.forEach(function (row) {
+      var score = fundScoreTotal(row);
+      if (score >= 70) strongCount += 1;
+      else if (score >= 0) weakCount += 1;
+      if (fundMissing(row).length) holeNames += 1;
+      if (fundFresh(row.ts) !== "свежие") staleNames += 1;
+    });
+
+    // В конкретной отрасли показываем всех — иначе «Рекомендуем» прячет слабые.
+    var shown = afterData.filter(function (row) {
+      if (sector !== "all" && fundSectorId(row) !== sector) return false;
+      if (sector === "all") return fundPassesLens(row, lens);
+      return true;
+    });
+    shown.sort(function (a, b) {
+      return fundScoreTotal(b) - fundScoreTotal(a);
+    });
+
+    var sectorMeta = {};
+    (data.sectors || []).forEach(function (group) {
+      sectorMeta[group.id] = group;
+    });
+    var sectorOrder = (data.sectors || []).map(function (group) {
+      return group.id;
+    });
+    var sectorBuckets = {};
+    shown.forEach(function (row) {
+      var id = fundSectorId(row);
+      if (!sectorBuckets[id]) sectorBuckets[id] = [];
+      sectorBuckets[id].push(row);
+    });
+    var sectorIds = sectorOrder.filter(function (id) {
+      return sectorBuckets[id] && sectorBuckets[id].length;
+    });
+    Object.keys(sectorBuckets).forEach(function (id) {
+      if (sectorIds.indexOf(id) === -1) sectorIds.push(id);
+    });
+
+    var strongBySector = {};
+    afterData.forEach(function (row) {
+      if (fundScoreTotal(row) < 70) return;
+      var id = fundSectorId(row);
+      strongBySector[id] = (strongBySector[id] || 0) + 1;
+    });
+    var strongSectors = Object.keys(strongBySector).length;
+    var heads =
+      "<th>Компания</th>" +
+      FUND_BARS.map(function (bar) {
+        if (bar.key === "score") {
+          return (
+            '<th class="num">Оценка' +
+            whatis(
+              "Оценка",
+              "Одна цифра 0–100. Складывается из трёх частей: насколько дешево (P/E и P/B), качество бизнеса (ROE и EPS) и дивиденд. Веса 40% / 35% / 25%. ≥70 — рекомендуем смотреть. Наведите на цифру в строке — увидите разбивку."
+            ) +
+            "</th>"
+          );
+        }
+        var tip = bar.tip ? ' title="' + escapeHtml(bar.tip) + '"' : "";
+        var unit = bar.unit
+          ? '<span class="ind-unit">' + escapeHtml(bar.unit) + "</span>"
+          : "";
+        return (
+          '<th class="num"' +
+          tip +
+          ">" +
+          escapeHtml(bar.title) +
+          unit +
+          "</th>"
+        );
+      }).join("");
+
+    function industryRows(list) {
+      return list
+        .map(function (row) {
+          var strong = fundScoreTotal(row) >= 70;
+          return (
+            '<tr class="' +
+            (strong ? "is-strong" : "is-weak") +
+            '">' +
+            companyCell(row) +
+            FUND_BARS.map(function (bar) {
+              if (bar.key === "score") return fundScoreCell(row);
+              return fundPlainCell(row, bar);
+            }).join("") +
+            "</tr>"
+          );
+        })
+        .join("");
+    }
+
+    function industryBlock(id, rows) {
+      var meta = sectorMeta[id] || {};
+      var title = meta.title || rows[0].sector_title || id;
+      var totalInSector = meta.count != null ? meta.count : rows.length;
+      var strongHere = strongBySector[id] || 0;
+      var top = rows.filter(function (row) {
+        return fundScoreTotal(row) >= 70;
+      });
+      var rest = rows.filter(function (row) {
+        return fundScoreTotal(row) < 70;
+      });
+      var body =
+        industryRows(top) +
+        (top.length && rest.length
+          ? '<tr class="ind-split"><td colspan="8">Ниже порога</td></tr>'
+          : "") +
+        industryRows(rest);
+      return (
+        '<section class="industry" data-industry="' +
+        escapeHtml(id) +
+        '">' +
+        '<header class="industry__head">' +
+        "<h3>" +
+        escapeHtml(title) +
+        "</h3>" +
+        '<p class="industry__meta"><span>' +
+        plainNumber(strongHere) +
+        " рекомендуем</span><span>" +
+        plainNumber(rows.length) +
+        " в списке</span><span>" +
+        plainNumber(totalInSector) +
+        " в отрасли</span></p>" +
+        "</header>" +
+        '<div class="table-scroll"><table class="data-table industry__table"><thead><tr>' +
+        heads +
+        "</tr></thead><tbody>" +
+        body +
+        "</tbody></table></div></section>"
+      );
+    }
+
+    var chipTotals = {};
+    var chipStrong = {};
+    afterData.forEach(function (row) {
+      var id = fundSectorId(row);
+      chipTotals[id] = (chipTotals[id] || 0) + 1;
+      if (fundScoreTotal(row) >= 70) chipStrong[id] = (chipStrong[id] || 0) + 1;
+    });
+    var allChipCount = afterData.filter(function (row) {
+      return fundPassesLens(row, lens);
+    }).length;
+    var sectorChips =
+      '<div class="industry-chips" role="group" aria-label="Отрасль">' +
+      '<button type="button" data-fund-sector="all"' +
+      (sector === "all" ? ' aria-pressed="true"' : "") +
+      "><span>Все отрасли</span><strong>" +
+      plainNumber(allChipCount) +
+      "</strong></button>" +
+      sectorOrder
+        .map(function (id) {
+          var total = chipTotals[id] || 0;
+          if (!total && sector !== id) return "";
+          var meta = sectorMeta[id] || {};
+          var label =
+            lens === "strong" && sector === "all"
+              ? plainNumber(chipStrong[id] || 0) + "/" + plainNumber(total)
+              : plainNumber(total);
+          return (
+            '<button type="button" data-fund-sector="' +
+            escapeHtml(id) +
+            '"' +
+            (sector === id ? ' aria-pressed="true"' : "") +
+            "><span>" +
+            escapeHtml(meta.title || id) +
+            "</span><strong>" +
+            escapeHtml(label) +
+            "</strong></button>"
+          );
+        })
+        .join("") +
+      "</div>";
+
+    var blocks = sectorIds
+      .map(function (id) {
+        return industryBlock(id, sectorBuckets[id]);
+      })
+      .join("");
+
+    var summary =
+      sector !== "all"
+        ? "Отрасль целиком: <strong>" +
+          plainNumber(shown.length) +
+          "</strong> компаний в списке. Фильтр «Рекомендуем» действует только в «Все отрасли»."
+        : lens === "strong"
+          ? "Рекомендуем по показателям: <strong>" +
+            plainNumber(strongCount) +
+            "</strong> компаний в <strong>" +
+            plainNumber(strongSectors) +
+            "</strong> отраслях (скор ≥70)."
+          : lens === "weak"
+            ? "Слабее порога: <strong>" +
+              plainNumber(weakCount) +
+              "</strong> компаний со скором ниже 70."
+            : "Все компании с цифрами брокера: <strong>" +
+              plainNumber(afterQuery.length) +
+              "</strong>.";
+
+    var empty = !items.length
+      ? "Список ещё грузится"
+      : query
+        ? "Такой компании нет"
+        : sector !== "all"
+          ? "В этой отрасли пусто"
+          : lens === "strong"
+            ? "В этом срезе нет компаний со скором ≥70"
+            : "В этом срезе пусто";
+
+    byId("page-body").innerHTML =
+      '<section class="industries">' +
+      '<div class="industries__toolbar">' +
+      '<p class="industries__summary">' +
+      summary +
+      " Скор из P/E, P/B, EPS, ROE и дивиденда.</p>" +
+      '<div class="tape-bar industries__actions">' +
+      '<button type="button" class="primary" id="fund-refresh">Обновить с брокера</button>' +
+      '<input id="fund-find" class="tape-find" type="search" placeholder="Тикер или имя" value="' +
+      escapeHtml(lastCompaniesQuery || "") +
+      '" aria-label="Найти компанию">' +
+      "</div></div>" +
+      '<div class="tape-filters" role="group" aria-label="Сила по показателям">' +
+      '<button type="button" data-fund-lens="strong"' +
+      (lens === "strong" ? ' aria-pressed="true"' : "") +
+      "><span>Рекомендуем</span><strong>" +
+      plainNumber(strongCount) +
+      "</strong></button>" +
+      '<button type="button" data-fund-lens="all"' +
+      (lens === "all" ? ' aria-pressed="true"' : "") +
+      "><span>Все</span><strong>" +
+      plainNumber(afterQuery.length) +
+      "</strong></button>" +
+      '<button type="button" data-fund-lens="weak"' +
+      (lens === "weak" ? ' aria-pressed="true"' : "") +
+      "><span>Слабее</span><strong>" +
+      plainNumber(weakCount) +
+      "</strong></button>" +
+      "</div>" +
+      sectorChips +
+      '<div class="tape-filters industries__data" role="group" aria-label="Полнота данных">' +
+      '<button type="button" data-fund-mode="all"' +
+      (mode === "all" ? ' aria-pressed="true"' : "") +
+      "><span>Любые данные</span></button>" +
+      '<button type="button" data-fund-mode="full"' +
+      (mode === "full" ? ' aria-pressed="true"' : "") +
+      "><span>Без дыр</span><strong>" +
+      plainNumber(Math.max(0, afterQuery.length - holeNames)) +
+      "</strong></button>" +
+      '<button type="button" data-fund-mode="gaps"' +
+      (mode === "gaps" ? ' aria-pressed="true"' : "") +
+      "><span>Дыры</span><strong>" +
+      plainNumber(holeNames) +
+      "</strong></button>" +
+      '<button type="button" data-fund-mode="stale"' +
+      (mode === "stale" ? ' aria-pressed="true"' : "") +
+      "><span>Старые</span><strong>" +
+      plainNumber(staleNames) +
+      "</strong></button>" +
+      "</div>" +
+      '<p id="fund-board-note" class="tape-note">' +
+      escapeHtml(lastCompaniesNote || "") +
+      "</p>" +
+      (blocks || '<p class="industries__empty">' + escapeHtml(empty) + "</p>") +
+      "</section>";
+    bindTestCompanies();
+  }
+
+  function bindTestCompanies() {
+    document.querySelectorAll("[data-fund-lens]").forEach(function (btn) {
+      btn.onclick = function () {
+        lastFundLens = btn.getAttribute("data-fund-lens") || "strong";
+        renderTestCompanies();
+      };
+    });
+    document.querySelectorAll("[data-fund-mode]").forEach(function (btn) {
+      btn.onclick = function () {
+        lastFundMode = btn.getAttribute("data-fund-mode") || "all";
+        renderTestCompanies();
+      };
+    });
+    document.querySelectorAll("[data-fund-sector]").forEach(function (btn) {
+      btn.onclick = function () {
+        lastCompaniesSector = btn.getAttribute("data-fund-sector") || "all";
+        renderTestCompanies();
+      };
+    });
+    var find = byId("fund-find");
+    if (find) {
+      find.oninput = function () {
+        lastCompaniesQuery = find.value || "";
+        var pos = find.selectionStart;
+        renderTestCompanies();
+        var again = byId("fund-find");
+        if (again) {
+          again.focus();
+          again.selectionStart = again.selectionEnd = pos;
+        }
+      };
+    }
+    var refresh = byId("fund-refresh");
+    if (refresh) {
+      refresh.onclick = function () {
+        var note = byId("fund-board-note");
+        refresh.disabled = true;
+        if (note) note.textContent = "Обновляю показатели у брокера…";
+        apiPost("/fundamentals/refresh", {}, { timeoutMs: 180000 })
+          .then(function () {
+            lastCompaniesNote = "Показатели обновлены.";
+            return refreshCompanies();
+          })
+          .catch(function (err) {
+            lastCompaniesNote = err.message || "брокер не отдал показатели";
+            renderTestCompanies();
+          })
+          .finally(function () {
+            refresh.disabled = false;
+          });
+      };
+    }
+  }
+
+  function renderTestStrategy() {
+    var picked = lastDeskSleeve || "abs_momentum_4";
+    var groups = SLEEVE_GROUPS.map(function (group) {
+      var buttons = group.ids.map(function (id) {
+        var on = id === picked ? ' aria-pressed="true"' : "";
+        return '<button type="button" data-sleeve="' + escapeHtml(id) + '"' + on + ">" + escapeHtml(SLEEVE_NAMES[id] || id) + "</button>";
+      }).join("");
+      return "<section><h3>" + escapeHtml(group.title) + "</h3><div class=\"sleeve-picks\">" + buttons + "</div></section>";
+    }).join("");
+    var names = {};
+    ((lastCandlesCoverage && lastCandlesCoverage.items) || []).forEach(function (row) {
+      if (row.ticker) names[row.ticker] = row.name || "";
+    });
+    function tickerLabel(ticker) {
+      var name = names[ticker];
+      if (name && String(name).toUpperCase() !== ticker) return name + " · " + ticker;
+      return ticker;
+    }
+    var sectors = (lastDeskGroups && lastDeskGroups.sectors) || [];
+    var ticker = lastDeskTicker || "SBER";
+    var tickerHtml;
+    if (sectors.length) {
+      tickerHtml = '<select id="test-ticker">' + sectors.map(function (sector) {
+        var opts = (sector.tickers || []).map(function (item) {
+          return '<option value="' + escapeHtml(item) + '"' + (item === ticker ? " selected" : "") + ">" + escapeHtml(tickerLabel(item)) + "</option>";
+        }).join("");
+        return '<optgroup label="' + escapeHtml(sector.title || sector.id || "Бумага") + '">' + opts + "</optgroup>";
+      }).join("") + "</select>";
+    } else {
+      tickerHtml = '<input id="test-ticker" value="' + escapeHtml(ticker) + '" maxlength="12" spellcheck="false">';
+    }
+    var result = lastDeskBacktest;
+    var resultHtml = "<p class=\"muted\">Здесь будут доходность, итог в рублях, число сделок и просадка. Заявка не ставится.</p>";
+    if (result && result.error) {
+      resultHtml = "<p class=\"error\">" + escapeHtml(result.error) + "</p>";
+    } else if (result && result.backtest) {
+      var summary = (result.backtest || {}).summary || {};
+      var ret = summary.total_return;
+      resultHtml =
+        "<h3>" + escapeHtml(SLEEVE_NAMES[picked] || picked) + " · " + escapeHtml(tickerLabel(lastDeskTicker || "")) + "</h3>" +
+        '<dl class="tape-result">' +
+        "<div><dt>Доходность</dt><dd>" + (ret == null ? "—" : plainNumber(Number(ret) * 100) + "%") + "</dd></div>" +
+        "<div><dt>Итог</dt><dd>" + rubles(summary.net_pnl) + "</dd></div>" +
+        "<div><dt>Сделок</dt><dd>" + plainNumber(summary.trades) + "</dd></div>" +
+        "<div><dt>Просадка</dt><dd>" + (summary.max_drawdown == null ? "—" : plainNumber(Number(summary.max_drawdown) * 100) + "%") + "</dd></div>" +
+        "</dl>";
+    }
+    byId("page-body").innerHTML =
+      '<section class="tape">' +
+      '<p class="tape-lead">Четыре группы стратегий. Выбери одну и бумагу из своей отрасли. Считаем по скачанному файлу, заявка не ставится.</p>' +
+      '<div class="sleeve-groups">' + groups + "</div>" +
+      '<p class="sleeve-how">' + escapeHtml(SLEEVE_LINE[picked] || "") + "</p>" +
+      '<div class="tape-run">' +
+      "<label>Бумага " + tickerHtml + "</label>" +
+      '<button type="button" class="primary" id="test-run">Проверить</button>' +
+      "</div>" +
+      '<div id="test-run-note"></div>' + resultHtml + "</section>";
+    document.querySelectorAll("[data-sleeve]").forEach(function (btn) {
+      btn.onclick = function () {
+        var box = byId("test-ticker");
+        if (box) lastDeskTicker = box.value;
+        lastDeskSleeve = btn.getAttribute("data-sleeve") || picked;
+        renderTestStrategy();
+      };
+    });
+    var run = byId("test-run");
+    if (run) run.onclick = function () {
+      var sleeve = lastDeskSleeve || picked;
+      var box = byId("test-ticker");
+      var symbol = String((box && box.value) || "").trim().toUpperCase();
+      if (!/^[A-Z0-9]{1,12}$/.test(symbol)) {
+        window.alert("Тикер: латинские буквы и цифры, до 12 знаков");
+        return;
+      }
+      lastDeskSleeve = sleeve;
+      lastDeskTicker = symbol;
+      run.disabled = true;
+      var note = byId("test-run-note");
+      if (note) note.textContent = "Считаю " + (SLEEVE_NAMES[sleeve] || sleeve) + " по " + tickerLabel(symbol) + "…";
+      apiPost("/backtests", { sleeve: sleeve, ticker: symbol }, { timeoutMs: 120000 }).then(function (data) {
+        lastDeskBacktest = data.result || data;
+        renderTestStrategy();
+      }).catch(function (err) {
+        lastDeskBacktest = { error: err.message || "прогон не удался" };
+        renderTestStrategy();
+      });
+    };
+    if (!deskListTried) {
+      deskListTried = true;
+      var jobs = [];
+      if (!sectors.length) {
+        jobs.push(apiGet("/desk/candles?tf=1d").then(function (data) {
+          lastDeskTickers = (data && data.tickers) || [];
+          lastDeskGroups = {
+            moex: ((data && data.groups) || {}).moex || [],
+            sp500: ((data && data.groups) || {}).sp500 || [],
+            sectors: ((data && data.groups) || {}).sectors || [],
+          };
+        }).catch(function () {}));
+      }
+      if (!lastCandlesCoverage) {
+        jobs.push(apiGet("/candles/coverage").then(function (data) {
+          lastCandlesCoverage = data;
+        }).catch(function () {}));
+      }
+      if (jobs.length) {
+        Promise.all(jobs).then(function () {
+          if (currentRoute === "strategies") renderTestStrategy();
+        });
+      }
+    }
+  }
+
+  function renderDeskHome() {
+    byId("page-body").innerHTML =
+      '<div class="desk-fork">' +
+      '<section class="desk-pane desk-pane-test">' +
+      "<h3>Тест</h3>" +
+      "<p>Скачиваем свечи и проверяем стратегии на истории. Брокеру отсюда ничего не отправляется.</p>" +
+      "<ul><li>Скачать свечи</li><li>Проверить стратегию</li><li>Посмотреть, что вышло</li></ul>" +
+      '<a class="desk-go" href="#/candles">Открыть тест</a>' +
+      "</section>" +
+      '<section class="desk-pane desk-pane-work">' +
+      "<h3>Работа</h3>" +
+      "<p>Один счёт песочницы и одна стратегия: Абс. моментум-4. Деньги игровые.</p>" +
+      '<p id="desk-work-status">Смотрю счёт…</p>' +
+      '<a class="desk-go" href="#/work">Открыть работу</a>' +
+      "</section>" +
+      "</div>";
+    apiGet("/work").then(function (data) {
+      var box = byId("desk-work-status");
+      if (!box) return;
+      var step = (data.steps || []).filter(function (item) { return item.ok; }).length;
+      var cash = data.portfolio && data.portfolio.cash != null ? data.portfolio.cash : "";
+      box.textContent = "Шаг " + step + " из 5. На счёте " + rubles(cash) + ".";
+    }).catch(function () {
+      var box = byId("desk-work-status");
+      if (box) box.textContent = "Счёт сейчас не прочитался.";
+    });
+  }
+
   function renderStrategies() {
+    if (deskMode() === "test") {
+      renderTestStrategy();
+      return;
+    }
     var body = byId("page-body");
     var sleeveId = strategiesSleeveFromHash();
     if (sleeveId) {
@@ -4449,7 +5867,7 @@
     }
     signalFilterTicker = "";
     signalFilterKind = "";
-    body.innerHTML = renderStrategiesCompare();
+    body.innerHTML = candlePullHtml() + renderStrategiesCompare();
     body.querySelectorAll("tr[data-href]").forEach(function (row) {
       row.addEventListener("click", function (event) {
         if (event.target && event.target.closest && event.target.closest("a")) {
@@ -4459,6 +5877,7 @@
       });
     });
     bindStrategiesLabControls();
+    bindCandlePull();
   }
 
   function syncBudgetInputs(changedEl) {
@@ -4886,16 +6305,6 @@
       sleeveDetailLoading = false;
       if (currentRoute === "strategies") renderStrategies();
     });
-  }
-
-  function whatis(title, text) {
-    return (
-      '<span class="whatis" title="' +
-      escapeHtml(text) +
-      '" aria-label="' +
-      escapeHtml(title + ": " + text) +
-      '">?</span>'
-    );
   }
 
   function portfolioTabsHtml() {
@@ -5416,6 +6825,165 @@
     if (portfolioTab === "drift") bindDriftActions();
   }
 
+  function workSignal(trades) {
+    if (!trades || !trades.length) return "ждёт";
+    var last = trades[trades.length - 1];
+    if (last.side === "sell") return "выход";
+    if (last.side === "buy") return "в позиции";
+    return "ждёт";
+  }
+
+  function workChartSvg(chart) {
+    var bars = (chart && chart.bars) || [];
+    var curve = (chart && chart.equity_curve) || [];
+    var series = bars.length
+      ? bars.map(function (b) { return Number(b.close); })
+      : curve.map(function (b) { return Number(b.equity); });
+    if (!series.length) return "<p class=\"muted\">График появится после ленты и сделок.</p>";
+    var min = Math.min.apply(null, series);
+    var max = Math.max.apply(null, series);
+    if (max === min) max = min + 1;
+    var w = 640;
+    var h = 180;
+    var pts = series.map(function (v, i) {
+      var x = series.length === 1 ? 0 : (i / (series.length - 1)) * w;
+      var y = h - ((v - min) / (max - min)) * (h - 16) - 8;
+      return x.toFixed(1) + "," + y.toFixed(1);
+    }).join(" ");
+    var marks = "";
+    (chart.marks || []).forEach(function (mark) {
+      var day = String(mark.ts || "").slice(0, 10);
+      var idx = -1;
+      bars.forEach(function (b, i) { if (b.ts === day) idx = i; });
+      if (idx < 0) return;
+      var x = bars.length === 1 ? 0 : (idx / (bars.length - 1)) * w;
+      var price = Number(mark.price);
+      var y = h - ((price - min) / (max - min)) * (h - 16) - 8;
+      var fill = mark.side === "sell" ? "#9a3412" : "#1d4e3a";
+      marks += "<circle cx=\"" + x.toFixed(1) + "\" cy=\"" + y.toFixed(1) + "\" r=\"4\" fill=\"" + fill + "\"></circle>";
+    });
+    return "<svg class=\"work-chart\" viewBox=\"0 0 " + w + " " + h + "\" role=\"img\" aria-label=\"Цена и отметки сделок\"><polyline fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" points=\"" + pts + "\"></polyline>" + marks + "</svg>";
+  }
+
+  function renderWork() {
+    byId("page-body").innerHTML = "<section class=\"work-grid\" id=\"work-root\"><p class=\"muted\">Читаю песочницу…</p></section>";
+  }
+
+  function refreshWork() {
+    return apiGet("/work").then(function (data) {
+      paintWork(data);
+    }).catch(function (err) {
+      byId("page-body").innerHTML = "<p class=\"error\">" + escapeHtml(err.message || "ошибка") + "</p>";
+    });
+  }
+
+  function paintWork(data) {
+    var root = byId("work-root");
+    if (!root) return;
+    var steps = (data.steps || []).map(function (step, i) {
+      return "<li class=\"" + (step.ok ? "ok" : "") + "\"><span>" + (i + 1) + "</span> " + escapeHtml(step.title) + "</li>";
+    }).join("");
+    var port = data.portfolio || {};
+    var positions = (port.positions || []).filter(function (row) {
+      var ticker = String(row.ticker || "");
+      return ticker.indexOf("UTSTOM") === -1 && !/^(RUB|USD|EUR)/.test(ticker);
+    }).map(function (row) {
+      return "<li>" + escapeHtml(row.ticker || row.figi || "позиция") + " · " + plainNumber(row.qty) + " шт · средняя " + rubles(row.avg_price) + "</li>";
+    }).join("") || "<li>Позиций нет</li>";
+    var trades = (data.trades || []).map(function (row) {
+      var layer = row.side === "buy" && Number(row.layer) > 1
+        ? " · докуп " + row.layer + ", средняя после " + rubles(row.avg_after)
+        : "";
+      return "<tr><td>" + escapeHtml(row.ticker) + "</td><td>" + escapeHtml(String(row.ts || "").replace("T", " ").slice(0, 16)) + "</td><td>" + escapeHtml(row.side === "buy" ? "покупка" : "продажа") + "</td><td>" + rubles(row.price) + "</td><td>" + plainNumber(row.qty) + layer + "</td></tr>";
+    }).join("");
+    var accounts = (data.accounts || []).map(function (row) {
+      var id = row.broker_account_id || "";
+      return "<option value=\"" + escapeHtml(id) + "\"" + (id === data.account_id ? " selected" : "") + ">" + escapeHtml(row.name || id) + "</option>";
+    }).join("");
+    var next = "";
+    var stepsOk = {};
+    (data.steps || []).forEach(function (step) { stepsOk[step.id] = !!step.ok; });
+    if (!stepsOk.token) {
+      next = "<button type=\"button\" id=\"work-probe\">Проверить связь</button>";
+    } else if (!stepsOk.account) {
+      next =
+        "<label>Счёт <select id=\"work-account\">" + accounts + "</select></label>" +
+        "<button type=\"button\" id=\"work-account-save\">Выбрать счёт</button>" +
+        "<button type=\"button\" id=\"work-open\">Открыть счёт песочницы</button>";
+    } else if (!stepsOk.strategy) {
+      next = "<button type=\"button\" id=\"work-strategy\">Подключить Абс. моментум-4</button>";
+    } else if (!stepsOk.params) {
+      next =
+        "<label>Доля стратегии, % <input id=\"work-sleeve\" type=\"number\" inputmode=\"numeric\" min=\"1\" max=\"99\" step=\"1\" required value=\"" + escapeHtml(shareToPercent(data.sleeve_share || "0.40")) + "\"></label>" +
+        "<label>Не больше на одну бумагу, % <input id=\"work-cap\" type=\"number\" inputmode=\"numeric\" min=\"1\" max=\"99\" step=\"1\" required value=\"" + escapeHtml(shareToPercent(data.name_cap || "0.10")) + "\"></label>" +
+        "<button type=\"button\" id=\"work-params\">Сохранить доли</button>";
+    } else if (!stepsOk.enabled) {
+      next = "<button type=\"button\" id=\"work-on\">Включить заявки</button>";
+    } else {
+      next = "<button type=\"button\" id=\"work-off\">Выключить заявки</button>";
+    }
+    var cash = port.cash == null || port.cash === "" ? "—" : String(port.cash);
+    root.innerHTML =
+      '<section class="work-now">' +
+      "<div><h3>Счёт песочницы</h3><p class=\"work-cash\">" + rubles(port.cash) + "</p>" +
+      "<ul>" + positions + "</ul>" +
+      "<p>Сигнал: " + escapeHtml(workSignal(data.trades)) + "</p></div>" +
+      "<ol class=\"work-rail\">" + steps + "</ol></section>" +
+      "<p class=\"muted\">" + escapeHtml(data.error || "Токен брокера остаётся на сервере. В браузер он не приходит.") + "</p>" +
+      '<div class="work-actions">' + next + "</div>" +
+      "<h3>Сделки рукава</h3><table class=\"data\"><thead><tr><th>Тикер</th><th>Время</th><th>Сторона</th><th>Цена</th><th>Количество</th></tr></thead><tbody>" +
+      (trades || "<tr><td colspan=\"5\">Заявок рукава ещё нет</td></tr>") + "</tbody></table>" +
+      "<div id=\"work-chart\"></div>";
+    var ticker = ((data.trades || []).slice(-1)[0] || {}).ticker || "";
+    if (ticker) {
+      apiGet("/work/chart?ticker=" + encodeURIComponent(ticker)).then(function (chart) {
+        var box = byId("work-chart");
+        if (box) box.innerHTML = "<h2>" + escapeHtml(ticker) + "</h2>" + workChartSvg(chart);
+      });
+    }
+    bindWork();
+  }
+
+  function bindWork() {
+    var probe = byId("work-probe");
+    if (probe) probe.onclick = function () { apiPost("/work/probe", {}).then(refreshWork); };
+    var open = byId("work-open");
+    if (open) open.onclick = function () {
+      open.disabled = true;
+      apiPost("/work/open", {}).then(paintWork).catch(function (err) {
+        window.alert(err.message || "счёт не открылся");
+      }).finally(function () { open.disabled = false; });
+    };
+    var account = byId("work-account-save");
+    if (account) account.onclick = function () {
+      var select = byId("work-account");
+      apiPost("/work/account", { account_id: select ? select.value : "" }).then(paintWork);
+    };
+    var strategy = byId("work-strategy");
+    if (strategy) strategy.onclick = function () { apiPost("/work/strategy", {}).then(paintWork); };
+    var params = byId("work-params");
+    if (params) params.onclick = function () {
+      var sleeveInput = byId("work-sleeve");
+      var capInput = byId("work-cap");
+      try {
+        var sleeve = readPercent(sleeveInput, "Доля стратегии");
+        var cap = readPercent(capInput, "Лимит на бумагу");
+        if (Number(cap) > Number(sleeve)) {
+          throw new Error("На одну бумагу нельзя больше, чем на всю стратегию");
+        }
+        apiPost("/work/params", { sleeve_share: sleeve, name_cap: cap }).then(paintWork);
+      } catch (err) {
+        window.alert(err.message || "проверьте проценты");
+      }
+    };
+    var on = byId("work-on");
+    if (on) on.onclick = function () {
+      apiPost("/work/enable", { enabled: true }).then(paintWork).catch(function (err) { window.alert(err.message || "ещё рано"); });
+    };
+    var off = byId("work-off");
+    if (off) off.onclick = function () { apiPost("/work/enable", { enabled: false }).then(paintWork); };
+  }
+
   function showRoute(id) {
     if (!authed) return;
     var route = null;
@@ -5430,7 +6998,7 @@
       stopCompaniesPoll();
     }
     currentRoute = route.id;
-
+    renderNav();
     syncNavActive(route.id);
     closeMobileMore();
 
@@ -5438,6 +7006,10 @@
     byId("page-intro").textContent = route.intro;
     document.title = "i.datagon · " + route.title;
 
+    if (route.id === "home") {
+      renderDeskHome();
+      return;
+    }
     if (route.id === "overview") {
       renderOverview();
       loadOverviewData(true).then(function () {
@@ -5469,6 +7041,11 @@
       refreshPortfolioBook().then(function () {
         maybeStartPortfolioTour();
       });
+      return;
+    }
+    if (route.id === "candles") {
+      renderCandles();
+      refreshCandles();
       return;
     }
     if (route.id === "strategies") {
@@ -5520,6 +7097,11 @@
       });
       return;
     }
+    if (route.id === "work") {
+      renderWork();
+      refreshWork();
+      return;
+    }
     if (route.id === "journal") {
       if (hashQuery().tab === "ledger") journalTab = "ledger";
       else if (hashQuery().tab === "audit") journalTab = "audit";
@@ -5550,8 +7132,8 @@
       setHash(id);
       return;
     }
-    if (raw && id === "overview" && raw !== "overview") {
-      setHash("overview");
+    if (raw && id === "home" && raw !== "home") {
+      setHash("home");
       return;
     }
     showRoute(id);
@@ -7279,6 +8861,34 @@
     var remember = byId("remember-token");
     remember.checked = localStorage.getItem(REMEMBER_KEY) !== "0";
     byId("app-token").value = readStoredToken();
+
+    document.addEventListener("mouseover", function (event) {
+      var tip = event.target && event.target.closest
+        ? event.target.closest(".whatis")
+        : null;
+      if (tip) tip.classList.add("is-open");
+    });
+    document.addEventListener("mouseout", function (event) {
+      var tip = event.target && event.target.closest
+        ? event.target.closest(".whatis")
+        : null;
+      if (!tip) return;
+      var related = event.relatedTarget;
+      if (related && tip.contains(related)) return;
+      tip.classList.remove("is-open");
+    });
+    document.addEventListener("focusin", function (event) {
+      var tip = event.target && event.target.closest
+        ? event.target.closest(".whatis")
+        : null;
+      if (tip) tip.classList.add("is-open");
+    });
+    document.addEventListener("focusout", function (event) {
+      var tip = event.target && event.target.closest
+        ? event.target.closest(".whatis")
+        : null;
+      if (tip) tip.classList.remove("is-open");
+    });
 
     byId("gate-form").addEventListener("submit", function (event) {
       event.preventDefault();

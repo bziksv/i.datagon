@@ -125,6 +125,8 @@ def _sector_groups(items: list[dict]) -> list[dict]:
 
 def fundamentals_view(rows: Sequence[Fundamental]) -> dict:
     # Синтетические демо-снимки не показываем — только брокер / живые метрики.
+    from app.ops.fundamentals_refresh import schedule_view
+
     live = [row for row in rows if not (row.raw or {}).get("demo")]
     items = [fundamental_item(row) for row in live]
     items.sort(key=lambda row: row["scores"]["total"], reverse=True)
@@ -134,6 +136,7 @@ def fundamentals_view(rows: Sequence[Fundamental]) -> dict:
         "count": len(items),
         "source": "broker",
         "disclaimer": DISCLAIMER,
+        "refresh": schedule_view(),
     }
 
 

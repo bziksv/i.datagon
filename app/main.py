@@ -298,6 +298,9 @@ def create_app() -> FastAPI:
             "yes",
             "on",
         }
+        from app.ops.candle_refresh import schedule_view as candle_refresh_schedule
+        from app.ops.fundamentals_refresh import schedule_view as fund_refresh_schedule
+
         return {
             **ready,
             "killed": is_killed(flags),
@@ -307,6 +310,10 @@ def create_app() -> FastAPI:
             "vault": vault_view(entries),
             "version": __version__,
             "env": os.environ.get("APP_ENV", "dev"),
+            "refresh": {
+                "candles": candle_refresh_schedule(now),
+                "fundamentals": fund_refresh_schedule(now),
+            },
         }
 
     @app.get("/kill")
@@ -652,6 +659,11 @@ def create_app() -> FastAPI:
         sleeve: str = Field(..., min_length=1)
         ticker: str = Field(default="SBER", min_length=1)
 
+    class CandlePullBody(BaseModel):
+        ticker: str = Field(..., min_length=1, max_length=12)
+        days: int = 730
+        tf: str = "1d"
+
     class DeskBacktestBatchBody(BaseModel):
         sleeves: list[str] | None = None
         tickers: list[str] | None = None
@@ -821,6 +833,42 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=422, detail="unsupported tf")
         return list_candle_universe(tf=frame)
 
+    @app.post("/desk/candles/pull")
+    def desk_candles_pull(body: CandlePullBody) -> dict:
+        from app.broker.tinkoff import InstrumentNotFound
+        from app.ops.broker_daily import pull_daily
+        from app.ops.candle_coverage import STRATEGY_TFS, candle_root
+        from app.ops.refresh_candles import refresh
+
+        symbol = body.ticker.strip().upper()
+        frame = (body.tf or "1d").strip().lower()
+        if frame not in STRATEGY_TFS:
+            raise HTTPException(status_code=422, detail="unsupported tf")
+        days = int(body.days)
+        if frame in {"15m", "10m"} and days > 180:
+            days = 180
+        try:
+            if frame == "1d":
+                bars = pull_daily(symbol, days=days)
+            else:
+                path = refresh([symbol], days=days, tf=frame, root=candle_root(frame))[0]
+                bars = max(0, len(path.read_text(encoding="utf-8").splitlines()) - 1)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except InstrumentNotFound as exc:
+            raise HTTPException(
+                status_code=404,
+                detail=f"бумага {symbol} не найдена у брокера",
+            ) from exc
+        except BrokerTokenError:
+            raise
+        except Exception as exc:
+            raise HTTPException(
+                status_code=502,
+                detail=f"брокер не отдал дневки для {symbol}: {exc}",
+            ) from exc
+        return {"ticker": symbol, "bars": bars, "tf": frame}
+
     @app.post("/desk/backtest")
     def run_desk_backtest(body: DeskBacktestBody) -> dict:
         return _run_desk_backtest(body)
@@ -961,12 +1009,17 @@ def create_app() -> FastAPI:
         return fundamentals_view(rows)
 
     @app.get("/candles/coverage")
-    async def candles_coverage(session: AsyncSession = Depends(get_db)) -> dict:
-        """Сколько тикеров из fundamentals имеют дневные CSV (~2 года)."""
-        import os
-        from datetime import datetime
-        from pathlib import Path
+    async def candles_coverage(
+        tf: str = "1d",
+        session: AsyncSession = Depends(get_db),
+    ) -> dict:
+        """Покрытие CSV для форматов стратегий: 1d, 15m, 10m."""
+        from app.advisory.moex_catalog import lookup_name
+        from app.ops.candle_coverage import STRATEGY_TFS, coverage_view
 
+        frame = (tf or "1d").strip().lower()
+        if frame not in STRATEGY_TFS:
+            raise HTTPException(status_code=422, detail="unsupported tf")
         rows = list(await session.scalars(select(Fundamental)))
         tickers = sorted(
             {
@@ -975,56 +1028,15 @@ def create_app() -> FastAPI:
                 if row.ticker and not (row.raw or {}).get("demo")
             }
         )
-        root = Path(os.environ.get("CANDLE_DIR", "data/candles"))
-        ready = 0
-        missing = 0
-        short = 0
-        details: list[dict] = []
-        for ticker in tickers:
-            path = root / f"{ticker}.csv"
-            if not path.exists() or path.stat().st_size < 100:
-                missing += 1
-                details.append({"ticker": ticker, "status": "missing", "bars": 0})
-                continue
-            try:
-                lines = path.read_text(encoding="utf-8").splitlines()
-            except OSError:
-                missing += 1
-                details.append({"ticker": ticker, "status": "missing", "bars": 0})
-                continue
-            bars = max(0, len(lines) - 1)
-            # ~2 года торг. дней ≈ 400+; ниже 300 считаем коротким рядом
-            if bars >= 300:
-                ready += 1
-                status = "ready"
-            else:
-                short += 1
-                status = "short"
-            first = last = None
-            if bars >= 1 and len(lines) >= 2:
-                try:
-                    first = lines[1].split(",", 1)[0]
-                    last = lines[-1].split(",", 1)[0]
-                except Exception:  # noqa: BLE001
-                    first = last = None
-            details.append(
-                {
-                    "ticker": ticker,
-                    "status": status,
-                    "bars": bars,
-                    "first": first,
-                    "last": last,
-                }
-            )
-        return {
-            "total": len(tickers),
-            "ready": ready,
-            "missing": missing,
-            "short": short,
-            "root": str(root),
-            "as_of": datetime.now(UTC).isoformat(),
-            "items": details,
+        names = {
+            str(row.ticker).upper(): lookup_name(str(row.ticker), row.raw or {})
+            for row in rows
+            if row.ticker and not (row.raw or {}).get("demo")
         }
+        try:
+            return coverage_view(tf=frame, tickers=tickers, names=names)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     @app.get("/recommendations")
     async def recommendations(
@@ -1147,6 +1159,12 @@ def create_app() -> FastAPI:
                 status_code=503,
                 detail=f"Не удалось обновить фундамент: {exc}",
             ) from exc
+        try:
+            from app.ops.fundamentals_refresh import write_stamp
+
+            write_stamp()
+        except Exception:
+            pass
         return {"upserted": saved, "disclaimer": DISCLAIMER}
 
     @app.get("/news")
@@ -1471,5 +1489,81 @@ def create_app() -> FastAPI:
     @app.post("/unkill")
     async def unkill(session: AsyncSession = Depends(get_db)) -> dict:
         return await _set_kill(session, False)
+
+    class WorkAccountBody(BaseModel):
+        account_id: str
+
+    class WorkParamsBody(BaseModel):
+        sleeve_share: str
+        name_cap: str
+
+    class WorkEnableBody(BaseModel):
+        enabled: bool
+
+    @app.get("/work")
+    def work_view() -> dict:
+        from app.work.service import view
+
+        return view()
+
+    @app.get("/work/chart")
+    def work_chart(ticker: str = "") -> dict:
+        from app.work.service import chart
+
+        return chart(ticker)
+
+    @app.post("/work/open")
+    def work_open() -> dict:
+        from app.work.service import open_account
+
+        try:
+            return open_account()
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/work/probe")
+    def work_probe() -> dict:
+        from app.work.service import probe
+
+        try:
+            return probe()
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/work/account")
+    def work_account(body: WorkAccountBody) -> dict:
+        from app.work.service import choose_account
+
+        try:
+            return choose_account(body.account_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/work/strategy")
+    def work_strategy() -> dict:
+        from app.work.service import attach_strategy
+
+        try:
+            return attach_strategy()
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/work/params")
+    def work_params(body: WorkParamsBody) -> dict:
+        from app.work.service import store_params
+
+        try:
+            return store_params(sleeve_share=body.sleeve_share, name_cap=body.name_cap)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/work/enable")
+    def work_enable(body: WorkEnableBody) -> dict:
+        from app.work.service import switch
+
+        try:
+            return switch(body.enabled)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     return app

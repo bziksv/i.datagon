@@ -5,6 +5,9 @@ from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
 
+# c-ares внутри gRPC на macOS не видит DNS. Ставить до импорта grpc.
+os.environ.setdefault("GRPC_DNS_RESOLVER", "native")
+
 from tinkoff.invest import (
     CandleInterval,
     Client,
