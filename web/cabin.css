@@ -32,6 +32,7 @@
 html, body {
   margin: 0;
   min-height: 100%;
+  overflow-x: clip;
   font: 16px/1.5 var(--font);
   background:
     radial-gradient(900px 420px at 8% -8%, #d5e4da 0%, transparent 55%),
@@ -84,6 +85,7 @@ a:focus:not(:focus-visible) {
   padding: 0.65rem var(--space-5);
   border-bottom: 1px solid var(--line);
   background: rgba(255, 255, 255, 0.88);
+  overflow-x: clip;
 }
 
 .status-pill {
@@ -2023,7 +2025,8 @@ button.danger:hover {
 }
 
 .whatis::after {
-  content: attr(data-tip);
+  /* content только когда открыт — иначе max-content раздувает page scrollWidth */
+  content: none;
   position: absolute;
   left: 50%;
   top: calc(100% + 0.45rem);
@@ -2052,6 +2055,7 @@ button.danger:hover {
 .whatis:focus::after,
 .whatis:focus-visible::after,
 .whatis.is-open::after {
+  content: attr(data-tip);
   opacity: 1;
   visibility: visible;
   transform: translateX(-50%) translateY(0);
@@ -2059,6 +2063,19 @@ button.danger:hover {
 
 .status-pill .whatis {
   margin-left: 0;
+}
+
+.status-pill:last-child .whatis::after {
+  left: auto;
+  right: 0;
+  transform: translateX(0) translateY(2px);
+}
+
+.status-pill:last-child .whatis:hover::after,
+.status-pill:last-child .whatis:focus::after,
+.status-pill:last-child .whatis:focus-visible::after,
+.status-pill:last-child .whatis.is-open::after {
+  transform: translateX(0) translateY(0);
 }
 
 .source-line {
