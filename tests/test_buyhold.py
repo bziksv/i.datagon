@@ -85,6 +85,27 @@ def test_run_buyhold_equal_and_skip(tmp_path, monkeypatch) -> None:
     assert out["final_equity"] > 0
 
 
+def test_run_buyhold_uses_name_by_ticker(tmp_path, monkeypatch) -> None:
+    moex = tmp_path / "moex"
+    moex.mkdir()
+    _write_csv(
+        moex / "MRKV.csv",
+        [
+            ("2024-01-10T21:00:00+00:00", "10"),
+            ("2025-01-10T21:00:00+00:00", "12"),
+        ],
+    )
+    monkeypatch.setenv("CANDLE_DIR", str(moex))
+    monkeypatch.setenv("CANDLE_SP500_DIR", str(tmp_path / "sp"))
+    out = run_buyhold(
+        start="2024-01-01",
+        allocations={"MRKV": 1000},
+        commission_bps=Decimal("0"),
+        name_by_ticker={"MRKV": "МРСК Волги"},
+    )
+    assert out["legs"][0]["name"] == "МРСК Волги"
+
+
 def test_run_buyhold_allocations(tmp_path, monkeypatch) -> None:
     moex = tmp_path / "moex"
     moex.mkdir()

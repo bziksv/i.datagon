@@ -943,11 +943,21 @@ def create_app() -> FastAPI:
         return _run_desk_backtest(body)
 
     @app.post("/desk/buyhold")
-    def desk_buyhold(body: DeskBuyholdBody) -> dict:
+    async def desk_buyhold(
+        body: DeskBuyholdBody,
+        session: AsyncSession = Depends(get_db),
+    ) -> dict:
         from decimal import Decimal
 
+        from app.advisory.moex_catalog import lookup_name
         from app.ops.buyhold import run_buyhold
 
+        rows = list(await session.scalars(select(Fundamental)))
+        name_by_ticker = {
+            str(row.ticker).upper(): lookup_name(str(row.ticker), row.raw or {})
+            for row in rows
+            if row.ticker
+        }
         try:
             return run_buyhold(
                 start=body.start,
@@ -959,6 +969,7 @@ def create_app() -> FastAPI:
                     if body.commission_bps is not None
                     else None
                 ),
+                name_by_ticker=name_by_ticker,
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc

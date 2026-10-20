@@ -86,6 +86,7 @@ def run_buyhold(
     allocations: dict[str, float | int | str | Decimal] | None = None,
     tickers: list[str] | None = None,
     commission_bps: Decimal | float | int | None = None,
+    name_by_ticker: dict[str, str] | None = None,
 ) -> dict:
     start_day = _as_date(start)
     bps = (
@@ -107,16 +108,22 @@ def run_buyhold(
                 continue
             alloc_map[ticker] = amt
     elif capital is not None and tickers:
-        names = [str(t).strip().upper() for t in tickers if str(t).strip()]
+        symbols = [str(t).strip().upper() for t in tickers if str(t).strip()]
         cap = Decimal(str(capital))
         if cap <= 0:
             raise ValueError("capital must be > 0")
-        alloc_map = _equal_allocations(names, cap)
+        alloc_map = _equal_allocations(symbols, cap)
     else:
         raise ValueError("нужны allocations или capital+tickers")
 
     if not alloc_map:
         raise ValueError("нет бумаг с положительной суммой")
+
+    labels = {
+        str(k).strip().upper(): str(v).strip()
+        for k, v in (name_by_ticker or {}).items()
+        if str(k).strip() and str(v).strip()
+    }
 
     legs: list[dict] = []
     skipped: list[dict] = []
@@ -200,7 +207,10 @@ def run_buyhold(
         legs.append(
             {
                 "ticker": ticker,
-                "name": lookup_name(ticker),
+                "name": lookup_name(
+                    ticker,
+                    {"name": labels[ticker]} if ticker in labels else None,
+                ),
                 "status": "ok",
                 "budget": _num(budget),
                 "shares": int(shares),

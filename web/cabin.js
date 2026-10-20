@@ -6044,12 +6044,16 @@
         .sort(function (a, b) {
           return Number(b.pnl_pct || 0) - Number(a.pnl_pct || 0);
         });
+      var nameHints = whatIfTickerNames();
       var legRows = legs
         .map(function (leg) {
           var tone = whatIfTone(leg.pnl_pct);
-          var who =
-            (leg.name ? escapeHtml(leg.name) + " · " : "") +
-            escapeHtml(leg.ticker || "");
+          var ticker = String(leg.ticker || "").toUpperCase();
+          var name = String(leg.name || nameHints[ticker] || "").trim();
+          if (name && name.toUpperCase() === ticker) name = "";
+          var who = name
+            ? escapeHtml(name) + " · " + escapeHtml(ticker)
+            : escapeHtml(ticker);
           return (
             '<tr class="' +
             tone +
