@@ -4326,13 +4326,11 @@
     return (
       '<section class="panel" data-tour="strategies-desk">' +
       "<h3>Прогон на истории</h3>" +
-      "<p>" +
-      "<strong>Не путать с гарантией прибыли.</strong> Модель по файлу свечей: файл можно скачать с брокера кнопкой выше или оставить уже лежащий CSV. Исполнение на открытии следующего бара, комиссия и проскальзывание, сравнение с «купить и держать». Заявка не ставится. " +
-      "Даты не выбираются вручную — берётся весь файл тикера (дневки ~2 года; vol_scalp — M10 ~2 года). Сейчас доступно: " +
+      '<p class="source-line">' +
       escapeHtml(String(moexTickers.length)) +
-      " MOEX + " +
+      " MOEX · " +
       escapeHtml(String(sp500Tickers.length)) +
-      " S&P. По умолчанию отмечено ядро MOEX; отрасли и США — галочками ниже." +
+      " S&P · весь CSV · заявка не ставится" +
       "</p>" +
       '<div class="desk-batch-pick" data-tour="strategies-desk-pick">' +
       sleeveChecks +
@@ -5813,11 +5811,7 @@
   function renderStrategies() {
     if (deskMode() === "test") {
       var testBody = byId("page-body");
-      testBody.innerHTML =
-        '<section class="tape">' +
-        '<p class="tape-lead">Отметьте рукава и тикеры — пакетный прогон по CSV. Заявка не ставится.</p>' +
-        "</section>" +
-        renderStrategiesDesk();
+      testBody.innerHTML = renderStrategiesDesk();
       bindStrategiesLabControls();
       if (!deskListTried || !(lastDeskTickers && lastDeskTickers.length)) {
         deskListTried = true;
