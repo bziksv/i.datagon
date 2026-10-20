@@ -2333,6 +2333,107 @@ pre.payload {
   padding-top: 0.15rem;
 }
 
+.whatif h3 {
+  margin: 0 0 0.35rem;
+}
+
+.whatif-params {
+  margin-top: 0.35rem;
+}
+
+.whatif-params input[type="number"],
+.whatif-params input[type="date"],
+.whatif-amounts input[type="number"] {
+  width: 100%;
+  min-width: 8rem;
+  max-width: 12rem;
+  padding: 0.4rem 0.55rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  background: #fff;
+}
+
+.whatif-amounts {
+  margin: 0.75rem 0 1rem;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.whatif-amounts__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.whatif-amounts__head h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.whatif-amt-table {
+  width: 100%;
+}
+
+.whatif-amounts td.num input {
+  display: block;
+  text-align: right;
+  width: 9rem;
+  max-width: 100%;
+  margin-left: auto;
+}
+
+.whatif-error {
+  margin-top: 0.85rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid #e0b4b4;
+  border-radius: var(--radius-sm);
+  background: #fff5f5;
+  color: #9a3333;
+}
+
+.whatif-kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));
+  gap: 0.65rem;
+  margin: 0.35rem 0 0.85rem;
+}
+
+.whatif-kpis .k {
+  display: block;
+  color: var(--muted);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.whatif-kpis strong {
+  display: block;
+  margin-top: 0.15rem;
+  font-size: 1.2rem;
+  font-weight: 720;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.whatif-result tr.fund-tone--good td:last-child,
+.whatif-kpis strong.fund-tone--good {
+  color: #1b5c3c;
+}
+
+.whatif-result tr.fund-tone--mid td:last-child,
+.whatif-kpis strong.fund-tone--mid {
+  color: #8a6200;
+}
+
+.whatif-result tr.fund-tone--bad td:last-child,
+.whatif-kpis strong.fund-tone--bad {
+  color: #9a3333;
+}
+
 .fund-top {
   margin: 0.85rem 0 1rem;
   padding: 0.85rem 0.9rem 1rem;

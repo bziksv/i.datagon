@@ -54,6 +54,14 @@
         "Кого показатели выделяют внутри отрасли. Скор ≥70 — рекомендуем смотреть; это аналитика лаборатории, не сигнал брокера.",
     },
     {
+      id: "whatif",
+      title: "Если бы",
+      group: "test",
+      hint: "Купил и держал",
+      intro:
+        "Бюджет и дата покупки → что было бы сегодня, если просто купить выбранные бумаги. Заявка не ставится.",
+    },
+    {
       id: "recommendations",
       title: "Рекомендации",
       group: "aside",
@@ -216,6 +224,14 @@
     }
   }
   var deskListTried = false;
+  var lastWhatIfCapital = 1000000;
+  var lastWhatIfStart = "";
+  var lastWhatIfTickers = null;
+  var lastWhatIfAmounts = null;
+  var lastWhatIfEqual = true;
+  var lastWhatIfResult = null;
+  var lastWhatIfBusy = false;
+  var whatifListTried = false;
   var loadErrors = {};
   var blockLoading = {};
   var routeLoading = false;
@@ -1228,9 +1244,11 @@
       appendNavLink(nav, "candles", "Свечи", "Дневки, 15м, 10м");
       appendNavLink(nav, "strategies", "Стратегии", "Проверка на истории");
       appendNavLink(nav, "companies", "Компании", "По отраслям");
+      appendNavLink(nav, "whatif", "Если бы", "Купил и держал");
       appendMobileLink(mobile, "candles", "Свечи");
       appendMobileLink(mobile, "strategies", "Стратегии");
       appendMobileLink(mobile, "companies", "Компании");
+      appendMobileLink(mobile, "whatif", "Если бы");
       return;
     }
     MOBILE_PRIMARY_IDS.forEach(function (id) {
@@ -5702,6 +5720,489 @@
     }
   }
 
+  function whatIfDefaultStart() {
+    var d = new Date();
+    d.setFullYear(d.getFullYear() - 2);
+    function pad(n) {
+      return (n < 10 ? "0" : "") + n;
+    }
+    return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate());
+  }
+
+  function whatIfTickerNames() {
+    var names = {};
+    ((lastCandlesCoverage && lastCandlesCoverage.items) || []).forEach(function (row) {
+      if (row.ticker) names[String(row.ticker).toUpperCase()] = row.name || "";
+    });
+    return names;
+  }
+
+  function whatIfSelectedTickers() {
+    var pool = lastDeskTickers && lastDeskTickers.length ? lastDeskTickers : [];
+    if (lastWhatIfTickers == null) {
+      var defaults = deskDefaultTickers(pool);
+      return defaults.length ? defaults : pool.slice(0, 14);
+    }
+    return lastWhatIfTickers.filter(function (ticker) {
+      return pool.indexOf(ticker) >= 0;
+    });
+  }
+
+  function whatIfEqualAmounts(tickers, capital) {
+    var n = tickers.length;
+    var out = {};
+    if (!n) return out;
+    var base = Math.floor((Number(capital) || 0) / n);
+    var left = Math.round(Number(capital) || 0) - base * n;
+    tickers.forEach(function (ticker, i) {
+      out[ticker] = base + (i === 0 ? left : 0);
+    });
+    return out;
+  }
+
+  function whatIfAmountsMap(tickers) {
+    if (lastWhatIfEqual || !lastWhatIfAmounts) {
+      return whatIfEqualAmounts(tickers, lastWhatIfCapital);
+    }
+    var out = {};
+    tickers.forEach(function (ticker) {
+      var v = Number(lastWhatIfAmounts[ticker]);
+      out[ticker] = isFinite(v) && v > 0 ? v : 0;
+    });
+    return out;
+  }
+
+  function whatIfTone(pct) {
+    var n = Number(pct);
+    if (!isFinite(n)) return "fund-tone--muted";
+    if (n >= 0.1) return "fund-tone--good";
+    if (n >= 0) return "fund-tone--mid";
+    return "fund-tone--bad";
+  }
+
+  function renderWhatIf() {
+    if (!lastWhatIfStart) lastWhatIfStart = whatIfDefaultStart();
+    var tickers = whatIfSelectedTickers();
+    var amounts = whatIfAmountsMap(tickers);
+    var sumAmt = 0;
+    tickers.forEach(function (t) {
+      sumAmt += Number(amounts[t]) || 0;
+    });
+    var names = whatIfTickerNames();
+    var sectors = (lastDeskGroups && lastDeskGroups.sectors) || [];
+    var moexTickers = (lastDeskGroups && lastDeskGroups.moex) || [];
+    var sp500Tickers = (lastDeskGroups && lastDeskGroups.sp500) || [];
+    var moexSectors = sectors.filter(function (sector) {
+      return sector && sector.id !== "sp500";
+    });
+    var spSector = sectors.filter(function (sector) {
+      return sector && sector.id === "sp500";
+    })[0] || null;
+    var perHint =
+      tickers.length
+        ? tickers.length +
+          " бумаг · поровну ~" +
+          rubles(Math.floor((Number(lastWhatIfCapital) || 0) / tickers.length))
+        : "выберите бумаги";
+    function sectorChecksHtml(sector) {
+      var items = (sector && sector.tickers) || [];
+      var selected = tickers.filter(function (ticker) {
+        return items.indexOf(ticker) >= 0;
+      });
+      return renderDeskCheckGroup(
+        "whatif-ticker",
+        (sector.title || "Тикеры") +
+          " (" +
+          selected.length +
+          "/" +
+          items.length +
+          ")",
+        items,
+        selected
+      );
+    }
+    var marketPick =
+      '<div class="desk-market-actions" role="group" aria-label="Рынок">' +
+      '<button type="button" class="ghost compact" data-whatif-market="moex"' +
+      (moexTickers.length ? "" : " disabled") +
+      ">РФ акции (" +
+      escapeHtml(String(moexTickers.length)) +
+      ")</button>" +
+      '<button type="button" class="ghost compact" data-whatif-market="sp500"' +
+      (sp500Tickers.length ? "" : " disabled") +
+      ">Западные (" +
+      escapeHtml(String(sp500Tickers.length)) +
+      ")</button>" +
+      '<button type="button" class="ghost compact" data-whatif-market="none">сбросить</button>' +
+      "</div>";
+    var tickerChecks =
+      marketPick +
+      '<div class="desk-market-break">Россия · MOEX</div>' +
+      moexSectors.map(sectorChecksHtml).join("") +
+      (spSector
+        ? '<div class="desk-market-break">Запад · S&P 500</div>' +
+          sectorChecksHtml(spSector)
+        : "");
+    var showAmountInputs = tickers.length > 0 && tickers.length <= 40;
+    var amountBlock = "";
+    if (tickers.length) {
+      if (showAmountInputs) {
+        var amountRows = tickers
+          .map(function (ticker) {
+            var label = names[ticker]
+              ? escapeHtml(names[ticker]) +
+                ' <small class="muted">' +
+                escapeHtml(ticker) +
+                "</small>"
+              : escapeHtml(ticker);
+            return (
+              "<tr><td>" +
+              label +
+              '</td><td class="num"><input type="number" min="0" step="100" data-whatif-amt="' +
+              escapeHtml(ticker) +
+              '" value="' +
+              escapeHtml(String(amounts[ticker] || 0)) +
+              '"></td></tr>'
+            );
+          })
+          .join("");
+        amountBlock =
+          '<section class="whatif-amounts">' +
+          '<div class="whatif-amounts__head">' +
+          "<h3>Суммы на бумагу</h3>" +
+          '<button type="button" class="ghost compact" id="whatif-equal">поровну</button>' +
+          "</div>" +
+          '<p class="source-line">Сумма строк: ' +
+          escapeHtml(rubles(sumAmt)) +
+          (Math.abs(sumAmt - Number(lastWhatIfCapital)) > 0.5
+            ? " · отличается от бюджета — считаем по суммам строк"
+            : "") +
+          "</p>" +
+          wrapTableScroll(
+            '<table class="data-table compact whatif-amt-table"><thead><tr><th>Компания</th><th class="num">Сумма, ₽</th></tr></thead><tbody>' +
+              amountRows +
+              "</tbody></table>"
+          ) +
+          "</section>";
+      } else {
+        amountBlock =
+          '<section class="whatif-amounts">' +
+          '<div class="whatif-amounts__head">' +
+          "<h3>Суммы на бумагу</h3>" +
+          '<button type="button" class="ghost compact" id="whatif-equal">поровну</button>' +
+          "</div>" +
+          '<p class="source-line">Выбрано ' +
+          escapeHtml(String(tickers.length)) +
+          " бумаг — делим бюджет поровну (~" +
+          escapeHtml(
+            rubles(
+              Math.floor((Number(lastWhatIfCapital) || 0) / tickers.length)
+            )
+          ) +
+          "). Чтобы править суммы вручную, оставьте не больше 40 бумаг.</p>" +
+          "</section>";
+      }
+    }
+    var result = lastWhatIfResult;
+    var resultHtml = "";
+    if (result && result.error) {
+      resultHtml =
+        '<p class="empty whatif-error">' + escapeHtml(result.error) + "</p>";
+    } else if (result) {
+      var legs = (result.legs || [])
+        .slice()
+        .sort(function (a, b) {
+          return Number(b.pnl_pct || 0) - Number(a.pnl_pct || 0);
+        });
+      var legRows = legs
+        .map(function (leg) {
+          var tone = whatIfTone(leg.pnl_pct);
+          var who =
+            (leg.name ? escapeHtml(leg.name) + " · " : "") +
+            escapeHtml(leg.ticker || "");
+          return (
+            '<tr class="' +
+            tone +
+            '"><td>' +
+            who +
+            '</td><td class="num">' +
+            escapeHtml(ruDay(leg.entry_day)) +
+            "<br><small>" +
+            escapeHtml(rubles(leg.entry_close)) +
+            '</small></td><td class="num">' +
+            escapeHtml(ruDay(leg.exit_day)) +
+            "<br><small>" +
+            escapeHtml(rubles(leg.exit_close)) +
+            '</small></td><td class="num">' +
+            escapeHtml(rubles(leg.invested)) +
+            '</td><td class="num">' +
+            escapeHtml(rubles(leg.final_value)) +
+            '</td><td class="num">' +
+            escapeHtml(rubles(leg.pnl)) +
+            '</td><td class="num">' +
+            escapeHtml(plainNumber(Number(leg.pnl_pct) * 100) + "%") +
+            "</td></tr>"
+          );
+        })
+        .join("");
+      var skipNote = (result.skipped || []).length
+        ? '<p class="source-line">Пропущено: ' +
+          escapeHtml(
+            (result.skipped || [])
+              .map(function (row) {
+                return (row.ticker || "") + " (" + (row.reason || "") + ")";
+              })
+              .join(", ")
+          ) +
+          "</p>"
+        : "";
+      resultHtml =
+        '<section class="whatif-result" data-tour="whatif-result">' +
+        '<div class="whatif-kpis">' +
+        '<div><span class="k">Итог</span><strong>' +
+        escapeHtml(rubles(result.final_equity)) +
+        "</strong></div>" +
+        '<div><span class="k">PnL</span><strong class="' +
+        whatIfTone(result.pnl_pct) +
+        '">' +
+        escapeHtml(rubles(result.pnl)) +
+        "</strong></div>" +
+        '<div><span class="k">Доходность</span><strong class="' +
+        whatIfTone(result.pnl_pct) +
+        '">' +
+        escapeHtml(plainNumber(Number(result.pnl_pct) * 100) + "%") +
+        "</strong></div>" +
+        '<div><span class="k">Срок</span><strong>' +
+        escapeHtml(String(result.days != null ? result.days : "—")) +
+        " дн.</strong></div>" +
+        "</div>" +
+        wrapTableScroll(
+          '<table class="data-table"><thead><tr>' +
+            "<th>Компания</th><th class=\"num\">Купил</th><th class=\"num\">Сейчас</th>" +
+            "<th class=\"num\">Вложено</th><th class=\"num\">Стоит</th>" +
+            "<th class=\"num\">PnL</th><th class=\"num\">%</th>" +
+            "</tr></thead><tbody>" +
+            (legRows || '<tr><td colspan="7">Нет удачных ног</td></tr>') +
+            "</tbody></table>"
+        ) +
+        skipNote +
+        '<p class="source-line">Комиссия ' +
+        escapeHtml(String(result.commission_bps != null ? result.commission_bps : "—")) +
+        " bps · дивиденды не учитываются · заявка не ставится</p>" +
+        "</section>";
+    }
+
+    byId("page-body").innerHTML =
+      '<section class="panel whatif" data-tour="whatif">' +
+      "<h3>Если бы купил тогда</h3>" +
+      '<div class="whatif-params filters">' +
+      '<label class="field compact">бюджет, ₽' +
+      '<input id="whatif-capital" type="number" min="1000" step="1000" value="' +
+      escapeHtml(String(lastWhatIfCapital)) +
+      '"></label>' +
+      '<label class="field compact">дата покупки' +
+      '<input id="whatif-start" type="date" value="' +
+      escapeHtml(lastWhatIfStart) +
+      '"></label>' +
+      '<button type="button" class="primary" id="whatif-run"' +
+      (lastWhatIfBusy || !tickers.length ? " disabled" : "") +
+      ">" +
+      (lastWhatIfBusy ? "Считаю…" : "Посчитать") +
+      "</button>" +
+      "</div>" +
+      '<p class="source-line" id="whatif-hint">' +
+      escapeHtml(perHint) +
+      "</p>" +
+      '<div class="desk-batch-pick" data-tour="whatif-pick">' +
+      tickerChecks +
+      "</div>" +
+      amountBlock +
+      resultHtml +
+      "</section>";
+    bindWhatIfControls();
+  }
+
+  function bindWhatIfControls() {
+    var capitalEl = byId("whatif-capital");
+    var startEl = byId("whatif-start");
+    if (capitalEl) {
+      capitalEl.onchange = function () {
+        lastWhatIfCapital = Math.max(0, Number(capitalEl.value) || 0);
+        if (lastWhatIfEqual) lastWhatIfAmounts = null;
+        renderWhatIf();
+      };
+    }
+    if (startEl) {
+      startEl.onchange = function () {
+        lastWhatIfStart = startEl.value || whatIfDefaultStart();
+      };
+    }
+    var equalBtn = byId("whatif-equal");
+    if (equalBtn) {
+      equalBtn.onclick = function () {
+        lastWhatIfEqual = true;
+        lastWhatIfAmounts = null;
+        renderWhatIf();
+      };
+    }
+    document.querySelectorAll("[data-whatif-amt]").forEach(function (input) {
+      input.onchange = function () {
+        var ticker = input.getAttribute("data-whatif-amt");
+        if (!ticker) return;
+        lastWhatIfEqual = false;
+        lastWhatIfAmounts = whatIfAmountsMap(whatIfSelectedTickers());
+        lastWhatIfAmounts[ticker] = Math.max(0, Number(input.value) || 0);
+        renderWhatIf();
+      };
+    });
+    var pick = document.querySelector('[data-tour="whatif-pick"]');
+    if (pick) {
+      pick.addEventListener("change", function (ev) {
+        var input = ev.target;
+        if (
+          !input ||
+          !input.getAttribute ||
+          input.getAttribute("data-desk-check") !== "whatif-ticker"
+        ) {
+          return;
+        }
+        lastWhatIfTickers = Array.prototype.slice
+          .call(
+            document.querySelectorAll(
+              'input[data-desk-check="whatif-ticker"]:checked'
+            )
+          )
+          .map(function (el) {
+            return String(el.value || "").toUpperCase();
+          })
+          .filter(Boolean);
+        if (lastWhatIfEqual) lastWhatIfAmounts = null;
+        renderWhatIf();
+      });
+      pick.addEventListener("click", function (ev) {
+        var marketBtn =
+          ev.target && ev.target.closest
+            ? ev.target.closest("[data-whatif-market]")
+            : null;
+        if (marketBtn) {
+          var market = marketBtn.getAttribute("data-whatif-market") || "";
+          if (market === "moex") {
+            lastWhatIfTickers = ((lastDeskGroups && lastDeskGroups.moex) || []).slice();
+          } else if (market === "sp500") {
+            lastWhatIfTickers = ((lastDeskGroups && lastDeskGroups.sp500) || []).slice();
+          } else {
+            lastWhatIfTickers = [];
+          }
+          if (lastWhatIfEqual) lastWhatIfAmounts = null;
+          renderWhatIf();
+          return;
+        }
+        var btn =
+          ev.target && ev.target.closest
+            ? ev.target.closest(
+                "[data-desk-check-all], [data-desk-check-none]"
+              )
+            : null;
+        if (!btn) return;
+        var kind =
+          btn.getAttribute("data-desk-check-all") ||
+          btn.getAttribute("data-desk-check-none");
+        if (kind !== "whatif-ticker") return;
+        var all = !!btn.getAttribute("data-desk-check-all");
+        var scopeRaw = btn.getAttribute("data-desk-scope") || "";
+        var scopeItems = scopeRaw ? scopeRaw.split(",").filter(Boolean) : [];
+        var current = whatIfSelectedTickers();
+        if (all) {
+          var merged = current.slice();
+          scopeItems.forEach(function (ticker) {
+            if (merged.indexOf(ticker) < 0) merged.push(ticker);
+          });
+          lastWhatIfTickers = merged;
+        } else {
+          lastWhatIfTickers = current.filter(function (ticker) {
+            return scopeItems.indexOf(ticker) < 0;
+          });
+        }
+        if (lastWhatIfEqual) lastWhatIfAmounts = null;
+        renderWhatIf();
+      });
+    }
+    var run = byId("whatif-run");
+    if (run) {
+      run.onclick = function () {
+        var tickers = whatIfSelectedTickers();
+        if (!tickers.length) return;
+        if (capitalEl) {
+          lastWhatIfCapital = Math.max(0, Number(capitalEl.value) || 0);
+        }
+        if (startEl) {
+          lastWhatIfStart = startEl.value || whatIfDefaultStart();
+        }
+        var amounts = whatIfAmountsMap(tickers);
+        var body =
+          lastWhatIfEqual || tickers.length > 40
+            ? {
+                start: lastWhatIfStart,
+                capital: lastWhatIfCapital,
+                tickers: tickers,
+              }
+            : {
+                start: lastWhatIfStart,
+                allocations: amounts,
+              };
+        lastWhatIfBusy = true;
+        lastWhatIfResult = null;
+        renderWhatIf();
+        apiPost("/desk/buyhold", body, { timeoutMs: 180000 })
+          .then(function (data) {
+            lastWhatIfResult = data;
+          })
+          .catch(function (err) {
+            var msg = err.message || "не удалось посчитать";
+            if (err.status === 404) {
+              msg =
+                "API без /desk/buyhold — перезапустите кабинет (python -m app) и обновите страницу.";
+            }
+            lastWhatIfResult = { error: msg };
+          })
+          .finally(function () {
+            lastWhatIfBusy = false;
+            renderWhatIf();
+          });
+      };
+    }
+  }
+
+  function refreshWhatIf() {
+    var jobs = [];
+    if (!whatifListTried || !(lastDeskTickers && lastDeskTickers.length)) {
+      whatifListTried = true;
+      jobs.push(
+        apiGet("/desk/candles?tf=1d")
+          .then(function (data) {
+            applyDeskCandleUniverse(data);
+          })
+          .catch(function () {})
+      );
+    }
+    if (!lastCandlesCoverage) {
+      jobs.push(
+        apiGet("/candles/coverage?tf=1d")
+          .then(function (data) {
+            lastCandlesCoverage = data;
+          })
+          .catch(function () {})
+      );
+    }
+    if (!jobs.length) {
+      renderWhatIf();
+      return Promise.resolve();
+    }
+    return Promise.all(jobs).then(function () {
+      if (currentRoute === "whatif") renderWhatIf();
+    });
+  }
+
   function renderTestStrategy() {
     var picked = lastDeskSleeve || "abs_momentum_4";
     var groups = SLEEVE_GROUPS.map(function (group) {
@@ -7026,6 +7527,11 @@
       renderCompanies();
       refreshCompanies();
       startCompaniesPoll();
+      return;
+    }
+    if (route.id === "whatif") {
+      renderWhatIf();
+      refreshWhatIf();
       return;
     }
     if (route.id === "recommendations") {

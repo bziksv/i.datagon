@@ -668,6 +668,13 @@ def create_app() -> FastAPI:
         sleeves: list[str] | None = None
         tickers: list[str] | None = None
 
+    class DeskBuyholdBody(BaseModel):
+        start: str = Field(..., min_length=8, max_length=32)
+        capital: float | None = None
+        tickers: list[str] | None = None
+        allocations: dict[str, float] | None = None
+        commission_bps: float | None = None
+
     async def _book_equity(session: AsyncSession) -> Decimal:
         book = await portfolio_valuation(session)
         equity = Decimal(str(book["equity"] or 0))
@@ -872,6 +879,27 @@ def create_app() -> FastAPI:
     @app.post("/desk/backtest")
     def run_desk_backtest(body: DeskBacktestBody) -> dict:
         return _run_desk_backtest(body)
+
+    @app.post("/desk/buyhold")
+    def desk_buyhold(body: DeskBuyholdBody) -> dict:
+        from decimal import Decimal
+
+        from app.ops.buyhold import run_buyhold
+
+        try:
+            return run_buyhold(
+                start=body.start,
+                capital=body.capital,
+                tickers=body.tickers,
+                allocations=body.allocations,
+                commission_bps=(
+                    Decimal(str(body.commission_bps))
+                    if body.commission_bps is not None
+                    else None
+                ),
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @app.post("/desk/backtests/batch")
     def run_desk_backtest_batch(body: DeskBacktestBatchBody) -> dict:
