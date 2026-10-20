@@ -4244,33 +4244,11 @@
         ) +
         "</div>";
     }
-    var sleeveOpts = ACTIVE_SLEEVE_IDS.map(function (id) {
-      return (
-        '<option value="' +
-        escapeHtml(id) +
-        '"' +
-        (id === selectedSleeve ? " selected" : "") +
-        ">" +
-        escapeHtml(SLEEVE_NAMES[id] || id) +
-        "</option>"
-      );
-    }).join("");
     var tickers = lastDeskTickers && lastDeskTickers.length
       ? lastDeskTickers.slice()
       : [selectedTicker || "SBER"];
     if (tickers.indexOf(selectedTicker) < 0 && selectedTicker) {
       tickers = [selectedTicker].concat(tickers);
-    }
-    function tickerOption(ticker) {
-      return (
-        '<option value="' +
-        escapeHtml(ticker) +
-        '"' +
-        (ticker === selectedTicker ? " selected" : "") +
-        ">" +
-        escapeHtml(ticker) +
-        "</option>"
-      );
     }
     var sectors =
       lastDeskGroups && lastDeskGroups.sectors && lastDeskGroups.sectors.length
@@ -4283,17 +4261,6 @@
               tickers: tickers.slice(),
             },
           ];
-    var tickerOpts = sectors
-      .map(function (sector) {
-        return (
-          '<optgroup label="' +
-          escapeHtml(sector.title || sector.id || "группа") +
-          '">' +
-          (sector.tickers || []).map(tickerOption).join("") +
-          "</optgroup>"
-        );
-      })
-      .join("");
     var batchSleeves = deskBatchSleeveSelection();
     var batchTickers = deskBatchTickerSelection(tickers);
     var batchCount = batchSleeves.length * batchTickers.length;
@@ -4365,18 +4332,8 @@
       escapeHtml(String(moexTickers.length)) +
       " MOEX + " +
       escapeHtml(String(sp500Tickers.length)) +
-      " S&P. По умолчанию отмечено ядро MOEX; отрасли и США — галочками ниже. Депозит и % на бумагу — в " +
-      '<a class="panel-link" href="#/settings">Настройках</a>.' +
+      " S&P. По умолчанию отмечено ядро MOEX; отрасли и США — галочками ниже." +
       "</p>" +
-      '<div class="filters" data-tour="strategies-desk-form">' +
-      '<label class="field compact">один рукав<select id="desk-sleeve">' +
-      sleeveOpts +
-      "</select></label>" +
-      '<label class="field compact">один тикер<select id="desk-ticker">' +
-      tickerOpts +
-      "</select></label>" +
-      '<button type="button" class="primary" id="desk-run">Прогнать одну пару</button>' +
-      "</div>" +
       '<div class="desk-batch-pick" data-tour="strategies-desk-pick">' +
       sleeveChecks +
       tickerChecks +
@@ -5858,7 +5815,7 @@
       var testBody = byId("page-body");
       testBody.innerHTML =
         '<section class="tape">' +
-        '<p class="tape-lead">Отметьте рукава и тикеры — пакетный прогон по CSV. Можно и одну пару. Заявка не ставится.</p>' +
+        '<p class="tape-lead">Отметьте рукава и тикеры — пакетный прогон по CSV. Заявка не ставится.</p>' +
         "</section>" +
         renderStrategiesDesk();
       bindStrategiesLabControls();
@@ -6081,51 +6038,7 @@
           });
       });
     }
-    var sleeveEl = byId("desk-sleeve");
-    var tickerEl = byId("desk-ticker");
-    if (sleeveEl) {
-      sleeveEl.addEventListener("change", function () {
-        lastDeskSleeve = sleeveEl.value || "sma_cross";
-      });
-    }
-    if (tickerEl) {
-      tickerEl.addEventListener("change", function () {
-        lastDeskTicker = String(tickerEl.value || "SBER")
-          .trim()
-          .toUpperCase() || "SBER";
-      });
-      tickerEl.addEventListener("input", function () {
-        lastDeskTicker = String(tickerEl.value || "")
-          .trim()
-          .toUpperCase() || "SBER";
-      });
-    }
-    var runBtn = byId("desk-run");
     var runAllBtn = byId("desk-run-all");
-    if (runBtn) {
-      runBtn.addEventListener("click", function () {
-        var sleeve = sleeveEl ? sleeveEl.value : lastDeskSleeve || "sma_cross";
-        var ticker = tickerEl
-          ? String(tickerEl.value || "SBER").trim().toUpperCase()
-          : lastDeskTicker || "SBER";
-        lastDeskSleeve = sleeve;
-        lastDeskTicker = ticker || "SBER";
-        runBtn.disabled = true;
-        if (runAllBtn) runAllBtn.disabled = true;
-        apiPost("/backtests", { sleeve: sleeve, ticker: lastDeskTicker })
-          .then(function (data) {
-            lastDeskBacktest = data.result || data;
-            if (data.id && lastDeskBacktest) {
-              lastDeskBacktest.experiment_id = data.id;
-            }
-            renderStrategies();
-          })
-          .catch(function (err) {
-            lastDeskBacktest = { error: err.message || "ошибка прогона" };
-            renderStrategies();
-          });
-      });
-    }
     function readDeskChecks(kind) {
       return Array.prototype.slice
         .call(
@@ -6213,7 +6126,6 @@
           return;
         }
         runAllBtn.disabled = true;
-        if (runBtn) runBtn.disabled = true;
         runAllBtn.textContent = "Прогоняю…";
         apiPost(
           "/desk/backtests/batch",
