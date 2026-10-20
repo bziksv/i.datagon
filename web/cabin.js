@@ -5855,7 +5855,37 @@
 
   function renderStrategies() {
     if (deskMode() === "test") {
-      renderTestStrategy();
+      var testBody = byId("page-body");
+      testBody.innerHTML =
+        '<section class="tape">' +
+        '<p class="tape-lead">Отметьте рукава и тикеры — пакетный прогон по CSV. Можно и одну пару. Заявка не ставится.</p>' +
+        "</section>" +
+        renderStrategiesDesk();
+      bindStrategiesLabControls();
+      if (!deskListTried || !(lastDeskTickers && lastDeskTickers.length)) {
+        deskListTried = true;
+        apiGet("/desk/candles?tf=1d")
+          .then(function (data) {
+            lastDeskTickers = (data && data.tickers) || [];
+            lastDeskGroups = {
+              moex: ((data && data.groups) || {}).moex || [],
+              sp500: ((data && data.groups) || {}).sp500 || [],
+              sectors: ((data && data.groups) || {}).sectors || [],
+            };
+            if (
+              lastDeskTickers.length &&
+              lastDeskTickers.indexOf(lastDeskTicker) < 0
+            ) {
+              lastDeskTicker = lastDeskTickers[0];
+            }
+          })
+          .catch(function () {})
+          .then(function () {
+            if (currentRoute === "strategies" && deskMode() === "test") {
+              renderStrategies();
+            }
+          });
+      }
       return;
     }
     var body = byId("page-body");

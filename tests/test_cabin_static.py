@@ -48,8 +48,8 @@ def test_cabin_shell_stage01_menu_and_router() -> None:
     css = CSS.read_text()
     js = JS.read_text()
     assert "<!DOCTYPE html>" in html
-    assert 'href="/cabin.css?v=3.3.86"' in html
-    assert 'src="/cabin.js?v=3.3.86"' in html
+    assert 'href="/cabin.css?v=3.3.87"' in html
+    assert 'src="/cabin.js?v=3.3.87"' in html
     assert "webpack" not in html.lower()
     assert "react" not in html.lower()
     assert "vite" not in html.lower()
