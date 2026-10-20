@@ -197,7 +197,24 @@
   var lastDeskSleeve = "sma_cross";
   var lastDeskTicker = "SBER";
   var lastDeskTickers = [];
-  var lastDeskGroups = { moex: [], sp500: [], sectors: [] };
+  var lastDeskGroups = { moex: [], sp500: [], sectors: [], default_tickers: [] };
+
+  function applyDeskCandleUniverse(data) {
+    lastDeskTickers = (data && data.tickers) || [];
+    var groups = (data && data.groups) || {};
+    lastDeskGroups = {
+      moex: groups.moex || [],
+      sp500: groups.sp500 || [],
+      sectors: groups.sectors || [],
+      default_tickers: groups.default_tickers || [],
+    };
+    if (
+      lastDeskTickers.length &&
+      lastDeskTickers.indexOf(lastDeskTicker) < 0
+    ) {
+      lastDeskTicker = lastDeskTickers[0];
+    }
+  }
   var deskListTried = false;
   var loadErrors = {};
   var blockLoading = {};
@@ -3527,14 +3544,16 @@
   }
 
   function deskDefaultTickers(pool) {
-    var sectors = (lastDeskGroups && lastDeskGroups.sectors) || [];
-    var defaults = [];
-    sectors.forEach(function (sector) {
-      if (!sector || !sector.default_on) return;
-      (sector.tickers || []).forEach(function (ticker) {
-        if (defaults.indexOf(ticker) < 0) defaults.push(ticker);
+    var defaults = ((lastDeskGroups && lastDeskGroups.default_tickers) || []).slice();
+    if (!defaults.length) {
+      var sectors = (lastDeskGroups && lastDeskGroups.sectors) || [];
+      sectors.forEach(function (sector) {
+        if (!sector || !sector.default_on) return;
+        (sector.tickers || []).forEach(function (ticker) {
+          if (defaults.indexOf(ticker) < 0) defaults.push(ticker);
+        });
       });
-    });
+    }
     if (!defaults.length) {
       defaults = (lastDeskGroups && lastDeskGroups.moex) || [];
     }
@@ -4315,22 +4334,38 @@
         selected
       );
     }
+    var marketPick =
+      '<div class="desk-market-actions" role="group" aria-label="Рынок">' +
+      '<button type="button" class="ghost compact" data-desk-market="moex"' +
+      (moexTickers.length ? "" : " disabled") +
+      ">РФ акции (" +
+      escapeHtml(String(moexTickers.length)) +
+      ")</button>" +
+      '<button type="button" class="ghost compact" data-desk-market="sp500"' +
+      (sp500Tickers.length ? "" : " disabled") +
+      ">Западные (" +
+      escapeHtml(String(sp500Tickers.length)) +
+      ")</button>" +
+      '<button type="button" class="ghost compact" data-desk-market="none">сбросить тикеры</button>' +
+      "</div>";
     var tickerChecks =
+      marketPick +
+      '<div class="desk-market-break">Россия · MOEX</div>' +
       moexSectors.map(function (sector) {
         return sectorChecksHtml(sector);
       }).join("") +
       (spSector
-        ? '<div class="desk-market-break" data-tour="desk-sp500-break">Рынок США · Yahoo</div>' +
-          sectorChecksHtml(spSector, "Тикеры S&P 500")
+        ? '<div class="desk-market-break" data-tour="desk-sp500-break">Запад · S&P 500</div>' +
+          sectorChecksHtml(spSector)
         : "");
     return (
       '<section class="panel" data-tour="strategies-desk">' +
       "<h3>Прогон на истории</h3>" +
       '<p class="source-line">' +
       escapeHtml(String(moexTickers.length)) +
-      " MOEX · " +
+      " РФ · " +
       escapeHtml(String(sp500Tickers.length)) +
-      " S&P · весь CSV · заявка не ставится" +
+      " Запад · весь CSV · заявка не ставится" +
       "</p>" +
       '<div class="desk-batch-pick" data-tour="strategies-desk-pick">' +
       sleeveChecks +
@@ -5759,12 +5794,7 @@
       var jobs = [];
       if (!sectors.length) {
         jobs.push(apiGet("/desk/candles?tf=1d").then(function (data) {
-          lastDeskTickers = (data && data.tickers) || [];
-          lastDeskGroups = {
-            moex: ((data && data.groups) || {}).moex || [],
-            sp500: ((data && data.groups) || {}).sp500 || [],
-            sectors: ((data && data.groups) || {}).sectors || [],
-          };
+          applyDeskCandleUniverse(data);
         }).catch(function () {}));
       }
       if (!lastCandlesCoverage) {
@@ -5817,18 +5847,7 @@
         deskListTried = true;
         apiGet("/desk/candles?tf=1d")
           .then(function (data) {
-            lastDeskTickers = (data && data.tickers) || [];
-            lastDeskGroups = {
-              moex: ((data && data.groups) || {}).moex || [],
-              sp500: ((data && data.groups) || {}).sp500 || [],
-              sectors: ((data && data.groups) || {}).sectors || [],
-            };
-            if (
-              lastDeskTickers.length &&
-              lastDeskTickers.indexOf(lastDeskTicker) < 0
-            ) {
-              lastDeskTicker = lastDeskTickers[0];
-            }
+            applyDeskCandleUniverse(data);
           })
           .catch(function () {})
           .then(function () {
@@ -6066,6 +6085,24 @@
         renderStrategies();
       });
       pickRoot.addEventListener("click", function (ev) {
+        var marketBtn =
+          ev.target && ev.target.closest
+            ? ev.target.closest("[data-desk-market]")
+            : null;
+        if (marketBtn) {
+          var market = marketBtn.getAttribute("data-desk-market") || "";
+          var moexPool = (lastDeskGroups && lastDeskGroups.moex) || [];
+          var westPool = (lastDeskGroups && lastDeskGroups.sp500) || [];
+          if (market === "moex") {
+            lastDeskBatchTickers = moexPool.slice();
+          } else if (market === "sp500") {
+            lastDeskBatchTickers = westPool.slice();
+          } else if (market === "none") {
+            lastDeskBatchTickers = [];
+          }
+          renderStrategies();
+          return;
+        }
         var btn = ev.target && ev.target.closest
           ? ev.target.closest("[data-desk-check-all], [data-desk-check-none]")
           : null;
@@ -6214,18 +6251,7 @@
       });
     var candlesPromise = apiGet("/desk/candles?tf=1d")
       .then(function (data) {
-        lastDeskTickers = (data && data.tickers) || [];
-        lastDeskGroups = {
-          moex: ((data && data.groups) || {}).moex || [],
-          sp500: ((data && data.groups) || {}).sp500 || [],
-          sectors: ((data && data.groups) || {}).sectors || [],
-        };
-        if (
-          lastDeskTickers.length &&
-          lastDeskTickers.indexOf(lastDeskTicker) < 0
-        ) {
-          lastDeskTicker = lastDeskTickers[0];
-        }
+        applyDeskCandleUniverse(data);
         return data;
       })
       .catch(function () {

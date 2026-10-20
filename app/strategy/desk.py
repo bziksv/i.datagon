@@ -35,7 +35,7 @@ from app.strategy.config import (
     vol_scalp_from_config,
 )
 from app.strategy.moex_groups import (
-    MOEX_DESK_CORE,
+    default_desk_tickers,
     filter_sectors_by_available,
 )
 from app.strategy.donchian import SLEEVE as DONCHIAN_SLEEVE
@@ -128,19 +128,8 @@ def list_candle_universe(*, tf: str = "1d") -> dict:
     sp500 = _list_csv_tickers(candle_sp500_dir())
     moex_set = set(moex)
     sp_only = [name for name in sp500 if name not in moex_set]
+    # Те же id/названия, что в Компаниях (SECTOR_TITLES).
     sectors = filter_sectors_by_available(moex)
-    # тикеры вне отраслевого справочника — отдельная куча
-    known = {name for sector in sectors for name in sector["tickers"]}
-    extra = [name for name in moex if name not in known]
-    if extra:
-        sectors.append(
-            {
-                "id": "moex_other",
-                "title": "MOEX · прочее",
-                "default_on": False,
-                "tickers": extra,
-            }
-        )
     if sp_only:
         sectors.append(
             {
@@ -151,7 +140,7 @@ def list_candle_universe(*, tf: str = "1d") -> dict:
             }
         )
     # ядро сначала в плоском списке, потом остальные MOEX, потом S&P
-    core = [name for name in MOEX_DESK_CORE if name in moex_set]
+    core = default_desk_tickers(moex)
     rest_moex = [name for name in moex if name not in set(core)]
     tickers = core + rest_moex + sp_only
     return {
@@ -161,6 +150,7 @@ def list_candle_universe(*, tf: str = "1d") -> dict:
         "groups": {
             "moex": moex,
             "sp500": sp_only,
+            "default_tickers": core,
             "sectors": sectors,
         },
     }

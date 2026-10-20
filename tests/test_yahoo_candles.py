@@ -58,12 +58,14 @@ def test_list_candle_universe_splits_moex_and_sp500(tmp_path, monkeypatch) -> No
     assert "GAZP" in universe["tickers"] and "AAPL" in universe["tickers"]
     assert universe["count"] == 5
     sectors = {row["id"]: row for row in universe["groups"]["sectors"]}
-    assert "moex_core" in sectors
-    assert "SBER" in sectors["moex_core"]["tickers"]
-    assert sectors["moex_core"]["default_on"] is True
-    assert "moex_metals" in sectors
-    assert "NLMK" in sectors["moex_metals"]["tickers"]
+    assert "banks" in sectors
+    assert "SBER" in sectors["banks"]["tickers"]
+    assert "metals" in sectors
+    assert "NLMK" in sectors["metals"]["tickers"]
+    assert sectors["banks"]["title"] == "Банки и финансы"
     assert sectors["sp500"]["tickers"] == ["AAPL", "MSFT"]
+    assert "SBER" in universe["groups"]["default_tickers"]
+    assert "GAZP" in universe["groups"]["default_tickers"]
 
 
 def test_write_yahoo_csv_roundtrip(tmp_path) -> None:
