@@ -48,8 +48,15 @@ def test_cabin_shell_stage01_menu_and_router() -> None:
     css = CSS.read_text()
     js = JS.read_text()
     assert "<!DOCTYPE html>" in html
-    assert 'href="/cabin.css?v=3.3.93"' in html
-    assert 'src="/cabin.js?v=3.3.93"' in html
+    assert 'href="/cabin.css?v=3.3.95"' in html
+    assert 'src="/cabin.js?v=3.3.95"' in html
+    assert "formatRubGrouped" in js
+    assert "parseRubInput" in js
+    assert "data-rub-input" in js
+    assert 'id="whatif-capital"' in js
+    assert "type=\"number\" min=\"1000\"" not in js
+    assert 'apiPost("/desk/candles/fill"' in js
+    assert "вкладку можно закрыть" in js
     assert "webpack" not in html.lower()
     assert "react" not in html.lower()
     assert "vite" not in html.lower()

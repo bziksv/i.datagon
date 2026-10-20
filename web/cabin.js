@@ -155,10 +155,10 @@
   var lastCandleFilter = "gaps";
   var lastCandleQuery = "";
   var lastCandleTf = "1d";
-  var candleQueue = false;
   var candlePullNote = "";
   var candleLog = [];
   var candleJob = null;
+  var candleFillPollTimer = null;
   var CANDLE_TF_HINT = {
     "1d": "Пересечение средних, Дончиан, RSI, докупы, моментум",
     "15m": "EMA-скальп",
@@ -927,6 +927,49 @@
         maximumFractionDigits: whole ? 0 : 2,
       }) + " ₽"
     );
+  }
+
+  /** Отображение суммы в инпуте: 1000000 → «1 000 000». */
+  function formatRubGrouped(value) {
+    var n = Math.round(Number(value));
+    if (!isFinite(n)) return "";
+    var sign = n < 0 ? "-" : "";
+    var digits = String(Math.abs(n));
+    return sign + digits.replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+  }
+
+  /** Разбор «1 000 000», «1\u00a0000», «1000000» → number. */
+  function parseRubInput(raw) {
+    var s = String(raw == null ? "" : raw)
+      .replace(/[\s\u00a0\u202f]/g, "")
+      .replace(/,/g, ".")
+      .replace(/[^\d.-]/g, "");
+    if (!s || s === "-" || s === "." || s === "-.") return NaN;
+    var n = Number(s);
+    return isFinite(n) ? n : NaN;
+  }
+
+  function bindRubInput(el, onCommit) {
+    if (!el || el.getAttribute("data-rub-bound") === "1") return;
+    el.setAttribute("data-rub-bound", "1");
+    el.addEventListener("blur", function () {
+      var n = parseRubInput(el.value);
+      if (!isFinite(n) || n < 0) n = 0;
+      el.value = formatRubGrouped(n);
+      if (typeof onCommit === "function") onCommit(n, el);
+    });
+    el.addEventListener("keydown", function (ev) {
+      if (ev.key === "Enter") {
+        el.blur();
+      }
+    });
+  }
+
+  function wireRubInputs(root, onCommit) {
+    var scope = root && root.querySelectorAll ? root : document;
+    scope.querySelectorAll("[data-rub-input]").forEach(function (el) {
+      bindRubInput(el, onCommit);
+    });
   }
 
   function plainNumber(value) {
@@ -2442,7 +2485,7 @@
   }
 
   function whatIfForCapital(capitalRub) {
-    var capital = Number(capitalRub);
+    var capital = parseRubInput(capitalRub);
     if (!isFinite(capital) || capital <= 0) return null;
     var nameShare = nameShareValue();
     var price = Number(planExamplePrice) || 250;
@@ -2494,10 +2537,10 @@
       prefix +
       '-capital-form">' +
       '<label class="field compact">депозит (торговый кэш), ₽' +
-      '<input type="number" min="1" step="1000" id="' +
+      '<input type="text" inputmode="decimal" data-rub-input id="' +
       idDeposit +
       '" value="' +
-      escapeHtml(String(vals.depositDefault)) +
+      escapeHtml(formatRubGrouped(vals.depositDefault)) +
       '"></label>' +
       '<button type="button" class="primary" id="' +
       idDepositBtn +
@@ -2568,6 +2611,7 @@
         )
       ) +
       "</div></div></div></section>";
+    wireRubInputs(byId("page-body"));
     bindCapitalSettingsActions("settings", function () {
       refreshSettings();
     });
@@ -3222,13 +3266,14 @@
     if (depositBtn) {
       depositBtn.addEventListener("click", function () {
         var input = byId(prefix + "-deposit-amount");
-        var amount = Number(input && input.value);
+        var amount = parseRubInput(input && input.value);
         if (!isFinite(amount) || amount <= 0) {
           if (capitalStatus) {
             capitalStatus.textContent = "Укажите депозит больше нуля.";
           }
           return;
         }
+        if (input) input.value = formatRubGrouped(amount);
         depositBtn.disabled = true;
         apiPost("/ledger/deposit", { amount: amount })
           .then(function (data) {
@@ -3329,19 +3374,20 @@
       ? tickers.slice(0, 12).join(", ") +
         (tickers.length > 12 ? "…" : "")
       : "пока пусто — воркер ещё не собрал вселенную";
-    var whatIfInput =
+    var whatIfNum = parseRubInput(
       planWhatIfCapital !== ""
         ? planWhatIfCapital
-        : String(
-            Math.round(
-              Number(
-                (byPlan[ACTIVE_SLEEVE_IDS[0]] &&
-                  byPlan[ACTIVE_SLEEVE_IDS[0]].capital) ||
-                  1000000
-              )
+        : Math.round(
+            Number(
+              (byPlan[ACTIVE_SLEEVE_IDS[0]] &&
+                byPlan[ACTIVE_SLEEVE_IDS[0]].capital) ||
+                1000000
             )
-          );
-    var whatIf = whatIfForCapital(whatIfInput);
+          )
+    );
+    if (!isFinite(whatIfNum) || whatIfNum < 0) whatIfNum = 1000000;
+    var whatIfInput = formatRubGrouped(whatIfNum);
+    var whatIf = whatIfForCapital(whatIfNum);
     var sleeveCards = ACTIVE_SLEEVE_IDS.map(function (id) {
       var row = byPlan[id] || {};
       var ex = row.example || {};
@@ -3446,7 +3492,7 @@
       "<h4>Что будет, если выделить сумму на рукав</h4>" +
       '<div class="filters">' +
       '<label class="field compact">бюджет рукава, ₽' +
-      '<input type="number" min="0" step="1000" id="plan-whatif-capital" value="' +
+      '<input type="text" inputmode="decimal" data-rub-input id="plan-whatif-capital" value="' +
       escapeHtml(whatIfInput) +
       '"></label>' +
       '<label class="field compact">пример цены акции' +
@@ -3487,10 +3533,10 @@
         escapeHtml(String(pct)) +
         '"></label>' +
         '<label class="field compact">бюджет, ₽' +
-        '<input type="number" min="0" step="1000" data-sleeve-capital="' +
+        '<input type="text" inputmode="decimal" data-rub-input data-sleeve-capital="' +
         escapeHtml(id) +
         '" value="' +
-        escapeHtml(String(capital)) +
+        escapeHtml(formatRubGrouped(capital)) +
         '"></label>' +
         "</div>"
       );
@@ -4839,8 +4885,75 @@
     return "свечей";
   }
 
+  function candleFillRunning() {
+    return !!(candleJob && candleJob.status === "running");
+  }
+
+  function applyCandleFillStatus(data) {
+    if (!data) return;
+    var status = data.status || "idle";
+    if (status === "running") {
+      candleJob = {
+        status: "running",
+        total: Number(data.total) || 0,
+        index: Number(data.index) || 0,
+        ticker: data.ticker || "",
+        done: data.done || {},
+        fail: data.fail || {},
+        message: data.message || "",
+      };
+      if (data.message) candlePullNote = data.message;
+    } else if (status === "done" || status === "cancelled" || status === "error") {
+      var wasRunning = candleFillRunning();
+      candleJob = null;
+      if (data.message) {
+        candlePullNote = data.message;
+        if (wasRunning || status !== "idle") pushCandleLog(data.message);
+      }
+    } else {
+      candleJob = null;
+    }
+  }
+
+  function stopCandleFillPoll() {
+    if (candleFillPollTimer) {
+      clearInterval(candleFillPollTimer);
+      candleFillPollTimer = null;
+    }
+  }
+
+  function pollCandleFillOnce() {
+    return apiGet("/desk/candles/fill")
+      .then(function (data) {
+        var wasRunning = candleFillRunning();
+        applyCandleFillStatus(data);
+        if (candleFillRunning()) {
+          if (currentRoute === "candles") renderCandles();
+        } else {
+          stopCandleFillPoll();
+          if (wasRunning || (data && data.status === "done")) {
+            return refreshCandles().then(function () {
+              if (currentRoute === "candles") renderCandles();
+            });
+          }
+          if (currentRoute === "candles") renderCandles();
+        }
+        return data;
+      })
+      .catch(function () {
+        return null;
+      });
+  }
+
+  function startCandleFillPoll() {
+    stopCandleFillPoll();
+    candleFillPollTimer = setInterval(function () {
+      pollCandleFillOnce();
+    }, 2000);
+  }
+
   function pullLine() {
-    if (!candleJob) {
+    if (!candleJob || candleJob.status !== "running") {
       return '<p id="candle-board-note" class="tape-note">' + escapeHtml(candlePullNote) + "</p>";
     }
     var items = (lastCandlesCoverage && lastCandlesCoverage.items) || [];
@@ -4850,9 +4963,11 @@
     }
     var name = current ? candleWho(current) : candleJob.ticker;
     var pct = candleJob.total ? Math.round((candleJob.index / candleJob.total) * 100) : 0;
+    var idx = Math.min(candleJob.index + 1, candleJob.total || 0);
     return '<div class="pull-line" id="candle-board-note">' +
       '<div class="pull-meter" role="progressbar" aria-valuemin="0" aria-valuemax="' + candleJob.total + '" aria-valuenow="' + candleJob.index + '"><span style="width:' + pct + '%"></span></div>' +
-      "<p>" + escapeHtml((candleJob.index + 1) + " из " + candleJob.total + " · " + name) + "</p></div>";
+      "<p>" + escapeHtml(idx + " из " + candleJob.total + " · " + name) +
+      " · на сервере, вкладку можно закрыть</p></div>";
   }
 
   function candleJournal(data) {
@@ -4975,15 +5090,15 @@
       } else if (candleJob && candleJob.ticker === ticker) {
         action = "Качаю";
         mark = "is-pull";
-      } else if (candleQueue) {
+      } else if (candleFillRunning()) {
         action = "Ждёт";
       }
       var acked = candleAcked(row);
       var okBtn = row.status === "ready" ? "" : '<button type="button" data-candle-ok="' + escapeHtml(ticker) + '">' + (acked ? "Вернуть" : "Ок") + "</button>";
-      return "<tr" + (mark ? ' class="' + mark + '"' : "") + ">" + companyCell(row) + "<td class=\"candle-" + escapeHtml(row.status || "missing") + "\">" + candleCount(row) + "</td><td>" + escapeHtml(period) + "</td><td><span class=\"row-actions\"><button type=\"button\" data-pull=\"" + escapeHtml(ticker) + "\"" + (candleQueue ? " disabled" : "") + ">" + action + "</button>" + okBtn + "</span></td></tr>";
+      return "<tr" + (mark ? ' class="' + mark + '"' : "") + ">" + companyCell(row) + "<td class=\"candle-" + escapeHtml(row.status || "missing") + "\">" + candleCount(row) + "</td><td>" + escapeHtml(period) + "</td><td><span class=\"row-actions\"><button type=\"button\" data-pull=\"" + escapeHtml(ticker) + "\"" + (candleFillRunning() ? " disabled" : "") + ">" + action + "</button>" + okBtn + "</span></td></tr>";
     }).join("");
-    var fillLabel = candleJob
-      ? (candleJob.index + 1) + " из " + candleJob.total
+    var fillLabel = candleFillRunning()
+      ? (Math.min(candleJob.index + 1, candleJob.total) + " из " + candleJob.total)
       : (loaded && gaps ? "Докачать эти " + plainNumber(gaps) : "Докачать");
     var formats = data.formats || [
       { id: "1d", title: "Дневки", sleeves: CANDLE_TF_HINT["1d"] },
@@ -5005,9 +5120,13 @@
           ? "Не хватает у " + plainNumber(gaps) + " компаний. " + sleeveHint
           : (hiddenGaps ? "Скрыто " + plainNumber(hiddenGaps) + ". " : "") + "По этому формату хватает у всех " + plainNumber(data.total || items.length) + ". " + sleeveHint)
         : "Считаю файлы…") +
-      '</p><button type="button" class="primary" id="candle-fill"' + (loaded && gaps && !candleQueue ? "" : " disabled") + ">" +
+      '</p><button type="button" class="primary" id="candle-fill"' + (loaded && gaps && !candleFillRunning() ? "" : " disabled") + ">" +
       fillLabel +
-      "</button></div>" +
+      "</button>" +
+      (candleFillRunning()
+        ? '<button type="button" class="ghost" id="candle-fill-cancel">Стоп</button>'
+        : "") +
+      "</div>" +
       pullLine() +
       '<div class="tape-bar">' +
       '<div class="tape-filters" role="group" aria-label="Какие компании показать">' +
@@ -5034,7 +5153,7 @@
   function bindCandles() {
     document.querySelectorAll("[data-candle-tf]").forEach(function (btn) {
       btn.onclick = function () {
-        if (candleQueue) return;
+        if (candleFillRunning()) return;
         var next = btn.getAttribute("data-candle-tf") || "1d";
         if (next === candleTf()) return;
         lastCandleTf = next;
@@ -5074,6 +5193,7 @@
     });
     document.querySelectorAll("[data-pull]").forEach(function (btn) {
       btn.onclick = function () {
+        if (candleFillRunning()) return;
         var ticker = btn.getAttribute("data-pull");
         btn.disabled = true;
         setCandleNote("Качаю " + ticker + "…");
@@ -5090,45 +5210,55 @@
       };
     });
     var fill = byId("candle-fill");
-    if (fill) fill.onclick = function () {
-      if (candleQueue) return;
-      var gaps = ((lastCandlesCoverage || {}).items || []).filter(function (row) {
-        return row.status !== "ready" && !candleAcked(row);
-      });
-      if (!gaps.length) {
-        setCandleNote("Качать нечего: у всех компаний ряд от 300 дней.");
-        return;
-      }
-      candleQueue = true;
-      candleJob = { total: gaps.length, index: 0, ticker: gaps[0].ticker, done: {}, fail: {} };
-      renderCandles();
-      var i = 0;
-      function next() {
-        if (i >= gaps.length) {
-          candleQueue = false;
-          candleJob = null;
-          pushCandleLog("Докачка закончилась.");
-          setCandleNote("Докачка закончилась.");
-          refreshCandles();
+    if (fill) {
+      fill.onclick = function () {
+        if (candleFillRunning()) return;
+        var gaps = ((lastCandlesCoverage || {}).items || []).filter(function (row) {
+          return row.status !== "ready" && !candleAcked(row);
+        });
+        if (!gaps.length) {
+          setCandleNote("Качать нечего.");
           return;
         }
-        var ticker = gaps[i].ticker;
-        candleJob.index = i;
-        candleJob.ticker = ticker;
-        renderCandles();
-        pullTicker(ticker).then(function () {
-          candleJob.done[ticker] = 1;
-          i += 1;
-          next();
-        }).catch(function (err) {
-          candleJob.fail[ticker] = err.message || "пропуск";
-          pushCandleLog(ticker + ": " + candleJob.fail[ticker]);
-          i += 1;
-          next();
+        var tickers = gaps.map(function (row) {
+          return row.ticker;
         });
-      }
-      next();
-    };
+        fill.disabled = true;
+        setCandleNote("Запускаю докачку на сервере…");
+        apiPost("/desk/candles/fill", { tf: candleTf(), tickers: tickers })
+          .then(function (data) {
+            applyCandleFillStatus(data);
+            pushCandleLog(
+              "Докачка на сервере: " +
+                plainNumber((data && data.total) || tickers.length) +
+                " бумаг · вкладку можно закрыть"
+            );
+            setCandleNote(
+              "Докачка идёт на сервере · вкладку можно закрыть"
+            );
+            renderCandles();
+            startCandleFillPoll();
+          })
+          .catch(function (err) {
+            setCandleNote(err.message || "не удалось запустить докачку");
+            fill.disabled = false;
+          });
+      };
+    }
+    var cancel = byId("candle-fill-cancel");
+    if (cancel) {
+      cancel.onclick = function () {
+        cancel.disabled = true;
+        apiPost("/desk/candles/fill/cancel", {})
+          .then(function (data) {
+            applyCandleFillStatus(data);
+            renderCandles();
+          })
+          .catch(function () {
+            cancel.disabled = false;
+          });
+      };
+    }
   }
 
   function capLabel(value) {
@@ -5858,10 +5988,10 @@
             return (
               "<tr><td>" +
               label +
-              '</td><td class="num"><input type="number" min="0" step="100" data-whatif-amt="' +
+              '</td><td class="num"><input type="text" inputmode="decimal" data-rub-input data-whatif-amt="' +
               escapeHtml(ticker) +
               '" value="' +
-              escapeHtml(String(amounts[ticker] || 0)) +
+              escapeHtml(formatRubGrouped(amounts[ticker] || 0)) +
               '"></td></tr>'
             );
           })
@@ -5997,8 +6127,8 @@
       "<h3>Если бы купил тогда</h3>" +
       '<div class="whatif-params filters">' +
       '<label class="field compact">бюджет, ₽' +
-      '<input id="whatif-capital" type="number" min="1000" step="1000" value="' +
-      escapeHtml(String(lastWhatIfCapital)) +
+      '<input id="whatif-capital" type="text" inputmode="decimal" data-rub-input value="' +
+      escapeHtml(formatRubGrouped(lastWhatIfCapital)) +
       '"></label>' +
       '<label class="field compact">дата покупки' +
       '<input id="whatif-start" type="date" value="' +
@@ -6025,9 +6155,11 @@
   function bindWhatIfControls() {
     var capitalEl = byId("whatif-capital");
     var startEl = byId("whatif-start");
+    wireRubInputs(byId("page-body"));
     if (capitalEl) {
       capitalEl.onchange = function () {
-        lastWhatIfCapital = Math.max(0, Number(capitalEl.value) || 0);
+        lastWhatIfCapital = Math.max(0, parseRubInput(capitalEl.value) || 0);
+        capitalEl.value = formatRubGrouped(lastWhatIfCapital);
         if (lastWhatIfEqual) lastWhatIfAmounts = null;
         renderWhatIf();
       };
@@ -6051,7 +6183,9 @@
         if (!ticker) return;
         lastWhatIfEqual = false;
         lastWhatIfAmounts = whatIfAmountsMap(whatIfSelectedTickers());
-        lastWhatIfAmounts[ticker] = Math.max(0, Number(input.value) || 0);
+        var amt = Math.max(0, parseRubInput(input.value) || 0);
+        lastWhatIfAmounts[ticker] = amt;
+        input.value = formatRubGrouped(amt);
         renderWhatIf();
       };
     });
@@ -6133,7 +6267,8 @@
         var tickers = whatIfSelectedTickers();
         if (!tickers.length) return;
         if (capitalEl) {
-          lastWhatIfCapital = Math.max(0, Number(capitalEl.value) || 0);
+          lastWhatIfCapital = Math.max(0, parseRubInput(capitalEl.value) || 0);
+          capitalEl.value = formatRubGrouped(lastWhatIfCapital);
         }
         if (startEl) {
           lastWhatIfStart = startEl.value || whatIfDefaultStart();
@@ -6397,9 +6532,9 @@
     if (changedEl.hasAttribute("data-sleeve-weight")) {
       var pct = Number(pctEl.value);
       if (!isFinite(pct) || pct < 0) pct = 0;
-      capEl.value = String(Math.round((pool * pct) / 100));
+      capEl.value = formatRubGrouped(Math.round((pool * pct) / 100));
     } else {
-      var capital = Number(capEl.value);
+      var capital = parseRubInput(capEl.value);
       if (!isFinite(capital) || capital < 0) capital = 0;
       pctEl.value = String(Math.round((capital / pool) * 1000) / 10);
     }
@@ -6441,6 +6576,7 @@
   }
 
   function bindStrategiesLabControls() {
+    wireRubInputs(byId("page-body"));
     document.querySelectorAll("[data-sleeve-weight], [data-sleeve-capital]").forEach(
       function (el) {
         el.addEventListener("input", function () {
@@ -6457,7 +6593,12 @@
     var whatIfCap = byId("plan-whatif-capital");
     var whatIfPrice = byId("plan-example-price");
     function refreshWhatIf() {
-      if (whatIfCap) planWhatIfCapital = whatIfCap.value;
+      if (whatIfCap) {
+        var n = parseRubInput(whatIfCap.value);
+        if (!isFinite(n) || n < 0) n = 0;
+        whatIfCap.value = formatRubGrouped(n);
+        planWhatIfCapital = whatIfCap.value;
+      }
       if (whatIfPrice) {
         var price = Number(whatIfPrice.value);
         planExamplePrice = isFinite(price) && price > 0 ? price : 250;
@@ -7509,6 +7650,9 @@
     if (route.id === "candles") {
       renderCandles();
       refreshCandles();
+      pollCandleFillOnce().then(function (data) {
+        if (data && data.status === "running") startCandleFillPoll();
+      });
       return;
     }
     if (route.id === "strategies") {

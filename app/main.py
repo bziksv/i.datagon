@@ -664,6 +664,11 @@ def create_app() -> FastAPI:
         days: int = 730
         tf: str = "1d"
 
+    class CandleFillBody(BaseModel):
+        tf: str = "1d"
+        tickers: list[str] | None = None
+        days: int | None = None
+
     class DeskBacktestBatchBody(BaseModel):
         sleeves: list[str] | None = None
         tickers: list[str] | None = None
@@ -876,6 +881,63 @@ def create_app() -> FastAPI:
             ) from exc
         return {"ticker": symbol, "bars": bars, "tf": frame}
 
+    async def _candle_universe(
+        session: AsyncSession, frame: str
+    ) -> tuple[list[str], dict[str, str]]:
+        from app.advisory.moex_catalog import lookup_name
+
+        rows = list(await session.scalars(select(Fundamental)))
+        tickers = sorted(
+            {
+                str(row.ticker).upper()
+                for row in rows
+                if row.ticker and not (row.raw or {}).get("demo")
+            }
+        )
+        names = {
+            str(row.ticker).upper(): lookup_name(str(row.ticker), row.raw or {})
+            for row in rows
+            if row.ticker and not (row.raw or {}).get("demo")
+        }
+        return tickers, names
+
+    @app.get("/desk/candles/fill")
+    def desk_candles_fill_status() -> dict:
+        from app.ops.candle_pull_job import status_view
+
+        return status_view()
+
+    @app.post("/desk/candles/fill")
+    async def desk_candles_fill_start(
+        body: CandleFillBody,
+        session: AsyncSession = Depends(get_db),
+    ) -> dict:
+        """Фоновая докачка дыр. Вкладку держать не нужно."""
+        from app.ops.candle_coverage import STRATEGY_TFS, coverage_view
+        from app.ops.candle_pull_job import gap_tickers_from_coverage, start_fill
+
+        frame = (body.tf or "1d").strip().lower()
+        if frame not in STRATEGY_TFS:
+            raise HTTPException(status_code=422, detail="unsupported tf")
+        if body.tickers:
+            tickers = [
+                str(t).strip().upper() for t in body.tickers if str(t).strip()
+            ]
+        else:
+            universe, names = await _candle_universe(session, frame)
+            try:
+                coverage = coverage_view(tf=frame, tickers=universe, names=names)
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+            tickers = gap_tickers_from_coverage(coverage)
+        return start_fill(tickers, tf=frame, days=body.days)
+
+    @app.post("/desk/candles/fill/cancel")
+    def desk_candles_fill_cancel() -> dict:
+        from app.ops.candle_pull_job import request_cancel
+
+        return request_cancel()
+
     @app.post("/desk/backtest")
     def run_desk_backtest(body: DeskBacktestBody) -> dict:
         return _run_desk_backtest(body)
@@ -1042,25 +1104,12 @@ def create_app() -> FastAPI:
         session: AsyncSession = Depends(get_db),
     ) -> dict:
         """Покрытие CSV для форматов стратегий: 1d, 15m, 10m."""
-        from app.advisory.moex_catalog import lookup_name
         from app.ops.candle_coverage import STRATEGY_TFS, coverage_view
 
         frame = (tf or "1d").strip().lower()
         if frame not in STRATEGY_TFS:
             raise HTTPException(status_code=422, detail="unsupported tf")
-        rows = list(await session.scalars(select(Fundamental)))
-        tickers = sorted(
-            {
-                str(row.ticker).upper()
-                for row in rows
-                if row.ticker and not (row.raw or {}).get("demo")
-            }
-        )
-        names = {
-            str(row.ticker).upper(): lookup_name(str(row.ticker), row.raw or {})
-            for row in rows
-            if row.ticker and not (row.raw or {}).get("demo")
-        }
+        tickers, names = await _candle_universe(session, frame)
         try:
             return coverage_view(tf=frame, tickers=tickers, names=names)
         except ValueError as exc:
