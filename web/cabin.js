@@ -104,11 +104,11 @@
     },
     {
       id: "work",
-      title: "Работа",
+      title: "Песочница T-Invest",
       group: "work",
-      hint: "Счёт песочницы",
+      hint: "Песочница T-Invest",
       intro:
-        "Счёт песочницы. Торгует только Абс. моментум-4. Из теста заявки сюда не приходят.",
+        "Песочница T-Invest: игровые деньги брокера, торгует только Абс. моментум-4. Боевой счёт не подключён.",
     },
     {
       id: "settings",
@@ -1268,10 +1268,8 @@
     markDeskSwitch();
     if (deskMode() === "work") {
       appendNavLabel(nav, "Работа · брокер");
-      appendNavLink(nav, "work", "Счёт", "Кэш, сделки, заявка");
-      appendNavLink(nav, "home", "К средам", "Вернуться к выбору");
-      appendMobileLink(mobile, "work", "Счёт");
-      appendMobileLink(mobile, "home", "Среды");
+      appendNavLink(nav, "work", "Песочница", "Счёт, позиции, сделки");
+      appendMobileLink(mobile, "work", "Песочница");
       return;
     }
     if (deskMode() === "home") {
@@ -5861,10 +5859,29 @@
 
   function whatIfTickerNames() {
     var names = {};
+    function put(ticker, name) {
+      var t = String(ticker || "").toUpperCase();
+      var n = String(name || "").trim();
+      if (!t || !n || n.toUpperCase() === t) return;
+      names[t] = n;
+    }
     ((lastCandlesCoverage && lastCandlesCoverage.items) || []).forEach(function (row) {
-      if (row.ticker) names[String(row.ticker).toUpperCase()] = row.name || "";
+      put(row.ticker, row.name);
+    });
+    ((lastFundamentals && lastFundamentals.items) || []).forEach(function (row) {
+      put(row.ticker, row.name);
     });
     return names;
+  }
+
+  function whatIfCompanyLabel(leg) {
+    var ticker = String((leg && leg.ticker) || "").toUpperCase();
+    if (!ticker) return "—";
+    var hints = whatIfTickerNames();
+    var raw = String((leg && leg.name) || "").trim();
+    var name = raw && raw.toUpperCase() !== ticker ? raw : hints[ticker] || "";
+    if (name && name.toUpperCase() === ticker) name = "";
+    return name ? name + " · " + ticker : ticker;
   }
 
   function whatIfSelectedTickers() {
@@ -6044,21 +6061,14 @@
         .sort(function (a, b) {
           return Number(b.pnl_pct || 0) - Number(a.pnl_pct || 0);
         });
-      var nameHints = whatIfTickerNames();
       var legRows = legs
         .map(function (leg) {
           var tone = whatIfTone(leg.pnl_pct);
-          var ticker = String(leg.ticker || "").toUpperCase();
-          var name = String(leg.name || nameHints[ticker] || "").trim();
-          if (name && name.toUpperCase() === ticker) name = "";
-          var who = name
-            ? escapeHtml(name) + " · " + escapeHtml(ticker)
-            : escapeHtml(ticker);
           return (
             '<tr class="' +
             tone +
             '"><td>' +
-            who +
+            escapeHtml(whatIfCompanyLabel(leg)) +
             '</td><td class="num">' +
             escapeHtml(ruDay(leg.entry_day)) +
             "<br><small>" +
@@ -7433,164 +7443,1418 @@
     if (portfolioTab === "drift") bindDriftActions();
   }
 
-  function workSignal(trades) {
-    if (!trades || !trades.length) return "ждёт";
-    var last = trades[trades.length - 1];
-    if (last.side === "sell") return "выход";
-    if (last.side === "buy") return "в позиции";
-    return "ждёт";
+  var workData = null;
+  var workRange = "day";
+  var workSort = "risk";
+  var workPollTimer = null;
+  var workClockTimer = null;
+  var workPrevNums = {};
+  var workSeenTrades = null;
+  var workChartPoints = {};
+  var workSetupOpen = false;
+  var workPayinOpen = false;
+  var workPayinDraft = "";
+  var workParamsDraft = null;
+  var workLastOkAt = null;
+  var workLastFailAt = null;
+  var workDrawn = {};
+  var WORK_POLL_MS = 30000;
+  var WORK_SESSION = { open: 10 * 60, close: 18 * 60 + 50 };
+  var WORK_DECISION_RU = {
+    sent: "отправлено",
+    disabled: "заявки выключены",
+    no_account: "счёт не выбран",
+    no_room_name: "потолок на бумагу",
+    no_room_sleeve: "рукав заполнен",
+    no_price: "нет цены",
+    nothing_to_sell: "нечего продавать",
+    no_instrument: "бумага не найдена",
+  };
+  var WORK_VERDICT = {
+    hold: { label: "Держим", tone: "ok" },
+    watch: { label: "Под наблюдением", tone: "warn" },
+    exit: { label: "Выход на закрытии", tone: "bad" },
+  };
+
+  function workNum(v) {
+    var n = Number(v);
+    return isFinite(n) ? n : null;
   }
 
-  function workChartSvg(chart) {
-    var bars = (chart && chart.bars) || [];
-    var curve = (chart && chart.equity_curve) || [];
-    var series = bars.length
-      ? bars.map(function (b) { return Number(b.close); })
-      : curve.map(function (b) { return Number(b.equity); });
-    if (!series.length) return "<p class=\"muted\">График появится после ленты и сделок.</p>";
-    var min = Math.min.apply(null, series);
-    var max = Math.max.apply(null, series);
-    if (max === min) max = min + 1;
-    var w = 640;
-    var h = 180;
-    var pts = series.map(function (v, i) {
-      var x = series.length === 1 ? 0 : (i / (series.length - 1)) * w;
-      var y = h - ((v - min) / (max - min)) * (h - 16) - 8;
-      return x.toFixed(1) + "," + y.toFixed(1);
-    }).join(" ");
-    var marks = "";
-    (chart.marks || []).forEach(function (mark) {
-      var day = String(mark.ts || "").slice(0, 10);
-      var idx = -1;
-      bars.forEach(function (b, i) { if (b.ts === day) idx = i; });
-      if (idx < 0) return;
-      var x = bars.length === 1 ? 0 : (idx / (bars.length - 1)) * w;
-      var price = Number(mark.price);
-      var y = h - ((price - min) / (max - min)) * (h - 16) - 8;
-      var fill = mark.side === "sell" ? "#9a3412" : "#1d4e3a";
-      marks += "<circle cx=\"" + x.toFixed(1) + "\" cy=\"" + y.toFixed(1) + "\" r=\"4\" fill=\"" + fill + "\"></circle>";
+  function workPct(v, signed) {
+    var n = workNum(v);
+    if (n === null) return "—";
+    var s = (Math.round(n * 10000) / 100).toLocaleString("ru-RU", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
     });
-    return "<svg class=\"work-chart\" viewBox=\"0 0 " + w + " " + h + "\" role=\"img\" aria-label=\"Цена и отметки сделок\"><polyline fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" points=\"" + pts + "\"></polyline>" + marks + "</svg>";
+    return (signed && n > 0 ? "+" : "") + s + "%";
   }
+
+  function workRub(v, signed) {
+    var n = workNum(v);
+    if (n === null) return "—";
+    return (signed && n > 0 ? "+" : "") + rubles(n);
+  }
+
+  function workPrice(v) {
+    var n = workNum(v);
+    if (n === null) return "—";
+    var digits = Math.abs(n) < 1 ? 4 : Math.abs(n) < 100 ? 2 : 2;
+    return n.toLocaleString("ru-RU", { minimumFractionDigits: digits, maximumFractionDigits: digits }) + " ₽";
+  }
+
+  function workTone(v) {
+    var n = workNum(v);
+    if (n === null || n === 0) return "flat";
+    return n > 0 ? "up" : "down";
+  }
+
+  function workArrow(v) {
+    var n = workNum(v);
+    if (n === null || n === 0) return "";
+    return n > 0 ? "▲ " : "▼ ";
+  }
+
+  function workMskParts(date) {
+    var d = new Date(date.getTime() + 3 * 3600 * 1000);
+    return { h: d.getUTCHours(), m: d.getUTCMinutes(), s: d.getUTCSeconds(), day: d.getUTCDay() };
+  }
+
+  function workClock(date) {
+    var p = workMskParts(date);
+    function pad(n) { return (n < 10 ? "0" : "") + n; }
+    return pad(p.h) + ":" + pad(p.m) + ":" + pad(p.s);
+  }
+
+  function workCountdown(iso) {
+    var ms = Date.parse(iso || "") - Date.now();
+    if (!isFinite(ms)) return "—";
+    if (ms <= 0) return "сейчас";
+    var s = Math.floor(ms / 1000);
+    var d = Math.floor(s / 86400);
+    var h = Math.floor((s % 86400) / 3600);
+    var m = Math.floor((s % 3600) / 60);
+    var sec = s % 60;
+    function pad(n) { return (n < 10 ? "0" : "") + n; }
+    return (d ? d + " д " : "") + pad(h) + ":" + pad(m) + ":" + pad(sec);
+  }
+
+  function workShortId(id) {
+    var s = String(id || "");
+    return s.length > 8 ? "…" + s.slice(-6) : s || "—";
+  }
+
+  function workLabel(row) {
+    var ticker = String((row && row.ticker) || "").toUpperCase();
+    var name = String((row && row.name) || "").trim();
+    if (name && name.toUpperCase() !== ticker) return name;
+    return ticker || "—";
+  }
+
+  function workSharePct(share) {
+    var n = Number(share) * 100;
+    if (!isFinite(n)) return "";
+    return String(Math.round(n * 100) / 100).replace(".", ",");
+  }
+
+  function workPctFromRub(rub, equity) {
+    var eq = Number(equity);
+    if (!(eq > 0) || !isFinite(rub)) return "";
+    return String(Math.round((rub / eq) * 10000) / 100).replace(".", ",");
+  }
+
+  /* ---------- мини-набор графиков (SVG-строки, цвета через CSS) ---------- */
+
+  function chartScale(values, pad) {
+    var nums = values.filter(function (v) { return v !== null && isFinite(v); });
+    if (!nums.length) return null;
+    var min = Math.min.apply(null, nums);
+    var max = Math.max.apply(null, nums);
+    var span = max - min;
+    var p = span * (pad == null ? 0.08 : pad) || Math.abs(max) * 0.01 || 1;
+    return { min: min - p, max: max + p };
+  }
+
+  function chartPath(pts) {
+    return pts.map(function (p, i) {
+      return (i ? "L" : "M") + p[0].toFixed(1) + "," + p[1].toFixed(1);
+    }).join(" ");
+  }
+
+  function chartLine(id, points, opts) {
+    opts = opts || {};
+    if (!points || points.length < 2) {
+      return '<div class="wchart-empty">' + escapeHtml(opts.empty || "Мало точек для графика.") + "</div>";
+    }
+    var w = 960;
+    var h = opts.height || 260;
+    var padL = 6;
+    var padR = 86;
+    var padT = 14;
+    var padB = 26;
+    var iw = w - padL - padR;
+    var ih = h - padT - padB;
+    var vals = points.map(function (p) { return p.v; });
+    var base = opts.base != null ? opts.base : vals[0];
+    var sc = chartScale(vals.concat([base]));
+    var t0 = points[0].t;
+    var t1 = points[points.length - 1].t;
+    var tspan = t1 - t0 || 1;
+    function x(t) { return padL + ((t - t0) / tspan) * iw; }
+    function y(v) { return padT + (1 - (v - sc.min) / (sc.max - sc.min)) * ih; }
+    var xy = points.map(function (p) { return [x(p.t), y(p.v)]; });
+    var line = chartPath(xy);
+    var by = y(base);
+    var area = line + " L" + xy[xy.length - 1][0].toFixed(1) + "," + by.toFixed(1) + " L" + xy[0][0].toFixed(1) + "," + by.toFixed(1) + " Z";
+    var clipUp = "wc-up-" + id;
+    var clipDn = "wc-dn-" + id;
+    var grid = "";
+    for (var g = 0; g <= 3; g++) {
+      var gv = sc.min + ((sc.max - sc.min) * g) / 3;
+      var gy = y(gv);
+      grid +=
+        '<line class="wchart-grid" x1="' + padL + '" x2="' + (w - padR) + '" y1="' + gy.toFixed(1) + '" y2="' + gy.toFixed(1) + '"></line>' +
+        '<text class="wchart-ylab" x="' + (w - padR + 8) + '" y="' + (gy + 4).toFixed(1) + '">' + escapeHtml(opts.fmtY ? opts.fmtY(gv) : formatRubGrouped(gv)) + "</text>";
+    }
+    var xl = "";
+    var ticks = Math.min(5, points.length - 1);
+    for (var k = 0; k <= ticks; k++) {
+      var tt = t0 + (tspan * k) / ticks;
+      var anchor = k === 0 ? "start" : k === ticks ? "end" : "middle";
+      xl += '<text class="wchart-xlab" text-anchor="' + anchor + '" x="' + x(tt).toFixed(1) + '" y="' + (h - 6) + '">' + escapeHtml(opts.fmtX ? opts.fmtX(tt, false, tspan) : "") + "</text>";
+    }
+    var marks = (opts.marks || []).map(function (m) {
+      if (m.t < t0 || m.t > t1) return "";
+      var mx = x(m.t);
+      var my = y(m.v);
+      var cls = m.side === "payin" ? "wmark wmark--payin" : m.side === "sell" ? "wmark wmark--sell" : m.layer > 1 ? "wmark wmark--add" : "wmark wmark--buy";
+      var shape = m.side === "payin"
+        ? '<rect x="' + (mx - 5).toFixed(1) + '" y="' + (my - 5).toFixed(1) + '" width="10" height="10" rx="2"></rect>'
+        : m.side === "sell"
+        ? '<path d="M' + (mx - 6).toFixed(1) + "," + (my - 5).toFixed(1) + " L" + (mx + 6).toFixed(1) + "," + (my - 5).toFixed(1) + " L" + mx.toFixed(1) + "," + (my + 6).toFixed(1) + ' Z"></path>'
+        : m.layer > 1
+          ? '<path d="M' + mx.toFixed(1) + "," + (my - 6).toFixed(1) + " L" + (mx + 6).toFixed(1) + "," + my.toFixed(1) + " L" + mx.toFixed(1) + "," + (my + 6).toFixed(1) + " L" + (mx - 6).toFixed(1) + "," + my.toFixed(1) + ' Z"></path>'
+          : '<path d="M' + (mx - 6).toFixed(1) + "," + (my + 5).toFixed(1) + " L" + (mx + 6).toFixed(1) + "," + (my + 5).toFixed(1) + " L" + mx.toFixed(1) + "," + (my - 6).toFixed(1) + ' Z"></path>';
+      return '<g class="' + cls + '"><title>' + escapeHtml(m.title || "") + "</title>" + shape + "</g>";
+    }).join("");
+    var last = xy[xy.length - 1];
+    var firstDraw = !workDrawn[id];
+    workDrawn[id] = true;
+    workChartPoints[id] = {
+      points: points,
+      xy: xy,
+      w: w,
+      h: h,
+      padT: padT,
+      padB: padB,
+      base: base,
+      fmtX: opts.fmtX,
+      fmtY: opts.fmtY,
+    };
+    return (
+      '<div class="wchart" data-wchart="' + escapeHtml(id) + '">' +
+      '<svg class="wchart-svg' + (firstDraw ? " is-draw" : "") + '" viewBox="0 0 ' + w + " " + h + '" preserveAspectRatio="none" role="img" aria-label="' + escapeHtml(opts.label || "График") + '">' +
+      "<defs>" +
+      '<clipPath id="' + clipUp + '"><rect x="0" y="0" width="' + w + '" height="' + by.toFixed(1) + '"></rect></clipPath>' +
+      '<clipPath id="' + clipDn + '"><rect x="0" y="' + by.toFixed(1) + '" width="' + w + '" height="' + (h - by).toFixed(1) + '"></rect></clipPath>' +
+      "</defs>" +
+      grid +
+      '<path class="wchart-area wchart-area--up" clip-path="url(#' + clipUp + ')" d="' + area + '"></path>' +
+      '<path class="wchart-area wchart-area--down" clip-path="url(#' + clipDn + ')" d="' + area + '"></path>' +
+      '<line class="wchart-base" x1="' + padL + '" x2="' + (w - padR) + '" y1="' + by.toFixed(1) + '" y2="' + by.toFixed(1) + '"></line>' +
+      '<path class="wchart-line" pathLength="1" d="' + line + '"></path>' +
+      marks +
+      (opts.pulse ? '<circle class="wpulse" cx="' + last[0].toFixed(1) + '" cy="' + last[1].toFixed(1) + '" r="5"></circle>' : "") +
+      '<circle class="wchart-dot" cx="' + last[0].toFixed(1) + '" cy="' + last[1].toFixed(1) + '" r="4"></circle>' +
+      xl +
+      '<line class="wchart-cross" x1="0" x2="0" y1="' + padT + '" y2="' + (h - padB) + '" hidden></line>' +
+      '<circle class="wchart-cross-dot" r="5" cx="0" cy="0" hidden></circle>' +
+      "</svg>" +
+      '<div class="wchart-tip" hidden></div>' +
+      "</div>"
+    );
+  }
+
+  function bindChartCrosshair(root) {
+    (root || document).querySelectorAll("[data-wchart]").forEach(function (box) {
+      var id = box.getAttribute("data-wchart");
+      var data = workChartPoints[id];
+      var svg = box.querySelector("svg");
+      if (!data || !svg) return;
+      var vline = svg.querySelector(".wchart-cross");
+      var dot = svg.querySelector(".wchart-cross-dot");
+      var tip = box.querySelector(".wchart-tip");
+      function hide() {
+        vline.setAttribute("hidden", "");
+        dot.setAttribute("hidden", "");
+        tip.hidden = true;
+      }
+      box.onpointerleave = hide;
+      box.onpointermove = function (ev) {
+        var rect = svg.getBoundingClientRect();
+        if (!rect.width) return;
+        var vx = ((ev.clientX - rect.left) / rect.width) * data.w;
+        var best = 0;
+        var bestD = Infinity;
+        for (var i = 0; i < data.xy.length; i++) {
+          var d = Math.abs(data.xy[i][0] - vx);
+          if (d < bestD) { bestD = d; best = i; }
+        }
+        var p = data.xy[best];
+        var pt = data.points[best];
+        vline.setAttribute("x1", p[0].toFixed(1));
+        vline.setAttribute("x2", p[0].toFixed(1));
+        vline.removeAttribute("hidden");
+        dot.setAttribute("cx", p[0].toFixed(1));
+        dot.setAttribute("cy", p[1].toFixed(1));
+        dot.removeAttribute("hidden");
+        var delta = data.base ? pt.v / data.base - 1 : null;
+        tip.innerHTML =
+          "<span>" + escapeHtml(data.fmtX ? data.fmtX(pt.t, true) : "") + "</span>" +
+          "<strong>" + escapeHtml(data.fmtY ? data.fmtY(pt.v) : rubles(pt.v)) + "</strong>" +
+          (delta !== null ? '<em class="is-' + workTone(delta) + '">' + escapeHtml(workPct(delta, true)) + " к началу</em>" : "");
+        tip.hidden = false;
+        var left = (p[0] / data.w) * rect.width;
+        tip.style.left = Math.min(Math.max(left, 70), rect.width - 70) + "px";
+      };
+    });
+  }
+
+  function chartSpark(spark, opts) {
+    opts = opts || {};
+    var closes = (spark && spark.closes) || [];
+    var days = (spark && spark.days) || [];
+    if (closes.length < 2) return '<div class="wspark-empty">Нет дневок для графика</div>';
+    var nowV = workNum(spark.now);
+    var w = 320;
+    var h = 84;
+    var padT = 6;
+    var padB = 6;
+    var n = closes.length + (nowV !== null ? 1 : 0);
+    var vals = closes.slice();
+    (spark.sma || []).forEach(function (v) { if (v !== null) vals.push(v); });
+    (spark.avg_steps || []).forEach(function (s) { vals.push(s.avg); });
+    if (nowV !== null) vals.push(nowV);
+    var sc = chartScale(vals, 0.06);
+    function x(i) { return (i / (n - 1)) * w; }
+    function y(v) { return padT + (1 - (v - sc.min) / (sc.max - sc.min)) * (h - padT - padB); }
+    var dayIdx = {};
+    days.forEach(function (d, i) { dayIdx[d] = i; });
+    function idxFor(day) {
+      if (dayIdx[day] != null) return dayIdx[day];
+      for (var i = 0; i < days.length; i++) if (days[i] >= day) return i;
+      return days.length - 1;
+    }
+    var pts = closes.map(function (c, i) { return [x(i), y(c)]; });
+    var line = chartPath(pts);
+    var avgNow = workNum(opts.avg);
+    var lastClose = closes[closes.length - 1];
+    var up = avgNow === null || (nowV !== null ? nowV : lastClose) >= avgNow;
+    var area = line + " L" + pts[pts.length - 1][0].toFixed(1) + "," + h + " L0," + h + " Z";
+    var sma = "";
+    var smaPts = [];
+    (spark.sma || []).forEach(function (v, i) { if (v !== null) smaPts.push([x(i), y(v)]); });
+    if (smaPts.length > 1) sma = '<path class="wspark-sma" d="' + chartPath(smaPts) + '"></path>';
+    var steps = "";
+    var st = spark.avg_steps || [];
+    if (st.length) {
+      var seg = [];
+      st.forEach(function (s, k) {
+        var i0 = idxFor(s.day);
+        var i1 = k + 1 < st.length ? idxFor(st[k + 1].day) : n - 1;
+        seg.push("M" + x(i0).toFixed(1) + "," + y(s.avg).toFixed(1) + " L" + x(i1).toFixed(1) + "," + y(s.avg).toFixed(1));
+      });
+      steps = '<path class="wspark-avg" d="' + seg.join(" ") + '"></path>';
+    } else if (avgNow !== null) {
+      steps = '<path class="wspark-avg" d="M0,' + y(avgNow).toFixed(1) + " L" + w + "," + y(avgNow).toFixed(1) + '"></path>';
+    }
+    var marks = (spark.marks || []).map(function (m) {
+      var i = idxFor(m.day);
+      var mx = x(i);
+      var my = y(m.price || closes[i]);
+      var cls = m.side === "sell" ? "wmark--sell" : m.layer > 1 ? "wmark--add" : "wmark--buy";
+      return '<circle class="wspark-mark ' + cls + '" cx="' + mx.toFixed(1) + '" cy="' + my.toFixed(1) + '" r="3.5"><title>' +
+        escapeHtml((m.side === "sell" ? "Продажа" : m.layer > 1 ? "Докуп " + m.layer : "Покупка") + " · " + ruDay(m.day) + " · " + workPrice(m.price)) + "</title></circle>";
+    }).join("");
+    var nowSeg = "";
+    if (nowV !== null) {
+      var lx = pts[pts.length - 1];
+      var nx = x(n - 1);
+      var ny = y(nowV);
+      nowSeg =
+        '<path class="wspark-now-seg" d="M' + lx[0].toFixed(1) + "," + lx[1].toFixed(1) + " L" + nx.toFixed(1) + "," + ny.toFixed(1) + '"></path>' +
+        '<circle class="wpulse" cx="' + nx.toFixed(1) + '" cy="' + ny.toFixed(1) + '" r="4"></circle>' +
+        '<circle class="wspark-now" cx="' + nx.toFixed(1) + '" cy="' + ny.toFixed(1) + '" r="3.5"></circle>';
+    }
+    return (
+      '<svg class="wspark is-' + (up ? "up" : "down") + '" viewBox="0 0 ' + w + " " + h + '" preserveAspectRatio="none" role="img" aria-label="Цена с даты входа">' +
+      '<path class="wspark-area" d="' + area + '"></path>' +
+      sma + steps +
+      '<path class="wspark-line" pathLength="1" d="' + line + '"></path>' +
+      marks + nowSeg +
+      "</svg>"
+    );
+  }
+
+  function chartMiniSpark(values) {
+    var vals = (values || []).filter(function (v) { return v !== null && isFinite(v); });
+    if (vals.length < 2) return "";
+    var sc = chartScale(vals, 0.1);
+    var w = 120;
+    var h = 28;
+    var pts = vals.map(function (v, i) {
+      return [(i / (vals.length - 1)) * w, 2 + (1 - (v - sc.min) / (sc.max - sc.min)) * (h - 4)];
+    });
+    var tone = vals[vals.length - 1] >= vals[0] ? "up" : "down";
+    return '<svg class="wmini is-' + tone + '" viewBox="0 0 ' + w + " " + h + '" preserveAspectRatio="none" aria-hidden="true"><path d="' + chartPath(pts) + '"></path></svg>';
+  }
+
+  function chartBullet(opts) {
+    var min = opts.min;
+    var max = opts.max;
+    var span = max - min || 1;
+    function pos(v) { return Math.max(0, Math.min(100, ((v - min) / span) * 100)); }
+    var value = workNum(opts.value);
+    var zones = (opts.zones || []).map(function (z) {
+      var a = pos(z.from);
+      var b = pos(z.to);
+      return '<span class="wbullet-zone wbullet-zone--' + z.tone + '" style="left:' + a.toFixed(1) + "%;width:" + (b - a).toFixed(1) + '%"></span>';
+    }).join("");
+    var floor = opts.floor != null
+      ? '<span class="wbullet-floor" style="left:' + pos(opts.floor).toFixed(1) + '%" title="' + escapeHtml(opts.floorLabel || "") + '"></span>'
+      : "";
+    var runner = value === null
+      ? ""
+      : '<span class="wbullet-runner wbullet-runner--' + (opts.tone || "ok") + '" style="left:' + pos(value).toFixed(1) + '%"></span>';
+    return (
+      '<div class="wbullet">' +
+      '<div class="wbullet-head"><span>' + escapeHtml(opts.label) + "</span><strong class=\"is-" + escapeHtml(opts.tone || "ok") + '">' + escapeHtml(opts.valueText) + "</strong></div>" +
+      '<div class="wbullet-track">' + zones + floor + runner + "</div>" +
+      (opts.note ? '<div class="wbullet-note">' + escapeHtml(opts.note) + "</div>" : "") +
+      "</div>"
+    );
+  }
+
+  function chartBar(fill, opts) {
+    var n = Math.max(0, Math.min(1.2, Number(fill) || 0));
+    var tone = n > 1 ? "bad" : n > 0.9 ? "warn" : "ok";
+    return (
+      '<div class="wbar">' +
+      '<div class="wbullet-head"><span>' + escapeHtml(opts.label) + "</span><strong>" + escapeHtml(opts.valueText) + "</strong></div>" +
+      '<div class="wbar-track"><span class="wbar-fill wbar-fill--' + tone + '" style="width:' + (Math.min(1, n) * 100).toFixed(1) + '%"></span>' +
+      (n > 1 ? '<span class="wbar-over" style="width:' + ((n - 1) * 100).toFixed(1) + '%"></span>' : "") +
+      "</div></div>"
+    );
+  }
+
+  function chartDonut(segments, center, sub) {
+    var total = segments.reduce(function (acc, s) { return acc + Math.max(0, s.value); }, 0);
+    var r = 54;
+    var c = 2 * Math.PI * r;
+    var off = 0;
+    var arcs = total > 0
+      ? segments.map(function (s) {
+          var len = (Math.max(0, s.value) / total) * c;
+          var gap = len > 4 ? 2 : 0;
+          var html = '<circle class="wdonut-seg wdonut-seg--' + s.tone + '" r="' + r + '" cx="70" cy="70" stroke-dasharray="' + Math.max(0, len - gap).toFixed(2) + " " + (c - Math.max(0, len - gap)).toFixed(2) + '" stroke-dashoffset="' + (-off).toFixed(2) + '"><title>' + escapeHtml(s.title) + "</title></circle>";
+          off += len;
+          return html;
+        }).join("")
+      : '<circle class="wdonut-seg wdonut-seg--cash" r="' + r + '" cx="70" cy="70"></circle>';
+    return (
+      '<svg class="wdonut" viewBox="0 0 140 140" role="img" aria-label="Распределение счёта">' +
+      '<g transform="rotate(-90 70 70)">' + arcs + "</g>" +
+      '<text x="70" y="68" text-anchor="middle" class="wdonut-big">' + escapeHtml(center) + "</text>" +
+      '<text x="70" y="86" text-anchor="middle" class="wdonut-sub">' + escapeHtml(sub) + "</text>" +
+      "</svg>"
+    );
+  }
+
+  /* ---------- секции экрана ---------- */
+
+  function workStepMap(data) {
+    var ok = {};
+    (data.steps || []).forEach(function (s) { ok[s.id] = !!s.ok; });
+    return ok;
+  }
+
+  function workCurrentStep(data) {
+    var steps = data.steps || [];
+    for (var i = 0; i < steps.length; i++) if (!steps[i].ok) return steps[i].id;
+    return null;
+  }
+
+  function workContoursHtml(data) {
+    var ok = workStepMap(data);
+    var enabled = !!data.enabled;
+    var current = workCurrentStep(data);
+    var pill = enabled
+      ? '<span class="wpill wpill--on"><i class="wdot"></i>Заявки включены</span>'
+      : current && current !== "enabled"
+        ? '<span class="wpill wpill--wait">Ждёт шага ' + ((data.steps || []).map(function (s) { return s.id; }).indexOf(current) + 1) + "</span>"
+        : '<span class="wpill wpill--off">Заявки выключены</span>';
+    var dayVals = (data.curve_day || []).map(function (p) { return Number(p.equity); });
+    var live = data.live || { checklist: [], ready: 0, total: 10 };
+    var cells = (live.checklist || []).map(function (row) {
+      return '<i class="wready-cell' + (row.ok ? " is-ok" : "") + '" title="' + escapeHtml(row.title) + '"></i>';
+    }).join("");
+    var list = (live.checklist || []).map(function (row) {
+      return "<li class=\"" + (row.ok ? "is-ok" : "") + "\">" + escapeHtml(row.title) + "</li>";
+    }).join("");
+    return (
+      '<div class="wcontours">' +
+      '<section class="wcontour wcontour--sandbox" id="work-sandbox">' +
+      '<div class="wcontour-top"><span class="wbadge wbadge--sandbox">Песочница</span>' +
+      '<span class="wcontour-acc">счёт ' + escapeHtml(workShortId(data.account_id)) + "</span>" + pill + "</div>" +
+      (ok.account
+        ? '<div class="wcontour-main"><div>' +
+          '<div class="wbig" data-wnum="equity" data-wfmt="rub">' + escapeHtml(rubles(data.equity)) + "</div>" +
+          '<div class="wsub is-' + workTone(data.pnl_total) + '">' +
+          escapeHtml(workArrow(data.pnl_total) + workRub(data.pnl_total, true)) + " · " + escapeHtml(workPct(data.pnl_total_pct, true)) +
+          ' <span class="muted">с запуска</span></div>' +
+          "</div>" + chartMiniSpark(dayVals) + "</div>"
+        : '<p class="wcontour-note">Счёт ещё не выбран — пройдите запуск ниже.</p>') +
+      (ok.account ? workPayinHtml(data) : "") +
+      '<div class="wcontour-foot">Следующее решение через <strong data-countdown="' + escapeHtml(data.next_run_at || "") + '">' + escapeHtml(workCountdown(data.next_run_at)) + "</strong> · 18:50 МСК по закрытому дню</div>" +
+      "</section>" +
+      '<section class="wcontour wcontour--live" id="work-live-contour" aria-label="Боевой счёт не подключён">' +
+      '<div class="wcontour-top"><span class="wbadge wbadge--live">Боевой · не подключён</span>' +
+      '<svg class="wlock" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"></rect><path d="M8 11V8a4 4 0 0 1 8 0v3"></path></svg></div>' +
+      '<p class="wcontour-note">Заявки на реальные деньги отключены кодом (<code>' + escapeHtml(live.flag || "live=0") + "</code>). Включается только решением человека и правкой <code>.env</code> на сервере — не из кабинета.</p>" +
+      '<div class="wready"><div class="wready-cells">' + cells + "</div><span>Готовность " + escapeHtml(String(live.ready || 0)) + " из " + escapeHtml(String(live.total || 10)) + "</span></div>" +
+      '<details class="wready-list"><summary>Что должно стать зелёным</summary><ol>' + list + "</ol></details>" +
+      "</section>" +
+      "</div>"
+    );
+  }
+
+  function workPayinHtml(data) {
+    var total = Number(data.payins_total) || 0;
+    var note = total > 0 ? "Пополнено после открытия: " + rubles(total) + " — в результат не входит." : "";
+    if (!workPayinOpen) {
+      return (
+        '<div class="wpayin"><button type="button" class="ghost compact" id="work-payin-open">+ Пополнить счёт</button>' +
+        (note ? '<span class="muted">' + escapeHtml(note) + "</span>" : "") + "</div>"
+      );
+    }
+    var chips = [100000, 500000, 1000000].map(function (n) {
+      return '<button type="button" class="wchip-btn" data-payin-add="' + n + '">+' + escapeHtml(formatRubGrouped(n)) + "</button>";
+    }).join("");
+    return (
+      '<div class="wpayin wpayin--open" id="work-payin">' +
+      '<label class="wpayin-field">Сколько добавить, ₽<input id="work-payin-amount" type="text" inputmode="decimal" data-rub-input autocomplete="off" placeholder="500 000" value="' + escapeHtml(workPayinDraft) + '"></label>' +
+      '<div class="wpayin-chips">' + chips + "</div>" +
+      '<div class="wsetup-acts"><button type="button" class="primary" id="work-payin-send">Пополнить</button><button type="button" class="ghost" id="work-payin-cancel">Отмена</button></div>' +
+      '<p class="muted wpayin-note">Игровые рубли брокера. Вывести их из песочницы нельзя — чтобы уменьшить счёт, открывают новый. Пополнение не считается прибылью.</p>' +
+      "</div>"
+    );
+  }
+
+  function workPreviewHtml(equity, sleevePct, capPct) {
+    var eq = Number(equity) > 0 ? Number(equity) : 1000000;
+    var s = Number(sleevePct) / 100;
+    var c = Number(capPct) / 100;
+    if (!(s > 0 && s < 1 && c > 0 && c < 1)) {
+      return '<div class="wpreview"><p class="muted">Введите обе доли — покажу, как разложатся деньги.</p></div>';
+    }
+    var names = c <= s ? Math.floor(s / c + 1e-9) : 0;
+    var blocks = "";
+    for (var i = 0; i < names && i < 20; i++) {
+      blocks += '<span class="wpreview-name" style="width:' + (c * 100).toFixed(2) + '%"><em>' + (i + 1) + "</em></span>";
+    }
+    var rest = Math.max(0, s - names * c);
+    if (rest > 0.0001) blocks += '<span class="wpreview-rest" style="width:' + (rest * 100).toFixed(2) + '%"></span>';
+    return (
+      '<div class="wpreview">' +
+      '<div class="wpreview-bar">' + blocks + '<span class="wpreview-cash" style="width:' + ((1 - s) * 100).toFixed(2) + '%"><em>кэш</em></span></div>' +
+      '<div class="wpreview-brace" style="width:' + (s * 100).toFixed(2) + '%"><span>рукав ' + escapeHtml(plainNumber(s * 100)) + "% = " + escapeHtml(rubles(eq * s)) + "</span></div>" +
+      '<p class="wpreview-line">' +
+      (names
+        ? "До <strong>" + names + "</strong> " + (names === 1 ? "бумаги" : "бумаг") + " по <strong>" + escapeHtml(rubles(eq * c)) + "</strong> · свободный кэш <strong>" + escapeHtml(rubles(eq * (1 - s))) + "</strong> · от equity " + escapeHtml(rubles(eq))
+        : '<span class="is-bad">На одну бумагу нельзя больше, чем на весь рукав.</span>') +
+      "</p></div>"
+    );
+  }
+
+  function workSetupHtml(data) {
+    var steps = data.steps || [];
+    var ok = workStepMap(data);
+    var current = workCurrentStep(data);
+    var allOk = !current;
+    var sleevePct = workSharePct(data.sleeve_share || "0.40");
+    var capPct = workSharePct(data.name_cap || "0.10");
+    if (workParamsDraft) {
+      sleevePct = workParamsDraft.sleeve;
+      capPct = workParamsDraft.cap;
+    }
+    var eq = Number(data.equity) || 0;
+    if (allOk && !workSetupOpen) {
+      return (
+        '<section class="wsetup wsetup--done" id="work-setup">' +
+        '<div class="wsetup-line"><span class="wcheck">✓</span>' +
+        "<span>Рукав <strong>" + escapeHtml(sleevePct) + "%</strong> (" + escapeHtml(rubles(data.sleeve_rub)) + ")" +
+        " · на бумагу <strong>" + escapeHtml(capPct) + "%</strong> (" + escapeHtml(rubles(data.name_cap_rub)) + ")" +
+        " · до " + escapeHtml(String(data.max_names || 0)) + " бумаг</span>" +
+        '<span class="wsetup-acts"><button type="button" class="ghost" id="work-edit">Изменить бюджет</button>' +
+        (data.enabled
+          ? '<button type="button" class="ghost danger-ghost" id="work-off">Выключить заявки</button>'
+          : '<button type="button" class="primary" id="work-on">Включить заявки</button>') +
+        "</span></div></section>"
+      );
+    }
+    var dots = steps.map(function (s, i) {
+      var cls = s.ok ? "is-done" : s.id === current ? "is-current" : "";
+      return '<li class="' + cls + '"><span class="wstep-dot">' + (s.ok ? "✓" : i + 1) + "</span><span class=\"wstep-title\">" + escapeHtml(s.title) + "</span></li>";
+    }).join("");
+    var focus = workSetupOpen && (allOk || current === "enabled") ? "params" : current;
+    var panel = "";
+    if (focus === "token") {
+      panel =
+        "<h4>Связь с песочницей T-Invest</h4>" +
+        "<p>Токен песочницы лежит на сервере. Проверим, что API отвечает и счета видны.</p>" +
+        (data.error ? '<p class="wsetup-err">' + escapeHtml(data.error) + "</p>" : "") +
+        '<div class="wsetup-acts"><button type="button" class="primary" id="work-probe">Проверить связь</button></div>';
+    } else if (focus === "account") {
+      var accs = (data.accounts || []).map(function (row, i) {
+        var id = row.broker_account_id || "";
+        return '<label class="wacc"><input type="radio" name="work-acc" value="' + escapeHtml(id) + '"' + (id === data.account_id || (!data.account_id && i === 0) ? " checked" : "") + ">" +
+          "<span><strong>" + escapeHtml(row.name || "Счёт песочницы") + "</strong><small>" + escapeHtml(workShortId(id)) + " · " + escapeHtml(row.status || "") + "</small></span></label>";
+      }).join("");
+      panel =
+        "<h4>Счёт песочницы</h4>" +
+        (accs
+          ? '<div class="wacc-list">' + accs + '</div><div class="wsetup-acts"><button type="button" class="primary" id="work-account-save">Выбрать счёт</button><button type="button" class="ghost" id="work-open">Открыть новый с 1 000 000 ₽</button></div>'
+          : '<p>Счетов пока нет. Откроем счёт песочницы и положим 1 000 000 игровых ₽.</p><div class="wsetup-acts"><button type="button" class="primary" id="work-open">Открыть счёт с 1 000 000 ₽</button></div>');
+    } else if (focus === "strategy") {
+      panel =
+        "<h4>Абс. моментум-4</h4>" +
+        '<ul class="wrules">' +
+        '<li><i class="wrule wrule--in">▲</i><span><strong>Вход</strong> — цена выше средней за 30 дней, рост за 15 дней ≥ 0, не перегрета (цена/SMA ≤ 1,10), рынок широкий (≥ 42% бумаг выше SMA).</span></li>' +
+        '<li><i class="wrule wrule--out">▼</i><span><strong>Выход</strong> — 4 закрытия подряд с ростом за 15 дней ниже −1%.</span></li>' +
+        '<li><i class="wrule wrule--trail">◆</i><span><strong>Трейл</strong> — после +20% от входа продаём при откате на 4% от пика.</span></li>' +
+        "</ul>" +
+        '<p class="muted">Решение — раз в день, в 18:50 МСК по закрытому бару. Другие рукава сюда не подключаются.</p>' +
+        '<div class="wsetup-acts"><button type="button" class="primary" id="work-strategy">Подключить Абс. моментум-4</button></div>';
+    } else if (focus === "params") {
+      panel =
+        "<h4>Бюджет рукава</h4>" +
+        "<p class=\"muted\">Счёт сейчас " + escapeHtml(rubles(eq)) + ". Введите сумму в рублях или долю в процентах — второе поле посчитается само. Хранится доля: вырастет счёт — вырастет и бюджет.</p>" +
+        '<div class="wparams">' +
+        '<div class="wparam-row"><span class="wparam-k">Весь рукав</span>' +
+        '<label>₽<input id="work-sleeve-rub" type="text" inputmode="decimal" data-rub-input autocomplete="off" value="' + escapeHtml(formatRubGrouped(eq * Number(String(sleevePct).replace(",", ".")) / 100)) + '"></label>' +
+        '<label>% счёта<input id="work-sleeve" type="text" inputmode="decimal" autocomplete="off" value="' + escapeHtml(sleevePct) + '"></label></div>' +
+        '<div class="wparam-row"><span class="wparam-k">Не больше на одну бумагу</span>' +
+        '<label>₽<input id="work-cap-rub" type="text" inputmode="decimal" data-rub-input autocomplete="off" value="' + escapeHtml(formatRubGrouped(eq * Number(String(capPct).replace(",", ".")) / 100)) + '"></label>' +
+        '<label>% счёта<input id="work-cap" type="text" inputmode="decimal" autocomplete="off" value="' + escapeHtml(capPct) + '"></label></div>' +
+        "</div>" +
+        '<div id="work-preview">' + workPreviewHtml(data.equity, sleevePct, capPct) + "</div>" +
+        '<p class="wsetup-err" id="work-params-err" hidden></p>' +
+        '<div class="wsetup-acts"><button type="button" class="primary" id="work-params">Сохранить бюджет</button>' +
+        (workSetupOpen ? '<button type="button" class="ghost" id="work-edit-cancel">Отмена</button>' : "") +
+        "</div>";
+    } else if (focus === "enabled") {
+      panel =
+        "<h4>Включить заявки</h4>" +
+        '<ul class="wsummary">' +
+        "<li>Следующее решение: <strong data-countdown=\"" + escapeHtml(data.next_run_at || "") + '">' + escapeHtml(workCountdown(data.next_run_at)) + "</strong> (18:50 МСК)</li>" +
+        "<li>На рукав: <strong>" + escapeHtml(rubles(data.sleeve_rub)) + "</strong>, на одну бумагу до <strong>" + escapeHtml(rubles(data.name_cap_rub)) + "</strong></li>" +
+        "<li>Заявки рыночные, только в песочницу T-Invest. Боевой счёт не трогается.</li>" +
+        "</ul>" +
+        '<div class="wsetup-acts"><button type="button" class="primary" id="work-on">Включить заявки</button><button type="button" class="ghost" id="work-edit">Изменить бюджет</button></div>';
+    }
+    return (
+      '<section class="wsetup" id="work-setup">' +
+      '<div class="wsetup-head"><h3>Запуск</h3><span class="muted">' + (allOk ? "всё готово" : "шаг " + ((steps.map(function (s) { return s.id; }).indexOf(current)) + 1) + " из " + steps.length) + "</span></div>" +
+      '<ol class="wsteps">' + dots + "</ol>" +
+      '<div class="wsetup-panel">' + panel + "</div>" +
+      "</section>"
+    );
+  }
+
+  function workKpisHtml(data) {
+    var day = (data.curve_day || []).map(function (p) { return Number(p.equity); });
+    var pnlDaySeries = day.length ? day.map(function (v) { return v - day[0]; }) : [];
+    var fill = Number(data.sleeve_fill) || 0;
+    var ring = 2 * Math.PI * 15;
+    function tile(key, label, value, fmt, sub, spark, tone) {
+      return (
+        '<div class="wkpi">' +
+        '<span class="wkpi-k">' + escapeHtml(label) + "</span>" +
+        '<strong class="wkpi-v' + (tone ? " is-" + tone : "") + '" data-wnum="' + key + '" data-wfmt="' + fmt + '">' + escapeHtml(value) + "</strong>" +
+        (sub ? '<span class="wkpi-sub' + (tone ? " is-" + tone : "") + '">' + escapeHtml(sub) + "</span>" : "") +
+        (spark || "") +
+        '<span class="wkpi-delta" data-wdelta="' + key + '"></span>' +
+        "</div>"
+      );
+    }
+    return (
+      '<section class="wkpis" id="work-kpis">' +
+      tile("equity", "Стоимость счёта", rubles(data.equity), "rub", "", chartMiniSpark(day)) +
+      tile("cash", "Свободный кэш", rubles(data.cash), "rub", data.equity ? workPct(data.cash / data.equity) + " счёта" : "") +
+      tile("invested", "В бумагах", rubles(data.invested), "rub", (data.positions || []).length + " поз.") +
+      tile("pnl_day", "Результат за день", workRub(data.pnl_day, true), "rubs", workPct(data.pnl_day_pct, true), chartMiniSpark(pnlDaySeries), workTone(data.pnl_day)) +
+      tile("pnl_total", "С запуска", workRub(data.pnl_total, true), "rubs", workPct(data.pnl_total_pct, true), "", workTone(data.pnl_total)) +
+      '<div class="wkpi wkpi--ring">' +
+      '<span class="wkpi-k">Загрузка рукава</span>' +
+      '<svg class="wring" viewBox="0 0 40 40"><circle class="wring-bg" cx="20" cy="20" r="15"></circle>' +
+      '<circle class="wring-fg' + (fill > 1 ? " is-over" : "") + '" cx="20" cy="20" r="15" stroke-dasharray="' + (Math.min(1, fill) * ring).toFixed(2) + " " + ring.toFixed(2) + '" transform="rotate(-90 20 20)"></circle></svg>' +
+      '<strong class="wkpi-v">' + escapeHtml(workPct(fill)) + "</strong>" +
+      '<span class="wkpi-sub">из ' + escapeHtml(rubles(data.sleeve_rub)) + "</span>" +
+      "</div>" +
+      "</section>"
+    );
+  }
+
+  function workTimeFmt(range) {
+    return function (t, full, span) {
+      var d = new Date(t + 3 * 3600 * 1000);
+      function pad(n) { return (n < 10 ? "0" : "") + n; }
+      var hm = pad(d.getUTCHours()) + ":" + pad(d.getUTCMinutes());
+      var dm = pad(d.getUTCDate()) + "." + pad(d.getUTCMonth() + 1);
+      if (full) return dm + " " + hm + " МСК";
+      if (span != null) return span <= 36 * 3600 * 1000 ? hm : dm;
+      return range === "day" ? hm : dm;
+    };
+  }
+
+  function workEquityHtml(data) {
+    var points = (data.curve || []).map(function (p) {
+      return { t: Date.parse(p.ts), v: Number(p.equity) };
+    }).filter(function (p) { return isFinite(p.t) && isFinite(p.v); });
+    function valueAt(t) {
+      var best = null;
+      for (var i = 0; i < points.length; i++) {
+        if (best === null || Math.abs(points[i].t - t) < Math.abs(best.t - t)) best = points[i];
+      }
+      return best ? best.v : null;
+    }
+    var marks = (data.trades || []).map(function (tr) {
+      var t = Date.parse(tr.ts);
+      var v = valueAt(t);
+      if (!isFinite(t) || v === null) return null;
+      return {
+        t: t,
+        v: v,
+        side: tr.side,
+        layer: Number(tr.layer) || 1,
+        title: (tr.side === "sell" ? "Продажа " : Number(tr.layer) > 1 ? "Докуп " : "Покупка ") + workLabel(tr) + " · " + plainNumber(tr.qty) + " шт по " + workPrice(tr.price),
+      };
+    }).filter(Boolean);
+    (data.payins || []).forEach(function (row) {
+      var t = Date.parse(row.ts);
+      var v = valueAt(t);
+      if (!isFinite(t) || v === null) return;
+      marks.push({ t: t, v: v, side: "payin", title: "Пополнение +" + rubles(row.amount) });
+    });
+    var ranges = [["day", "День"], ["week", "Неделя"], ["month", "Месяц"], ["all", "Всё"]].map(function (r) {
+      return '<button type="button" data-work-range="' + r[0] + '"' + (workRange === r[0] ? ' aria-pressed="true"' : "") + ">" + r[1] + "</button>";
+    }).join("");
+    var first = points.length ? points[0].v : null;
+    var last = points.length ? points[points.length - 1].v : null;
+    var added = 0;
+    if (points.length) {
+      (data.payins || []).forEach(function (row) {
+        var t = Date.parse(row.ts);
+        if (t > points[0].t && t <= points[points.length - 1].t) added += Number(row.amount) || 0;
+      });
+    }
+    var delta = first ? (last - added) / (first + added) - 1 : null;
+    return (
+      '<section class="wpanel" id="work-equity">' +
+      '<div class="wpanel-head"><div><h3>Стоимость счёта</h3>' +
+      (delta !== null
+        ? '<span class="wpanel-sub is-' + workTone(delta) + '">' + escapeHtml(workArrow(delta) + workRub(last - first - added, true) + " · " + workPct(delta, true)) + " за период" + (added ? ", без пополнений " + escapeHtml(rubles(added)) : "") + "</span>"
+        : '<span class="wpanel-sub muted">отметка раз в минуту</span>') +
+      '</div><div class="wseg" role="group" aria-label="Период">' + ranges + "</div></div>" +
+      chartLine("equity", points, {
+        base: first,
+        marks: marks,
+        pulse: !!data.enabled,
+        fmtX: workTimeFmt(workRange),
+        label: "Стоимость счёта песочницы",
+        empty: "Кривая появится, когда воркер сделает первые отметки (раз в минуту, нужен выбранный счёт).",
+      }) +
+      '<div class="wlegend"><span><i class="wlg wlg--buy"></i>покупка</span><span><i class="wlg wlg--add"></i>докуп</span><span><i class="wlg wlg--sell"></i>продажа</span><span><i class="wlg wlg--payin"></i>пополнение</span><span><i class="wlg wlg--base"></i>уровень начала периода</span></div>' +
+      "</section>"
+    );
+  }
+
+  function workAllocHtml(data) {
+    var positions = data.positions || [];
+    var segs = positions.map(function (p) {
+      return {
+        value: Number(p.value) || 0,
+        tone: Number(p.pnl) >= 0 ? "up" : "down",
+        title: workLabel(p) + " · " + rubles(p.value) + " · " + workPct(p.weight),
+      };
+    });
+    segs.push({ value: Math.max(0, Number(data.cash) || 0), tone: "cash", title: "Кэш · " + rubles(data.cash) });
+    var investedShare = data.equity ? (Number(data.invested) || 0) / data.equity : 0;
+    var legend = positions.map(function (p) {
+      return (
+        '<li><i class="wlg wlg--' + (Number(p.pnl) >= 0 ? "up" : "down") + '"></i>' +
+        "<span>" + escapeHtml(workLabel(p)) + "</span>" +
+        "<strong>" + escapeHtml(workPct(p.weight)) + "</strong>" +
+        '<span class="wcapline"><span style="width:' + (Math.min(1, Number(p.cap_fill) || 0) * 100).toFixed(1) + '%"></span></span>' +
+        "</li>"
+      );
+    }).join("");
+    legend += '<li><i class="wlg wlg--cash"></i><span>Кэш</span><strong>' + escapeHtml(workPct(data.equity ? data.cash / data.equity : 0)) + "</strong><span></span></li>";
+    return (
+      '<section class="wpanel" id="work-alloc">' +
+      '<div class="wpanel-head"><div><h3>Распределение</h3><span class="wpanel-sub muted">полоска — сколько занято от потолка на бумагу</span></div></div>' +
+      '<div class="walloc">' + chartDonut(segs, workPct(investedShare), "в бумагах") + '<ul class="walloc-legend">' + legend + "</ul></div>" +
+      "</section>"
+    );
+  }
+
+  function workSessionPos(now) {
+    var p = workMskParts(now);
+    var mins = p.h * 60 + p.m + p.s / 60;
+    var span = WORK_SESSION.close - WORK_SESSION.open;
+    return Math.max(0, Math.min(1, (mins - WORK_SESSION.open) / span));
+  }
+
+  function workDecisionHtml(data) {
+    var now = new Date();
+    var p = workMskParts(now);
+    var weekend = p.day === 0 || p.day === 6;
+    var mins = p.h * 60 + p.m;
+    var inSession = !weekend && mins >= WORK_SESSION.open && mins < WORK_SESSION.close;
+    var state = weekend ? "выходной, биржа закрыта" : inSession ? "сессия идёт" : mins < WORK_SESSION.open ? "до открытия" : "день закрыт, решение принято";
+    var groups = { buy: [], sell: [], flat: 0 };
+    (data.signals || []).forEach(function (s) {
+      if (s.kind === "buy") groups.buy.push(s);
+      else if (s.kind === "sell" || s.kind === "exit") groups.sell.push(s);
+      else groups.flat += 1;
+    });
+    function chips(rows, tone) {
+      return rows.slice(0, 24).map(function (s) {
+        return '<span class="wchip wchip--' + tone + '" title="' + escapeHtml(s.ticker) + '">' + escapeHtml(workLabel(s)) + "</span>";
+      }).join("") + (rows.length > 24 ? '<span class="wchip">+' + (rows.length - 24) + "</span>" : "");
+    }
+    var sigDay = (data.signals || [])[0] ? ruDay(String(data.signals[0].ts).slice(0, 10)) : "";
+    var decisions = (data.decisions || []).slice(-12).reverse().map(function (d) {
+      var tone = d.status === "sent" ? (d.side === "sell" ? "down" : "up") : d.status === "disabled" ? "muted" : "warn";
+      return (
+        '<li class="wdec wdec--' + tone + '">' +
+        '<span class="wdec-side">' + (d.side === "sell" ? "▼" : "▲") + "</span>" +
+        "<span>" + escapeHtml(d.ticker) + " · " + escapeHtml(ruDay(d.day)) + "</span>" +
+        "<strong>" + escapeHtml(WORK_DECISION_RU[d.status] || d.status) + "</strong>" +
+        "</li>"
+      );
+    }).join("");
+    return (
+      '<section class="wpanel" id="work-decision">' +
+      '<div class="wpanel-head"><div><h3>Решение дня</h3><span class="wpanel-sub muted">' + escapeHtml(state) + "</span></div>" +
+      '<div class="wcount"><span>через</span><strong data-countdown="' + escapeHtml(data.next_run_at || "") + '">' + escapeHtml(workCountdown(data.next_run_at)) + "</strong></div></div>" +
+      '<div class="wtimeline"><div class="wtimeline-track"><span class="wtimeline-fill" data-session-fill style="width:' + (workSessionPos(now) * 100).toFixed(2) + '%"></span>' +
+      '<span class="wtimeline-now" data-session-now style="left:' + (workSessionPos(now) * 100).toFixed(2) + '%"></span>' +
+      '<span class="wtimeline-flag" title="18:50 МСК — решение по закрытому бару"></span></div>' +
+      '<div class="wtimeline-labels"><span>10:00</span><span>14:00</span><span>18:50 решение</span></div></div>' +
+      (data.signals && data.signals.length
+        ? '<div class="wsig"><div class="wsig-row"><span class="wsig-k is-up">Покупка (' + groups.buy.length + ")</span><div>" + (chips(groups.buy, "up") || '<span class="muted">нет</span>') + "</div></div>" +
+          '<div class="wsig-row"><span class="wsig-k is-down">Продажа (' + groups.sell.length + ")</span><div>" + (chips(groups.sell, "down") || '<span class="muted">нет</span>') + "</div></div>" +
+          '<p class="muted">Без сигнала: ' + groups.flat + " бумаг · сигналы за " + escapeHtml(sigDay) + "</p></div>"
+        : '<p class="muted">Сигналов рукава ещё нет — воркер посчитает их после 18:50 МСК.</p>') +
+      (decisions ? '<h4 class="wsub-h">Что стало с сигналами</h4><ul class="wdecs">' + decisions + "</ul>" : "") +
+      "</section>"
+    );
+  }
+
+  function workCardHtml(p) {
+    var v = WORK_VERDICT[p.verdict] || WORK_VERDICT.hold;
+    var trend = p.trend || {};
+    var roc = p.roc || {};
+    var weak = p.weak || { count: 0, limit: 4 };
+    var trail = p.trail || {};
+    var ratio = workNum(trend.ratio);
+    var trendTone = ratio === null ? "muted" : ratio < 1 ? "bad" : ratio > (trend.stretch || 1.1) || ratio < 1.02 ? "warn" : "ok";
+    var rocV = workNum(roc.value);
+    var rocFloor = workNum(roc.floor) || -0.01;
+    var rocTone = rocV === null ? "muted" : rocV < rocFloor ? "bad" : rocV < rocFloor + 0.02 ? "warn" : "ok";
+    var dots = "";
+    for (var i = 0; i < (weak.limit || 4); i++) {
+      dots += '<i class="wweak-dot' + (i < weak.count ? " is-on" : "") + '"></i>';
+    }
+    var weakTone = weak.count >= (weak.limit || 4) ? "bad" : weak.count > 0 ? "warn" : "ok";
+    var trailHtml;
+    if (trail.armed && workNum(trail.exit_price) !== null) {
+      var price = workNum(p.price);
+      var gap = price ? price / trail.exit_price - 1 : null;
+      trailHtml = chartBullet({
+        label: "Трейл активен",
+        valueText: "выход " + workPrice(trail.exit_price),
+        min: trail.exit_price * 0.97,
+        max: (trail.peak || price) * 1.01,
+        floor: trail.exit_price,
+        floorLabel: "уровень выхода",
+        value: price,
+        tone: gap !== null && gap < 0.01 ? "bad" : gap !== null && gap < 0.025 ? "warn" : "ok",
+        note: "пик " + workPrice(trail.peak) + " · запас " + workPct(gap),
+      });
+    } else {
+      var armPct = workNum(trail.arm_pct) || 0.2;
+      var have = Math.max(0, workNum(p.pnl_pct) || 0);
+      trailHtml = chartBar(have / armPct, {
+        label: "До трейла (+" + plainNumber(armPct * 100) + "%)",
+        valueText: have >= armPct ? "включится на закрытии" : "ещё " + workPct(armPct - have),
+      });
+    }
+    return (
+      '<article class="wpos wpos--' + v.tone + '" data-ticker="' + escapeHtml(p.ticker) + '">' +
+      '<header class="wpos-head"><div><h4>' + escapeHtml(workLabel(p)) + "</h4><small>" + escapeHtml(p.ticker) + "</small></div>" +
+      '<span class="wverdict wverdict--' + v.tone + '">' + escapeHtml(v.label) + "</span></header>" +
+      '<div class="wpos-nums">' +
+      '<div class="wpos-pnl is-' + workTone(p.pnl) + '"><strong data-wnum="pos-' + escapeHtml(p.ticker) + '" data-wfmt="rubs">' + escapeHtml(workRub(p.pnl, true)) + "</strong><span>" + escapeHtml(workPct(p.pnl_pct, true)) + "</span></div>" +
+      '<div class="wpos-day is-' + workTone(p.day_pct) + '"><span>сегодня</span><strong>' + escapeHtml(workArrow(p.day_pct) + workPct(p.day_pct, true)) + "</strong></div>" +
+      "</div>" +
+      '<div class="wpos-meta">' + escapeHtml(plainNumber(p.qty)) + " шт · средняя " + escapeHtml(workPrice(p.avg_price)) + " → <strong>" + escapeHtml(workPrice(p.price)) + "</strong> · " + escapeHtml(rubles(p.value)) + "</div>" +
+      chartSpark(p.spark, { avg: p.avg_price }) +
+      '<div class="wspark-legend"><span><i class="wlg wlg--price"></i>цена</span><span><i class="wlg wlg--sma"></i>SMA' + escapeHtml(String(trend.sma_period || 30)) + '</span><span><i class="wlg wlg--avg"></i>средняя</span><span><i class="wlg wlg--now"></i>сейчас</span></div>' +
+      chartBar(p.cap_fill, { label: "Потолок на бумагу", valueText: rubles(p.value) + " из " + rubles(p.cap_rub) }) +
+      chartBullet({
+        label: "Тренд: цена / SMA" + (trend.sma_period || 30),
+        valueText: ratio === null ? "—" : ratio.toLocaleString("ru-RU", { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+        min: 0.85,
+        max: 1.2,
+        floor: 1,
+        floorLabel: "ниже 1,00 — тренд сломан",
+        value: ratio,
+        tone: trendTone,
+        zones: [
+          { from: 0.85, to: 1, tone: "bad" },
+          { from: trend.stretch || 1.1, to: 1.2, tone: "warn" },
+        ],
+      }) +
+      chartBullet({
+        label: "Импульс: рост за " + (roc.lookback || 15) + " дн.",
+        valueText: workPct(rocV, true),
+        min: -0.1,
+        max: 0.15,
+        floor: rocFloor,
+        floorLabel: "ниже " + workPct(rocFloor) + " — слабый день",
+        value: rocV,
+        tone: rocTone,
+        zones: [{ from: -0.1, to: rocFloor, tone: "bad" }],
+      }) +
+      '<div class="wweak"><span>Слабые дни подряд</span><span class="wweak-dots">' + dots + "</span><strong class=\"is-" + weakTone + '">' + weak.count + " из " + (weak.limit || 4) + "</strong></div>" +
+      trailHtml +
+      '<footer class="wpos-foot"><span>' + (p.days_held != null ? escapeHtml(String(p.days_held)) + " дн. в позиции" : "вход не из рукава") + " · слоёв " + escapeHtml(String(p.layers || 0)) + "</span>" +
+      '<button type="button" class="ghost compact" data-work-chart="' + escapeHtml(p.ticker) + '">График ↗</button></footer>' +
+      '<div class="wpos-big" data-work-big="' + escapeHtml(p.ticker) + '" hidden></div>' +
+      "</article>"
+    );
+  }
+
+  function workPositionsHtml(data) {
+    var rows = (data.positions || []).slice();
+    var verdictRank = { exit: 0, watch: 1, hold: 2 };
+    if (workSort === "pnl") rows.sort(function (a, b) { return (Number(b.pnl_pct) || 0) - (Number(a.pnl_pct) || 0); });
+    else if (workSort === "weight") rows.sort(function (a, b) { return (Number(b.weight) || 0) - (Number(a.weight) || 0); });
+    else rows.sort(function (a, b) {
+      return (verdictRank[a.verdict] - verdictRank[b.verdict]) || ((b.weak && b.weak.count) - (a.weak && a.weak.count));
+    });
+    var sorts = [["risk", "Риск выхода"], ["pnl", "Результат"], ["weight", "Вес"]].map(function (s) {
+      return '<button type="button" data-work-sort="' + s[0] + '"' + (workSort === s[0] ? ' aria-pressed="true"' : "") + ">" + s[1] + "</button>";
+    }).join("");
+    var buys = (data.signals || []).filter(function (s) { return s.kind === "buy"; }).length;
+    var body = rows.length
+      ? '<div class="wpos-grid">' + rows.map(workCardHtml).join("") + "</div>"
+      : '<div class="wempty"><svg viewBox="0 0 64 48" aria-hidden="true"><path d="M6 14h52l-6 28H12z"></path><path d="M20 14l8-10M44 14l-8-10"></path></svg>' +
+        "<p><strong>Позиций нет.</strong> Следующее решение через <span data-countdown=\"" + escapeHtml(data.next_run_at || "") + '">' + escapeHtml(workCountdown(data.next_run_at)) + "</span>" +
+        (buys ? "; кандидатов на вход в последнем прогоне: " + buys : "") + ".</p></div>";
+    return (
+      '<section class="wpanel" id="work-positions">' +
+      '<div class="wpanel-head"><div><h3>Позиции</h3><span class="wpanel-sub muted">' + rows.length + " · цена брокера, правила выхода «Абс. моментум-4»</span></div>" +
+      (rows.length > 1 ? '<div class="wseg" role="group" aria-label="Сортировка">' + sorts + "</div>" : "") + "</div>" +
+      body +
+      "</section>"
+    );
+  }
+
+  function workTradesHtml(data) {
+    var rows = (data.trades || []).slice().reverse();
+    var seen = workSeenTrades;
+    var next = {};
+    var items = rows.slice(0, 60).map(function (tr) {
+      var key = tr.broker_order_id || tr.ts + tr.ticker + tr.side;
+      next[key] = 1;
+      var fresh = seen && !seen[key];
+      var sell = tr.side === "sell";
+      var add = !sell && Number(tr.layer) > 1;
+      return (
+        '<li class="wtrade' + (fresh ? " is-fresh" : "") + '">' +
+        '<span class="wtrade-ico wtrade-ico--' + (sell ? "sell" : add ? "add" : "buy") + '">' + (sell ? "▼" : add ? "◆" : "▲") + "</span>" +
+        '<div class="wtrade-main"><strong>' + escapeHtml(workLabel(tr)) + "</strong> <small>" + escapeHtml(tr.ticker) + "</small>" +
+        "<span>" + escapeHtml(sell ? "Продажа" : add ? "Докуп, слой " + tr.layer : "Покупка") + " · " + escapeHtml(plainNumber(tr.qty)) + " шт × " + escapeHtml(workPrice(tr.price)) + " = " + escapeHtml(rubles(tr.amount)) +
+        (add ? " · средняя после " + escapeHtml(workPrice(tr.avg_after)) : "") + "</span></div>" +
+        (sell && tr.realized != null ? '<span class="wpill wpill--' + (tr.realized >= 0 ? "up" : "down") + '">' + escapeHtml(workRub(tr.realized, true)) + " · " + escapeHtml(workPct(tr.realized_pct, true)) + "</span>" : "") +
+        '<time>' + escapeHtml(String(tr.ts || "").replace("T", " ").slice(0, 16)) + "</time>" +
+        "</li>"
+      );
+    }).join("");
+    workSeenTrades = next;
+    return (
+      '<section class="wpanel" id="work-trades">' +
+      '<div class="wpanel-head"><div><h3>Сделки рукава</h3><span class="wpanel-sub muted">новые сверху</span></div></div>' +
+      (items ? '<ol class="wtrades">' + items + "</ol>" : '<p class="muted">Заявок рукава ещё не было.</p>') +
+      "</section>"
+    );
+  }
+
+  /* ---------- сборка, опрос, движение ---------- */
 
   function renderWork() {
-    byId("page-body").innerHTML = "<section class=\"work-grid\" id=\"work-root\"><p class=\"muted\">Читаю песочницу…</p></section>";
+    byId("page-body").innerHTML =
+      '<div class="work" id="work-root">' +
+      '<div class="whead"><div class="wlive" id="work-live"><i class="wdot"></i><span>подключаюсь…</span></div></div>' +
+      '<div class="wskeleton"><span></span><span></span><span></span></div>' +
+      "</div>";
   }
 
   function refreshWork() {
-    return apiGet("/work").then(function (data) {
-      paintWork(data);
-    }).catch(function (err) {
-      byId("page-body").innerHTML = "<p class=\"error\">" + escapeHtml(err.message || "ошибка") + "</p>";
+    return apiGet("/work?range=" + encodeURIComponent(workRange), { timeoutMs: 45000 })
+      .then(function (data) {
+        workLastOkAt = new Date();
+        workLastFailAt = null;
+        workData = data;
+        paintWork(data);
+        startWorkTimers();
+        return data;
+      })
+      .catch(function (err) {
+        workLastFailAt = new Date();
+        if (!workData) {
+          var root = byId("work-root");
+          if (root) {
+            root.innerHTML += '<p class="wsetup-err">' + escapeHtml(err.message || "API не ответил") + "</p>";
+          }
+        }
+        paintWorkLive();
+        startWorkTimers();
+        return null;
+      });
+  }
+
+  function paintWorkLive() {
+    var box = byId("work-live");
+    if (!box) return;
+    if (workLastFailAt && (!workLastOkAt || workLastFailAt > workLastOkAt)) {
+      var mins = workLastOkAt ? Math.max(1, Math.round((Date.now() - workLastOkAt.getTime()) / 60000)) : 0;
+      box.className = "wlive is-off";
+      box.innerHTML = '<i class="wdot"></i><span>нет связи' + (mins ? " " + mins + " мин" : "") + "</span>";
+      return;
+    }
+    if (!workLastOkAt) return;
+    box.className = "wlive is-on is-blink";
+    box.innerHTML = '<i class="wdot"></i><span>живое · ' + escapeHtml(workClock(workLastOkAt)) + " МСК</span>";
+    window.setTimeout(function () { box.classList.remove("is-blink"); }, 900);
+  }
+
+  function workCollectNums() {
+    var out = {};
+    document.querySelectorAll("#work-root [data-wnum]").forEach(function (el) {
+      out[el.getAttribute("data-wnum")] = el.textContent;
+    });
+    return out;
+  }
+
+  function workParseShown(text) {
+    var n = parseRubInput(String(text || "").replace(/[^\d,.\-+\s\u00a0]/g, ""));
+    return isFinite(n) ? n : null;
+  }
+
+  function workCountUp(el, from, to, fmt) {
+    var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    function show(v) {
+      el.textContent = fmt === "rubs" ? workRub(v, true) : rubles(v);
+    }
+    if (reduce || from === null || !isFinite(from) || Math.abs(to - from) < 0.005) {
+      show(to);
+      return;
+    }
+    var start = performance.now();
+    var dur = 450;
+    function step(now) {
+      var k = Math.min(1, (now - start) / dur);
+      var e = 1 - Math.pow(1 - k, 3);
+      show(from + (to - from) * e);
+      if (k < 1) window.requestAnimationFrame(step);
+    }
+    window.requestAnimationFrame(step);
+  }
+
+  function workAnimateNums(prev, data) {
+    var targets = {
+      equity: data.equity,
+      cash: data.cash,
+      invested: data.invested,
+      pnl_day: data.pnl_day,
+      pnl_total: data.pnl_total,
+    };
+    (data.positions || []).forEach(function (p) { targets["pos-" + p.ticker] = p.pnl; });
+    document.querySelectorAll("#work-root [data-wnum]").forEach(function (el) {
+      var key = el.getAttribute("data-wnum");
+      var to = workNum(targets[key]);
+      if (to === null || prev[key] == null) return;
+      var from = workParseShown(prev[key]);
+      if (from === null || Math.abs(to - from) < 0.005) return;
+      workCountUp(el, from, to, el.getAttribute("data-wfmt"));
+      var host = el.closest(".wkpi, .wpos, .wcontour") || el;
+      host.classList.remove("tick-up", "tick-down");
+      void host.offsetWidth;
+      host.classList.add(to > from ? "tick-up" : "tick-down");
+      var delta = document.querySelector('#work-root [data-wdelta="' + key + '"]');
+      if (delta) {
+        delta.textContent = workRub(to - from, true);
+        delta.className = "wkpi-delta is-show is-" + workTone(to - from);
+        window.setTimeout(function () { delta.classList.remove("is-show"); }, 3000);
+      }
     });
   }
 
-  function paintWork(data) {
+  function workEditing() {
+    var a = document.activeElement;
+    return !!(a && a.closest && a.closest("#work-root") && /INPUT|SELECT|TEXTAREA/.test(a.tagName));
+  }
+
+  function paintWork(data, force) {
     var root = byId("work-root");
     if (!root) return;
-    var steps = (data.steps || []).map(function (step, i) {
-      return "<li class=\"" + (step.ok ? "ok" : "") + "\"><span>" + (i + 1) + "</span> " + escapeHtml(step.title) + "</li>";
-    }).join("");
-    var port = data.portfolio || {};
-    var positions = (port.positions || []).filter(function (row) {
-      var ticker = String(row.ticker || "");
-      return ticker.indexOf("UTSTOM") === -1 && !/^(RUB|USD|EUR)/.test(ticker);
-    }).map(function (row) {
-      return "<li>" + escapeHtml(row.ticker || row.figi || "позиция") + " · " + plainNumber(row.qty) + " шт · средняя " + rubles(row.avg_price) + "</li>";
-    }).join("") || "<li>Позиций нет</li>";
-    var trades = (data.trades || []).map(function (row) {
-      var layer = row.side === "buy" && Number(row.layer) > 1
-        ? " · докуп " + row.layer + ", средняя после " + rubles(row.avg_after)
-        : "";
-      return "<tr><td>" + escapeHtml(row.ticker) + "</td><td>" + escapeHtml(String(row.ts || "").replace("T", " ").slice(0, 16)) + "</td><td>" + escapeHtml(row.side === "buy" ? "покупка" : "продажа") + "</td><td>" + rubles(row.price) + "</td><td>" + plainNumber(row.qty) + layer + "</td></tr>";
-    }).join("");
-    var accounts = (data.accounts || []).map(function (row) {
-      var id = row.broker_account_id || "";
-      return "<option value=\"" + escapeHtml(id) + "\"" + (id === data.account_id ? " selected" : "") + ">" + escapeHtml(row.name || id) + "</option>";
-    }).join("");
-    var next = "";
-    var stepsOk = {};
-    (data.steps || []).forEach(function (step) { stepsOk[step.id] = !!step.ok; });
-    if (!stepsOk.token) {
-      next = "<button type=\"button\" id=\"work-probe\">Проверить связь</button>";
-    } else if (!stepsOk.account) {
-      next =
-        "<label>Счёт <select id=\"work-account\">" + accounts + "</select></label>" +
-        "<button type=\"button\" id=\"work-account-save\">Выбрать счёт</button>" +
-        "<button type=\"button\" id=\"work-open\">Открыть счёт песочницы</button>";
-    } else if (!stepsOk.strategy) {
-      next = "<button type=\"button\" id=\"work-strategy\">Подключить Абс. моментум-4</button>";
-    } else if (!stepsOk.params) {
-      next =
-        "<label>Доля стратегии, % <input id=\"work-sleeve\" type=\"number\" inputmode=\"numeric\" min=\"1\" max=\"99\" step=\"1\" required value=\"" + escapeHtml(shareToPercent(data.sleeve_share || "0.40")) + "\"></label>" +
-        "<label>Не больше на одну бумагу, % <input id=\"work-cap\" type=\"number\" inputmode=\"numeric\" min=\"1\" max=\"99\" step=\"1\" required value=\"" + escapeHtml(shareToPercent(data.name_cap || "0.10")) + "\"></label>" +
-        "<button type=\"button\" id=\"work-params\">Сохранить доли</button>";
-    } else if (!stepsOk.enabled) {
-      next = "<button type=\"button\" id=\"work-on\">Включить заявки</button>";
-    } else {
-      next = "<button type=\"button\" id=\"work-off\">Выключить заявки</button>";
+    if (!force && workEditing()) {
+      paintWorkLive();
+      return;
     }
-    var cash = port.cash == null || port.cash === "" ? "—" : String(port.cash);
-    root.innerHTML =
-      '<section class="work-now">' +
-      "<div><h3>Счёт песочницы</h3><p class=\"work-cash\">" + rubles(port.cash) + "</p>" +
-      "<ul>" + positions + "</ul>" +
-      "<p>Сигнал: " + escapeHtml(workSignal(data.trades)) + "</p></div>" +
-      "<ol class=\"work-rail\">" + steps + "</ol></section>" +
-      "<p class=\"muted\">" + escapeHtml(data.error || "Токен брокера остаётся на сервере. В браузер он не приходит.") + "</p>" +
-      '<div class="work-actions">' + next + "</div>" +
-      "<h3>Сделки рукава</h3><table class=\"data\"><thead><tr><th>Тикер</th><th>Время</th><th>Сторона</th><th>Цена</th><th>Количество</th></tr></thead><tbody>" +
-      (trades || "<tr><td colspan=\"5\">Заявок рукава ещё нет</td></tr>") + "</tbody></table>" +
-      "<div id=\"work-chart\"></div>";
-    var ticker = ((data.trades || []).slice(-1)[0] || {}).ticker || "";
-    if (ticker) {
-      apiGet("/work/chart?ticker=" + encodeURIComponent(ticker)).then(function (chart) {
-        var box = byId("work-chart");
-        if (box) box.innerHTML = "<h2>" + escapeHtml(ticker) + "</h2>" + workChartSvg(chart);
-      });
+    var prevNums = workCollectNums();
+    var hadSections = !!byId("work-kpis") || !!byId("work-setup");
+    var ok = workStepMap(data);
+    var setupHtml = workSetupHtml(data);
+    var body =
+      workContoursHtml(data) +
+      '<div id="work-setup-slot"></div>' +
+      '<p class="wstatus" id="work-status" role="status" aria-live="polite"></p>' +
+      (ok.account
+        ? workKpisHtml(data) +
+          workEquityHtml(data) +
+          '<div class="wtwo">' + workAllocHtml(data) + workDecisionHtml(data) + "</div>" +
+          workPositionsHtml(data) +
+          workTradesHtml(data)
+        : "");
+    var statusText = (byId("work-status") || {}).textContent || "";
+    var statusClass = (byId("work-status") || {}).className || "wstatus";
+    var head = root.querySelector(".whead");
+    root.innerHTML = "";
+    if (head) root.appendChild(head);
+    var wrap = document.createElement("div");
+    wrap.innerHTML = body;
+    while (wrap.firstChild) root.appendChild(wrap.firstChild);
+    var slot = byId("work-setup-slot");
+    slot.outerHTML = setupHtml;
+    var st = byId("work-status");
+    if (st && statusText) {
+      st.textContent = statusText;
+      st.className = statusClass;
     }
+    root.classList.toggle("is-first", !hadSections);
+    paintWorkLive();
+    if (hadSections) workAnimateNums(prevNums, data);
+    bindChartCrosshair(root);
     bindWork();
+  }
+
+  function workSetStatus(text, tone) {
+    var st = byId("work-status");
+    if (!st) return;
+    st.textContent = text || "";
+    st.className = "wstatus" + (tone ? " is-" + tone : "") + (text ? " is-show" : "");
+  }
+
+  function workAction(btn, run, okText) {
+    if (btn) {
+      btn.disabled = true;
+      btn.setAttribute("aria-busy", "true");
+    }
+    workSetStatus("Выполняю…", "busy");
+    return Promise.resolve()
+      .then(run)
+      .then(function () {
+        workSetStatus(okText || "Готово.", "ok");
+        return refreshWork();
+      })
+      .catch(function (err) {
+        workSetStatus((err && err.message) || "Не получилось.", "bad");
+      })
+      .finally(function () {
+        if (btn && document.body.contains(btn)) {
+          btn.disabled = false;
+          btn.removeAttribute("aria-busy");
+        }
+      });
+  }
+
+  function workReadPercent(raw, label) {
+    var s = String(raw || "").trim().replace(",", ".").replace("%", "");
+    if (!/^\d{1,2}(\.\d+)?$/.test(s)) throw new Error(label + ": число от 1 до 99");
+    var n = Number(s);
+    if (!(n >= 1 && n <= 99)) throw new Error(label + ": от 1 до 99");
+    return n;
+  }
+
+  function workValidateParams() {
+    var sleeveEl = byId("work-sleeve");
+    var capEl = byId("work-cap");
+    var err = byId("work-params-err");
+    var btn = byId("work-params");
+    if (!sleeveEl || !capEl) return null;
+    var sleeve = null;
+    var cap = null;
+    var msg = "";
+    try {
+      sleeve = workReadPercent(sleeveEl.value, "Доля рукава");
+      cap = workReadPercent(capEl.value, "На одну бумагу");
+      if (cap > sleeve) msg = "На одну бумагу нельзя больше, чем на весь рукав.";
+    } catch (e) {
+      msg = e.message;
+    }
+    workParamsDraft = { sleeve: sleeveEl.value, cap: capEl.value };
+    var preview = byId("work-preview");
+    if (preview) preview.innerHTML = workPreviewHtml(workData && workData.equity, sleeve || 0, cap || 0);
+    if (err) {
+      err.textContent = msg;
+      err.hidden = !msg;
+    }
+    if (btn) btn.disabled = !!msg;
+    return msg ? null : { sleeve: sleeve, cap: cap };
   }
 
   function bindWork() {
     var probe = byId("work-probe");
-    if (probe) probe.onclick = function () { apiPost("/work/probe", {}).then(refreshWork); };
+    if (probe) probe.onclick = function () {
+      workAction(probe, function () { return apiPost("/work/probe", {}); }, "Песочница отвечает.");
+    };
     var open = byId("work-open");
     if (open) open.onclick = function () {
-      open.disabled = true;
-      apiPost("/work/open", {}).then(paintWork).catch(function (err) {
-        window.alert(err.message || "счёт не открылся");
-      }).finally(function () { open.disabled = false; });
+      workAction(open, function () { return apiPost("/work/open", {}, { timeoutMs: 45000 }); }, "Счёт открыт, 1 000 000 ₽ зачислены.");
     };
-    var account = byId("work-account-save");
-    if (account) account.onclick = function () {
-      var select = byId("work-account");
-      apiPost("/work/account", { account_id: select ? select.value : "" }).then(paintWork);
+    var accountBtn = byId("work-account-save");
+    if (accountBtn) accountBtn.onclick = function () {
+      var picked = document.querySelector('input[name="work-acc"]:checked');
+      workAction(accountBtn, function () {
+        if (!picked) throw new Error("Выберите счёт.");
+        return apiPost("/work/account", { account_id: picked.value });
+      }, "Счёт выбран.");
     };
     var strategy = byId("work-strategy");
-    if (strategy) strategy.onclick = function () { apiPost("/work/strategy", {}).then(paintWork); };
+    if (strategy) strategy.onclick = function () {
+      workAction(strategy, function () { return apiPost("/work/strategy", {}); }, "Абс. моментум-4 подключён.");
+    };
+    var sleeveEl = byId("work-sleeve");
+    var capEl = byId("work-cap");
+    var eqNow = workData ? Number(workData.equity) || 0 : 0;
+    [[sleeveEl, byId("work-sleeve-rub")], [capEl, byId("work-cap-rub")]].forEach(function (pair) {
+      var pctEl = pair[0];
+      var rubEl = pair[1];
+      if (!pctEl || !rubEl) return;
+      pctEl.oninput = function () {
+        var n = Number(String(pctEl.value).replace(",", "."));
+        rubEl.value = isFinite(n) && pctEl.value.trim() ? formatRubGrouped((eqNow * n) / 100) : "";
+        workValidateParams();
+      };
+      rubEl.oninput = function () {
+        var rub = parseRubInput(rubEl.value);
+        pctEl.value = isFinite(rub) ? workPctFromRub(rub, eqNow) : "";
+        workValidateParams();
+      };
+      bindRubInput(rubEl);
+    });
+    if (sleeveEl) workValidateParams();
+    var payOpen = byId("work-payin-open");
+    if (payOpen) payOpen.onclick = function () {
+      workPayinOpen = true;
+      if (workData) paintWork(workData, true);
+      var el = byId("work-payin-amount");
+      if (el) el.focus();
+    };
+    var payAmount = byId("work-payin-amount");
+    if (payAmount) {
+      bindRubInput(payAmount);
+      payAmount.oninput = function () { workPayinDraft = payAmount.value; };
+    }
+    document.querySelectorAll("[data-payin-add]").forEach(function (btn) {
+      btn.onclick = function () {
+        var cur = parseRubInput(payAmount ? payAmount.value : "");
+        var next = (isFinite(cur) ? cur : 0) + Number(btn.getAttribute("data-payin-add"));
+        workPayinDraft = formatRubGrouped(next);
+        if (payAmount) payAmount.value = workPayinDraft;
+      };
+    });
+    var payCancel = byId("work-payin-cancel");
+    if (payCancel) payCancel.onclick = function () {
+      workPayinOpen = false;
+      workPayinDraft = "";
+      if (workData) paintWork(workData, true);
+    };
+    var paySend = byId("work-payin-send");
+    if (paySend) paySend.onclick = function () {
+      var amount = parseRubInput(payAmount ? payAmount.value : "");
+      if (!isFinite(amount) || amount < 1000) {
+        workSetStatus("Пополнение от 1 000 ₽.", "bad");
+        return;
+      }
+      if (payAmount) payAmount.value = formatRubGrouped(amount);
+      askConfirm({
+        title: "Пополнить песочницу на " + formatRubGrouped(amount) + " ₽?",
+        text: "Брокер зачислит игровые рубли на счёт " + workShortId(workData && workData.account_id) + ". Вывести их обратно нельзя. В результат стратегии пополнение не входит.",
+        okLabel: "Пополнить",
+        danger: false,
+      }).then(function (yes) {
+        if (!yes) return;
+        workAction(paySend, function () {
+          return apiPost("/work/payin", { amount: String(Math.round(amount * 100) / 100) }).then(function () {
+            workPayinOpen = false;
+            workPayinDraft = "";
+          });
+        }, "Счёт пополнен на " + formatRubGrouped(amount) + " ₽.");
+      });
+    };
     var params = byId("work-params");
     if (params) params.onclick = function () {
-      var sleeveInput = byId("work-sleeve");
-      var capInput = byId("work-cap");
-      try {
-        var sleeve = readPercent(sleeveInput, "Доля стратегии");
-        var cap = readPercent(capInput, "Лимит на бумагу");
-        if (Number(cap) > Number(sleeve)) {
-          throw new Error("На одну бумагу нельзя больше, чем на всю стратегию");
-        }
-        apiPost("/work/params", { sleeve_share: sleeve, name_cap: cap }).then(paintWork);
-      } catch (err) {
-        window.alert(err.message || "проверьте проценты");
-      }
+      var vals = workValidateParams();
+      if (!vals) return;
+      workAction(params, function () {
+        return apiPost("/work/params", {
+          sleeve_share: (vals.sleeve / 100).toFixed(4),
+          name_cap: (vals.cap / 100).toFixed(4),
+        }).then(function () {
+          workSetupOpen = false;
+          workParamsDraft = null;
+        });
+      }, "Бюджет сохранён: рукав " + plainNumber(vals.sleeve) + "%, на бумагу " + plainNumber(vals.cap) + "%.");
+    };
+    var edit = byId("work-edit");
+    if (edit) edit.onclick = function () {
+      workSetupOpen = true;
+      if (workData) paintWork(workData, true);
+      var el = byId("work-sleeve");
+      if (el) el.focus();
+    };
+    var cancel = byId("work-edit-cancel");
+    if (cancel) cancel.onclick = function () {
+      workSetupOpen = false;
+      workParamsDraft = null;
+      if (workData) paintWork(workData, true);
     };
     var on = byId("work-on");
     if (on) on.onclick = function () {
-      apiPost("/work/enable", { enabled: true }).then(paintWork).catch(function (err) { window.alert(err.message || "ещё рано"); });
+      askConfirm({
+        title: "Включить заявки в песочнице?",
+        text: "С ближайшего решения (18:50 МСК) рукав будет ставить рыночные заявки в песочницу T-Invest. Деньги игровые, боевой счёт не трогается.",
+        okLabel: "Включить",
+        danger: false,
+      }).then(function (yes) {
+        if (!yes) return;
+        workAction(on, function () { return apiPost("/work/enable", { enabled: true }); }, "Заявки включены.");
+      });
     };
     var off = byId("work-off");
-    if (off) off.onclick = function () { apiPost("/work/enable", { enabled: false }).then(paintWork); };
+    if (off) off.onclick = function () {
+      askConfirm({
+        title: "Выключить заявки?",
+        text: "Сигналы продолжат считаться, но заявки в песочницу уходить не будут. Открытые позиции останутся.",
+        okLabel: "Выключить",
+        danger: true,
+      }).then(function (yes) {
+        if (!yes) return;
+        workAction(off, function () { return apiPost("/work/enable", { enabled: false }); }, "Заявки выключены.");
+      });
+    };
+    document.querySelectorAll("[data-work-range]").forEach(function (btn) {
+      btn.onclick = function () {
+        workRange = btn.getAttribute("data-work-range") || "day";
+        workDrawn.equity = false;
+        refreshWork();
+      };
+    });
+    document.querySelectorAll("[data-work-sort]").forEach(function (btn) {
+      btn.onclick = function () {
+        workSort = btn.getAttribute("data-work-sort") || "risk";
+        if (workData) paintWork(workData, true);
+      };
+    });
+    document.querySelectorAll("[data-work-chart]").forEach(function (btn) {
+      btn.onclick = function () {
+        var ticker = btn.getAttribute("data-work-chart");
+        var box = document.querySelector('[data-work-big="' + ticker + '"]');
+        var card = btn.closest(".wpos");
+        if (!box || !card) return;
+        if (!box.hidden) {
+          box.hidden = true;
+          card.classList.remove("is-wide");
+          btn.textContent = "График ↗";
+          return;
+        }
+        card.classList.add("is-wide");
+        btn.textContent = "Свернуть";
+        box.hidden = false;
+        box.innerHTML = '<p class="muted">Загружаю 80 дней…</p>';
+        apiGet("/work/chart?ticker=" + encodeURIComponent(ticker)).then(function (chart) {
+          var pts = (chart.bars || []).map(function (b) {
+            return { t: Date.parse(b.ts + "T15:50:00Z"), v: Number(b.close) };
+          }).filter(function (p) { return isFinite(p.t) && isFinite(p.v); });
+          var marks = (chart.marks || []).map(function (m) {
+            var t = Date.parse(String(m.ts || "").slice(0, 10) + "T15:50:00Z");
+            return { t: t, v: Number(m.price), side: m.side, layer: Number(m.layer) || 1, title: (m.side === "sell" ? "Продажа" : "Покупка") + " · " + workPrice(m.price) };
+          });
+          box.innerHTML = chartLine("pos-" + ticker, pts, {
+            marks: marks,
+            height: 220,
+            fmtX: workTimeFmt("month"),
+            fmtY: function (v) { return workPrice(v); },
+            label: "Цена " + ticker,
+          });
+          bindChartCrosshair(box);
+        }).catch(function (err) {
+          box.innerHTML = '<p class="wsetup-err">' + escapeHtml(err.message || "график не загрузился") + "</p>";
+        });
+      };
+    });
   }
+
+  function workTick() {
+    document.querySelectorAll("#work-root [data-countdown]").forEach(function (el) {
+      el.textContent = workCountdown(el.getAttribute("data-countdown"));
+    });
+    var pos = (workSessionPos(new Date()) * 100).toFixed(2) + "%";
+    var fill = document.querySelector("#work-root [data-session-fill]");
+    var nowEl = document.querySelector("#work-root [data-session-now]");
+    if (fill) fill.style.width = pos;
+    if (nowEl) nowEl.style.left = pos;
+  }
+
+  function startWorkTimers() {
+    if (!workClockTimer) workClockTimer = window.setInterval(function () {
+      if (currentRoute !== "work") return stopWorkTimers();
+      workTick();
+    }, 1000);
+    if (!workPollTimer) workPollTimer = window.setInterval(function () {
+      if (currentRoute !== "work") return stopWorkTimers();
+      if (document.hidden) return;
+      refreshWork();
+    }, WORK_POLL_MS);
+  }
+
+  function stopWorkTimers() {
+    if (workClockTimer) window.clearInterval(workClockTimer);
+    if (workPollTimer) window.clearInterval(workPollTimer);
+    workClockTimer = null;
+    workPollTimer = null;
+  }
+
+  document.addEventListener("visibilitychange", function () {
+    if (!document.hidden && currentRoute === "work" && workData) refreshWork();
+  });
 
   function showRoute(id) {
     if (!authed) return;
@@ -7605,6 +8869,7 @@
     if (currentRoute === "companies" && route.id !== "companies") {
       stopCompaniesPoll();
     }
+    if (route.id !== "work") stopWorkTimers();
     currentRoute = route.id;
     renderNav();
     syncNavActive(route.id);
@@ -7714,6 +8979,8 @@
       return;
     }
     if (route.id === "work") {
+      workDrawn = {};
+      workSeenTrades = null;
       renderWork();
       refreshWork();
       return;

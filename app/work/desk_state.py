@@ -9,6 +9,11 @@ from decimal import Decimal
 from pathlib import Path
 
 SLEEVE = "abs_momentum_4"
+EQUITY_CURVE_LIMIT = 20000
+DECISIONS_LIMIT = 300
+PAYINS_LIMIT = 500
+PAYIN_MIN = Decimal("1000")
+PAYIN_MAX = Decimal("100000000")
 
 
 def desk_path() -> Path:
@@ -29,6 +34,8 @@ def empty_state() -> dict:
         "sent": {},
         "trades": [],
         "equity_curve": [],
+        "decisions": [],
+        "payins": [],
         "portfolio": None,
     }
 
@@ -51,13 +58,22 @@ def load_state() -> dict:
         state["trades"] = []
     if not isinstance(state["equity_curve"], list):
         state["equity_curve"] = []
+    if not isinstance(state["decisions"], list):
+        state["decisions"] = []
+    if not isinstance(state["payins"], list):
+        state["payins"] = []
     return state
 
 
 def save_state(state: dict) -> None:
     path = desk_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(
+        json.dumps(state, ensure_ascii=False, indent=1, default=str),
+        encoding="utf-8",
+    )
+    tmp.replace(path)
 
 
 def _share(raw: str | float | Decimal) -> Decimal:
@@ -155,6 +171,40 @@ def remember_mark(state: dict, *, equity: str, portfolio: dict) -> dict:
     state = dict(state)
     curve = list(state.get("equity_curve") or [])
     curve.append({"ts": datetime.now(UTC).isoformat(), "equity": equity})
-    state["equity_curve"] = curve[-500:]
+    state["equity_curve"] = curve[-EQUITY_CURVE_LIMIT:]
     state["portfolio"] = portfolio
+    return state
+
+
+def remember_decision(state: dict, decision: dict) -> dict:
+    """Что рукав хотел сделать по сигналу и чем кончилось (отправлено / нет места / …)."""
+    state = dict(state)
+    rows = list(state.get("decisions") or [])
+    rows.append(decision)
+    state["decisions"] = rows[-DECISIONS_LIMIT:]
+    return state
+
+
+def payin_value(raw: str | float | Decimal) -> Decimal:
+    """Сумма пополнения в рублях: от 1 000 до 100 000 000, копейки отбрасываются до 0.01."""
+    try:
+        value = Decimal(str(raw).replace(" ", "").replace("\u00a0", "").replace(",", "."))
+    except Exception as exc:  # noqa: BLE001
+        raise ValueError("сумма пополнения — число в рублях") from exc
+    if not value.is_finite():
+        raise ValueError("сумма пополнения — число в рублях")
+    value = value.quantize(Decimal("0.01"))
+    if value < PAYIN_MIN:
+        raise ValueError("пополнение от 1 000 ₽")
+    if value > PAYIN_MAX:
+        raise ValueError("пополнение не больше 100 000 000 ₽ за раз")
+    return value
+
+
+def remember_payin(state: dict, amount: Decimal) -> dict:
+    """Внесённые деньги: вычитаются из результата, чтобы пополнение не выглядело прибылью."""
+    state = dict(state)
+    rows = list(state.get("payins") or [])
+    rows.append({"ts": datetime.now(UTC).isoformat(), "amount": format(amount, "f")})
+    state["payins"] = rows[-PAYINS_LIMIT:]
     return state

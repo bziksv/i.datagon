@@ -37,8 +37,11 @@ def normalize_portfolio(portfolio: Any) -> dict[str, Any]:
             {
                 "ticker": ticker or figi,
                 "figi": figi,
+                "instrument_type": str(getattr(pos, "instrument_type", "") or ""),
                 "qty": _qty(getattr(pos, "quantity", None)),
                 "avg_price": _money(getattr(pos, "average_position_price", None)),
+                "current_price": _money(getattr(pos, "current_price", None)),
+                "expected_yield": _qty(getattr(pos, "expected_yield", None)),
             }
         )
     return {

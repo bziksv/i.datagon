@@ -1588,11 +1588,59 @@ def create_app() -> FastAPI:
     class WorkEnableBody(BaseModel):
         enabled: bool
 
+    class WorkPayInBody(BaseModel):
+        amount: str
+
     @app.get("/work")
-    def work_view() -> dict:
+    async def work_view(
+        range: str = "day",  # noqa: A002 — имя параметра в URL
+        session: AsyncSession = Depends(get_db),
+    ) -> dict:
+        import asyncio
+
+        from app.advisory.moex_catalog import lookup_name
+        from app.work.desk_state import SLEEVE
         from app.work.service import view
 
-        return view()
+        names: dict[str, str] = {}
+        signals: list[dict] = []
+        try:
+            rows = list(await session.scalars(select(Fundamental)))
+            names = {
+                str(row.ticker).upper(): lookup_name(str(row.ticker), row.raw or {})
+                for row in rows
+                if row.ticker
+            }
+            recent = list(
+                await session.scalars(
+                    select(SignalRow)
+                    .where(SignalRow.sleeve == SLEEVE)
+                    .order_by(SignalRow.ts.desc())
+                    .limit(600)
+                )
+            )
+            if recent:
+                last_day = recent[0].ts.date()
+                seen: set[str] = set()
+                for row in recent:
+                    if row.ts.date() != last_day:
+                        break
+                    ticker = str(row.ticker).upper()
+                    if ticker in seen:
+                        continue
+                    seen.add(ticker)
+                    label = names.get(ticker) or lookup_name(ticker)
+                    signals.append(
+                        {
+                            "ticker": ticker,
+                            "name": label if label and label.upper() != ticker else "",
+                            "kind": row.kind,
+                            "ts": row.ts.isoformat(),
+                        }
+                    )
+        except Exception:  # noqa: BLE001 — экран работы живёт и без БД
+            log.exception("work view: db lookup failed")
+        return await asyncio.to_thread(view, span=range, names=names, signals=signals)
 
     @app.get("/work/chart")
     def work_chart(ticker: str = "") -> dict:
@@ -1642,6 +1690,15 @@ def create_app() -> FastAPI:
 
         try:
             return store_params(sleeve_share=body.sleeve_share, name_cap=body.name_cap)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/work/payin")
+    def work_payin(body: WorkPayInBody) -> dict:
+        from app.work.service import pay_in
+
+        try:
+            return pay_in(body.amount)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 

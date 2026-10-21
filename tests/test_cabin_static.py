@@ -48,8 +48,9 @@ def test_cabin_shell_stage01_menu_and_router() -> None:
     css = CSS.read_text()
     js = JS.read_text()
     assert "<!DOCTYPE html>" in html
-    assert 'href="/cabin.css?v=3.3.96"' in html
-    assert 'src="/cabin.js?v=3.3.96"' in html
+    assert 'href="/cabin.css?v=3.3.101"' in html
+    assert 'src="/cabin.js?v=3.3.101"' in html
+    assert "whatIfCompanyLabel" in js
     assert "formatRubGrouped" in js
     assert "parseRubInput" in js
     assert "data-rub-input" in js
@@ -57,6 +58,15 @@ def test_cabin_shell_stage01_menu_and_router() -> None:
     assert "type=\"number\" min=\"1000\"" not in js
     assert 'apiPost("/desk/candles/fill"' in js
     assert "вкладку можно закрыть" in js
+    work = js[js.index("var workData = null;") : js.index("function showRoute(id)")]
+    assert "window.alert" not in work
+    assert "function workAction(" in work
+    assert 'title: "Песочница T-Invest"' in js
+    assert "Боевой · не подключён" in work
+    assert "stopWorkTimers()" in js
+    assert 'apiPost("/work/payin"' in work
+    assert 'id="work-payin-amount" type="text" inputmode="decimal" data-rub-input' in work
+    assert 'id="work-sleeve-rub" type="text" inputmode="decimal" data-rub-input' in work
     assert "webpack" not in html.lower()
     assert "react" not in html.lower()
     assert "vite" not in html.lower()
