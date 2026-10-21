@@ -1591,17 +1591,51 @@ def create_app() -> FastAPI:
     class WorkPayInBody(BaseModel):
         amount: str
 
+    class WorkDeskBody(BaseModel):
+        sleeve: str
+        name: str = ""
+        deposit: str = "1000000"
+
+    def _work_call(fn, *args, **kwargs) -> dict:
+        try:
+            return fn(*args, **kwargs)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.get("/work/desks")
+    def work_desks() -> dict:
+        from app.work.service import overview
+
+        return overview()
+
+    @app.post("/work/desks")
+    def work_desk_create(body: WorkDeskBody) -> dict:
+        from app.work.service import create_desk
+
+        return _work_call(create_desk, sleeve=body.sleeve, name=body.name, deposit=body.deposit)
+
+    @app.post("/work/desks/archive")
+    def work_desk_archive(desk: str = "main") -> dict:
+        from app.work.service import archive_desk
+
+        return _work_call(archive_desk, desk)
+
     @app.get("/work")
     async def work_view(
         range: str = "day",  # noqa: A002 — имя параметра в URL
+        desk: str = "main",
         session: AsyncSession = Depends(get_db),
     ) -> dict:
         import asyncio
 
         from app.advisory.moex_catalog import lookup_name
-        from app.work.desk_state import SLEEVE
+        from app.work.desk_state import load_state
         from app.work.service import view
 
+        try:
+            sleeve = load_state(desk)["sleeve"]
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
         names: dict[str, str] = {}
         signals: list[dict] = []
         try:
@@ -1614,7 +1648,7 @@ def create_app() -> FastAPI:
             recent = list(
                 await session.scalars(
                     select(SignalRow)
-                    .where(SignalRow.sleeve == SLEEVE)
+                    .where(SignalRow.sleeve == sleeve)
                     .order_by(SignalRow.ts.desc())
                     .limit(600)
                 )
@@ -1640,75 +1674,58 @@ def create_app() -> FastAPI:
                     )
         except Exception:  # noqa: BLE001 — экран работы живёт и без БД
             log.exception("work view: db lookup failed")
-        return await asyncio.to_thread(view, span=range, names=names, signals=signals)
+        return await asyncio.to_thread(
+            view, desk_id=desk, span=range, names=names, signals=signals
+        )
 
     @app.get("/work/chart")
-    def work_chart(ticker: str = "") -> dict:
+    def work_chart(ticker: str = "", desk: str = "main") -> dict:
         from app.work.service import chart
 
-        return chart(ticker)
+        return _work_call(chart, ticker, desk)
 
     @app.post("/work/open")
-    def work_open() -> dict:
+    def work_open(desk: str = "main") -> dict:
         from app.work.service import open_account
 
-        try:
-            return open_account()
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return _work_call(open_account, desk)
 
     @app.post("/work/probe")
     def work_probe() -> dict:
         from app.work.service import probe
 
-        try:
-            return probe()
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return _work_call(probe)
 
     @app.post("/work/account")
-    def work_account(body: WorkAccountBody) -> dict:
+    def work_account(body: WorkAccountBody, desk: str = "main") -> dict:
         from app.work.service import choose_account
 
-        try:
-            return choose_account(body.account_id)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return _work_call(choose_account, body.account_id, desk)
 
     @app.post("/work/strategy")
-    def work_strategy() -> dict:
+    def work_strategy(desk: str = "main") -> dict:
         from app.work.service import attach_strategy
 
-        try:
-            return attach_strategy()
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return _work_call(attach_strategy, desk)
 
     @app.post("/work/params")
-    def work_params(body: WorkParamsBody) -> dict:
+    def work_params(body: WorkParamsBody, desk: str = "main") -> dict:
         from app.work.service import store_params
 
-        try:
-            return store_params(sleeve_share=body.sleeve_share, name_cap=body.name_cap)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return _work_call(
+            store_params, sleeve_share=body.sleeve_share, name_cap=body.name_cap, desk_id=desk
+        )
 
     @app.post("/work/payin")
-    def work_payin(body: WorkPayInBody) -> dict:
+    def work_payin(body: WorkPayInBody, desk: str = "main") -> dict:
         from app.work.service import pay_in
 
-        try:
-            return pay_in(body.amount)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return _work_call(pay_in, body.amount, desk)
 
     @app.post("/work/enable")
-    def work_enable(body: WorkEnableBody) -> dict:
+    def work_enable(body: WorkEnableBody, desk: str = "main") -> dict:
         from app.work.service import switch
 
-        try:
-            return switch(body.enabled)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return _work_call(switch, body.enabled, desk)
 
     return app

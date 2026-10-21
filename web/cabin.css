@@ -2225,6 +2225,21 @@ button.danger:hover {
   color: #3d3420;
 }
 
+.callout.danger {
+  background: color-mix(in srgb, var(--bad) 9%, transparent);
+  border: 1px solid color-mix(in srgb, var(--bad) 45%, transparent);
+  color: inherit;
+}
+
+.callout.danger > strong {
+  color: var(--bad);
+}
+
+.wdata-list {
+  margin: 0.45rem 0 0;
+  padding-left: 1.1rem;
+}
+
 .whatif {
   margin-top: 0.75rem;
   padding-top: 0.75rem;
@@ -4759,3 +4774,47 @@ body[data-desk="work"] .nav { background: #f4f7f5; }
 }
 .wparam-row label { display: grid; gap: 4px; min-width: 0; font-size: 0.8rem; color: var(--muted); }
 #app .wparam-row input, #app .wpayin-field input { width: 100%; min-width: 0; box-sizing: border-box; }
+
+/* Несколько песочниц: переключатель, сравнение, создание */
+.wdesk-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+#app .wdesk { display: grid; gap: 4px; justify-items: start; text-align: left; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: #fff; cursor: pointer; min-height: 0; font: inherit; color: inherit; transition: border-color var(--motion), box-shadow var(--motion); }
+#app .wdesk:hover { border-color: #9fc7ae; }
+#app .wdesk.is-active { border-color: var(--w-up); box-shadow: inset 0 0 0 1px var(--w-up); background: #f4fbf6; }
+.wdesk-top { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; }
+.wdesk-top strong { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wdesk-top .wpill { flex: none; margin-left: auto; font-size: 0.7rem; padding: 2px 8px; }
+.wdesk-color { display: inline-block; flex: none; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+.wdesk-top .wdesk-color { margin-right: 0; }
+.wdesk-strat { font-size: 0.78rem; color: var(--muted); }
+.wdesk-nums { display: flex; gap: 10px; align-items: baseline; font-weight: 700; }
+.wdesk-nums em { font-style: normal; font-size: 0.85rem; }
+.wdesk .wmini { width: 100%; height: 24px; }
+.wcompare { display: grid; gap: 10px; }
+.wmulti .wmulti-line { fill: none; stroke-width: 1.6; opacity: 0.55; vector-effect: non-scaling-stroke; stroke-linejoin: round; }
+.wmulti .wmulti-line.is-active { stroke-width: 2.6; opacity: 1; }
+.wcompare-table { width: 100%; border-collapse: collapse; font-size: 0.84rem; }
+.wcompare-table th, .wcompare-table td { padding: 7px 10px; border-bottom: 1px solid #eef1ee; text-align: left; white-space: nowrap; }
+.wcompare-table th { font-weight: 600; color: var(--muted); font-size: 0.76rem; }
+.wcompare-table .num { text-align: right; }
+.wcompare-table tr.is-active td { background: #f4fbf6; font-weight: 650; }
+.wcompare-note { margin: 0; font-size: 0.78rem; }
+.wkpis--board { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.wcompare-table td a { color: inherit; font-weight: 650; text-decoration: none; border-bottom: 1px solid var(--line); }
+.wcompare-table td a:hover { border-bottom-color: currentColor; }
+@media (max-width: 640px) {
+  .wkpis--board { grid-template-columns: minmax(0, 1fr); }
+}
+.wcreate { display: grid; gap: 12px; padding: 16px; border-radius: 12px; background: var(--w-soft); }
+.wcreate p { margin: 0; }
+.wstrat-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px; }
+.wstrat { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: #fff; cursor: pointer; }
+.wstrat:has(input:checked) { border-color: var(--w-up); box-shadow: inset 3px 0 0 var(--w-up); }
+.wstrat span { display: grid; gap: 3px; }
+.wstrat small { color: var(--muted); font-size: 0.76rem; line-height: 1.35; }
+.wcreate-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 220px); gap: 12px; }
+.wcreate-row label { display: grid; gap: 4px; font-size: 0.85rem; color: var(--muted); }
+#app .wcreate-row input { width: 100%; min-width: 0; box-sizing: border-box; }
+.wcontour-name { font-size: 0.95rem; }
+@media (max-width: 640px) {
+  .wcreate-row { grid-template-columns: 1fr; }
+}

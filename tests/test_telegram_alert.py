@@ -32,7 +32,7 @@ def test_only_kill_and_drift_when_on() -> None:
     sent: list[str] = []
     assert alert_kill(True, enabled=True, send=sent.append) == "ALERT kill=True"
     assert alert_drift("ALERT drift x", enabled=True, send=sent.append) == "ALERT drift x"
-    assert ALLOWED_KINDS == {"kill", "drift"}
+    assert ALLOWED_KINDS == {"kill", "drift", "data"}
     with pytest.raises(TelegramKindError):
         notify("order", "buy", enabled=True, send=sent.append)
     assert "buy" not in sent

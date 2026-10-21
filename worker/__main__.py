@@ -10,13 +10,15 @@ from pathlib import Path
 from app.logging import setup_logging
 from app.ops.envfile import load_env_file
 from app.ops.ready import write_beat
-from app.ops.refresh_candles import csv_tickers, refresh as refresh_candles
+from app.ops.refresh_candles import csv_tickers, refresh_tails
 from app.ops.safety import assert_paper_mode
 from app.strategy.config import daily_strategies, scalp_strategies
 
 from worker.bars import (
+    books_for_day,
     close_all_books,
     close_m15_books,
+    close_moment,
     daily_close_due,
     last_closed_day,
     last_closed_m15,
@@ -31,6 +33,20 @@ from worker.equity import (
 )
 from worker.paper_forward import refresh_paper_forward
 from worker.persist import persist_signals_async
+
+
+def candle_tickers(paper_tickers: list[str]) -> list[str]:
+    from app.ops.candle_coverage import candle_root
+
+    tickers = csv_tickers(candle_root("1d"))
+    for ticker in paper_tickers:
+        if ticker not in tickers:
+            tickers.append(ticker)
+    for tf in ("15m", "10m"):
+        for ticker in csv_tickers(candle_root(tf)):
+            if ticker not in tickers:
+                tickers.append(ticker)
+    return tickers
 
 
 async def run_worker() -> None:
@@ -56,6 +72,8 @@ async def run_worker() -> None:
     last_fundamentals: datetime | None = None
     last_tape: datetime | None = None
     last_candle_refresh: datetime | None = None
+    last_daily_pull: datetime | None = None
+    candle_workers = int(os.environ.get("CANDLE_REFRESH_THREADS", "4"))
     day_sleeves = daily_strategies(os.environ)
     scalp_sleeves = scalp_strategies(os.environ)
     while True:
@@ -82,64 +100,26 @@ async def run_worker() -> None:
         if candle_due:
             from app.ops.candle_coverage import candle_root
 
-            daily_root = candle_root("1d")
-            m15_root = candle_root("15m")
-            m10_root = candle_root("10m")
-            tickers = csv_tickers(daily_root)
-            for ticker in paper_tickers:
-                if ticker not in tickers:
-                    tickers.append(ticker)
-            for root in (m15_root, m10_root):
-                for ticker in csv_tickers(root):
-                    if ticker not in tickers:
-                        tickers.append(ticker)
-            ok_1d = skip_1d = ok_15 = skip_15 = ok_10 = skip_10 = 0
-            for ticker in tickers:
-                try:
-                    await asyncio.to_thread(
-                        refresh_candles,
-                        [ticker],
-                        days=730,
-                        tf="1d",
-                        root=daily_root,
-                    )
-                    ok_1d += 1
-                except Exception:
-                    skip_1d += 1
-                    log.exception("daily candle refresh failed ticker=%s", ticker)
-                try:
-                    await asyncio.to_thread(
-                        refresh_candles,
-                        [ticker],
-                        days=180,
-                        tf="15m",
-                        root=m15_root,
-                    )
-                    ok_15 += 1
-                except Exception:
-                    skip_15 += 1
-                    log.exception("m15 candle refresh failed ticker=%s", ticker)
-                try:
-                    await asyncio.to_thread(
-                        refresh_candles,
-                        [ticker],
-                        days=180,
-                        tf="10m",
-                        root=m10_root,
-                    )
-                    ok_10 += 1
-                except Exception:
-                    skip_10 += 1
-                    log.exception("m10 candle refresh failed ticker=%s", ticker)
+            started = datetime.now(UTC)
+            tickers = candle_tickers(paper_tickers)
+            counts = {}
+            for tf, depth in (("1d", 730), ("15m", 180), ("10m", 180)):
+                counts[tf] = await asyncio.to_thread(
+                    refresh_tails,
+                    tickers,
+                    tf=tf,
+                    root=candle_root(tf),
+                    depth_days=depth,
+                    workers=candle_workers,
+                )
+            last_daily_pull = started
             log.info(
-                "candle refresh tickers=%s 1d ok=%s skip=%s 15m ok=%s skip=%s 10m ok=%s skip=%s",
+                "candle refresh tickers=%s 1d=%s 15m=%s 10m=%s sec=%s",
                 len(tickers),
-                ok_1d,
-                skip_1d,
-                ok_15,
-                skip_15,
-                ok_10,
-                skip_10,
+                counts["1d"],
+                counts["15m"],
+                counts["10m"],
+                int((datetime.now(UTC) - started).total_seconds()),
             )
             last_candle_refresh = now
             try:
@@ -148,6 +128,30 @@ async def run_worker() -> None:
                 write_stamp(now)
             except Exception:
                 log.exception("candle refresh stamp failed")
+        close_now = daily_close_due(last_bar_day, now)
+        if close_now and (
+            last_daily_pull is None
+            or last_daily_pull < close_moment(last_closed_day(now))
+        ):
+            # Решение дня — только по свежему дневному бару: докачиваем перед ним.
+            from app.ops.candle_coverage import candle_root
+
+            started = datetime.now(UTC)
+            ok, skip = await asyncio.to_thread(
+                refresh_tails,
+                candle_tickers(paper_tickers),
+                tf="1d",
+                root=candle_root("1d"),
+                depth_days=730,
+                workers=candle_workers,
+            )
+            last_daily_pull = started
+            log.info(
+                "pre-close daily pull ok=%s skip=%s sec=%s",
+                ok,
+                skip,
+                int((datetime.now(UTC) - started).total_seconds()),
+            )
         books = load_daily_books(os.environ.get("CANDLE_DIR"))
         m15_books = load_m15_books(os.environ.get("CANDLE_M15_DIR", "data/candles_m15"))
         if snapshot_due(last_snapshot, now, SNAPSHOT_INTERVAL_SEC):
@@ -165,9 +169,18 @@ async def run_worker() -> None:
             except Exception:
                 last_snapshot = now
                 log.exception("equity snapshot persist failed")
-        if daily_close_due(last_bar_day, now):
+        if close_now:
+            day = last_closed_day(now)
+            day_books, stale = books_for_day(books, day)
+            log.info(
+                "daily close coverage day=%s fresh=%s stale=%s sample_stale=%s",
+                day,
+                len(day_books),
+                len(stale),
+                stale[:10],
+            )
             rows = close_all_books(
-                day_sleeves, books, last_processed=last_bar_day, now=now
+                day_sleeves, day_books, last_processed=last_bar_day, now=now
             )
             saved = await persist_signals_async(rows)
             try:

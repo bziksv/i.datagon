@@ -114,6 +114,7 @@ def position_card(
     names: dict[str, str] | None = None,
     today: date | None = None,
     root: Path | None = None,
+    rules: bool = True,
 ) -> dict:
     strat = AbsMomentum4Strategy()
     ticker = str(row.get("ticker") or "").upper()
@@ -217,7 +218,7 @@ def position_card(
     }
 
     label = (names or {}).get(ticker) or lookup_name(ticker)
-    return {
+    card = {
         "ticker": ticker,
         "name": label if label and label.upper() != ticker else "",
         "qty": _f(qty, 4),
@@ -252,6 +253,10 @@ def position_card(
         "verdict": verdict,
         "spark": spark,
     }
+    if not rules:
+        # Правила выхода посчитаны только для Абс. моментум-4; у других рукавов их не показываем.
+        card.update({"trend": None, "roc": None, "weak": None, "trail": None, "verdict": "hold"})
+    return card
 
 
 def position_cards(
@@ -261,6 +266,7 @@ def position_cards(
     name_cap: Decimal,
     names: dict[str, str] | None = None,
     root: Path | None = None,
+    rules: bool = True,
 ) -> list[dict]:
     portfolio = portfolio or {}
     equity = equity_at_market(portfolio)
@@ -276,8 +282,11 @@ def position_cards(
                 name_cap=name_cap,
                 names=names,
                 root=root,
+                rules=rules,
             )
         )
     order = {"exit": 0, "watch": 1, "hold": 2}
-    cards.sort(key=lambda c: (order.get(c["verdict"], 3), -(c["weak"]["count"]), c["ticker"]))
+    cards.sort(
+        key=lambda c: (order.get(c["verdict"], 3), -((c["weak"] or {}).get("count") or 0), c["ticker"])
+    )
     return cards

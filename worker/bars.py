@@ -1,7 +1,7 @@
 """Закрытие дневного / M15 бара → on_bar. Кабина не нужна."""
 
 from collections.abc import Mapping, Sequence
-from datetime import date, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 
 from app.broker.port import CandleBar
@@ -23,6 +23,10 @@ def last_closed_day(
     if now.time() >= close:
         return now.date()
     return now.date() - timedelta(days=1)
+
+
+def close_moment(day: date, close: time = SESSION_CLOSE_UTC) -> datetime:
+    return datetime.combine(day, close, tzinfo=UTC)
 
 
 def daily_close_due(
@@ -106,6 +110,28 @@ def close_all_books(
     return rows
 
 
+def books_for_day(
+    books: Mapping[str, Sequence[CandleBar]],
+    day: date,
+) -> tuple[dict[str, list[CandleBar]], list[str]]:
+    """Книги, обрезанные по день решения, и тикеры без бара за этот день.
+
+    Бумага без бара за `day` не участвует: иначе решение «сегодня» считалось бы
+    по вчерашнему закрытию, а на истории стратегию проверяли по дню в день.
+    """
+    from app.ops.refresh_candles import bar_day
+
+    fresh: dict[str, list[CandleBar]] = {}
+    stale: list[str] = []
+    for ticker, bars in books.items():
+        cut = [bar for bar in bars if bar_day(bar) <= day]
+        if cut and bar_day(cut[-1]) == day:
+            fresh[ticker] = cut
+        else:
+            stale.append(ticker)
+    return fresh, stale
+
+
 def close_m15_books(
     strategies: Sequence[Strategy],
     books: Mapping[str, Sequence[CandleBar]],
@@ -114,7 +140,10 @@ def close_m15_books(
     now: datetime,
 ) -> list[SignalRow]:
     rows: list[SignalRow] = []
+    edge = last_closed_m15(now)
     for ticker, bars in books.items():
+        # Бар M15 помечен началом: недостроенный (начало + 15 мин > сейчас) не берём.
+        bars = [bar for bar in bars if bar.ts + timedelta(minutes=M15_MINUTES) <= edge]
         if not ticker or not bars:
             continue
         rows.extend(

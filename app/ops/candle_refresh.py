@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 DEFAULT_STAMP = "data/logs/candle-refresh.beat"
+DEFAULT_INTERVAL_SEC = 900
 
 
 def stamp_path() -> Path:
@@ -14,14 +15,14 @@ def stamp_path() -> Path:
 
 
 def interval_sec() -> int:
-    """По умолчанию раз в сутки. 0 в env — выключить автообновление."""
+    """По умолчанию раз в 15 минут (докачка хвоста). 0 в env — выключить."""
     raw = os.environ.get("CANDLE_FULL_REFRESH_INTERVAL_SEC")
     if raw is None or raw == "":
-        raw = os.environ.get("CANDLE_REFRESH_INTERVAL_SEC", "86400")
+        raw = os.environ.get("CANDLE_REFRESH_INTERVAL_SEC", str(DEFAULT_INTERVAL_SEC))
     try:
         return max(0, int(raw))
     except ValueError:
-        return 86400
+        return DEFAULT_INTERVAL_SEC
 
 
 def write_stamp(ts: datetime | None = None, path: Path | None = None) -> Path:

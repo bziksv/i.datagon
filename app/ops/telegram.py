@@ -1,11 +1,11 @@
-"""Optional Telegram: только kill/drift. По умолчанию выключен. Не торговля."""
+"""Optional Telegram: kill/drift и тревоги по данным. По умолчанию выключен."""
 
 import os
 from collections.abc import Callable
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-ALLOWED_KINDS = frozenset({"kill", "drift"})
+ALLOWED_KINDS = frozenset({"kill", "drift", "data"})
 
 
 class TelegramKindError(ValueError):
@@ -42,6 +42,12 @@ def alert_drift(message: str | None, **kwargs) -> str | None:
     if not message:
         return None
     return notify("drift", message, **kwargs)
+
+
+def alert_data(message: str | None, **kwargs) -> str | None:
+    if not message:
+        return None
+    return notify("data", message, **kwargs)
 
 
 def send_telegram(text: str) -> str:

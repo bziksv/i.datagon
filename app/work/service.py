@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import uuid
 from datetime import UTC, datetime, time, timedelta
@@ -9,9 +10,13 @@ from decimal import Decimal
 
 from app.broker.port import OrderRequest
 from app.work.desk_state import (
+    MAIN_DESK,
     SLEEVE,
+    WORK_SLEEVES,
     already_sent,
     connect_strategy,
+    desk_ids,
+    empty_state,
     load_state,
     order_key,
     payin_value,
@@ -27,6 +32,8 @@ from app.work.desk_state import (
 )
 from app.work.live import live_view
 from app.work.positions import equity_at_market, is_money_row, mark_price, position_cards
+
+log = logging.getLogger(__name__)
 
 WORK_TICKERS_LIMIT = 40
 # TQBR: решение по закрытому дню в 18:50 МСК = 15:50 UTC.
@@ -167,13 +174,38 @@ def payins_after(payins: list[dict], since: datetime | None) -> Decimal:
     return total
 
 
+def sleeve_info(sleeve: str) -> dict:
+    from app.alloc.plan import SLEEVE_HOWTO
+
+    howto = SLEEVE_HOWTO.get(sleeve) or {}
+    return {
+        "id": sleeve,
+        "title": howto.get("title") or sleeve,
+        "signal": howto.get("signal") or "",
+        "holds": howto.get("holds") or "",
+        "rules": sleeve == SLEEVE,
+    }
+
+
+def desk_meta(state: dict) -> dict:
+    info = sleeve_info(state.get("sleeve") or SLEEVE)
+    return {
+        "id": state.get("id") or MAIN_DESK,
+        "name": state.get("name") or info["title"],
+        "sleeve": info["id"],
+        "strategy": info,
+        "archived": bool(state.get("archived")),
+    }
+
+
 def view(
     *,
+    desk_id: str = MAIN_DESK,
     span: str = "day",
     names: dict[str, str] | None = None,
     signals: list[dict] | None = None,
 ) -> dict:
-    state = load_state()
+    state = load_state(desk_id)
     ok = False
     accounts: list[dict] = []
     error = ""
@@ -210,12 +242,26 @@ def view(
     pnl_day = (equity - base_day) if base_day is not None and equity > 0 else None
 
     trades = state.get("trades") or []
-    cards = position_cards(portfolio, trades=trades, name_cap=name_cap, names=names)
+    cards = position_cards(
+        portfolio,
+        trades=trades,
+        name_cap=name_cap,
+        names=names,
+        rules=state.get("sleeve") == SLEEVE,
+    )
     trades_view = _trades_view(trades, names or {})
+    try:
+        from app.work.exits import stale_holdings
+
+        data_alerts = stale_holdings(_held(portfolio or {}).keys())
+    except Exception:  # noqa: BLE001 — экран живёт и без проверки свечей
+        log.exception("work view: stale check failed")
+        data_alerts = []
 
     now = datetime.now(UTC)
     return {
-        "sleeve": SLEEVE,
+        "sleeve": state.get("sleeve") or SLEEVE,
+        "desk": desk_meta(state),
         "steps": steps(state, token_ok=ok),
         "account_id": state.get("account_id") or "",
         "accounts": accounts,
@@ -245,6 +291,7 @@ def view(
         "curve": curve_slice(curve, span, now),
         "curve_day": curve_slice(curve, "day", now),
         "decisions": (state.get("decisions") or [])[-60:],
+        "data_alerts": data_alerts,
         "signals": signals or [],
         "next_run_at": next_decision_at(now).isoformat(),
         "server_time": now.isoformat(),
@@ -289,7 +336,7 @@ def probe() -> dict:
     return {"accounts": accounts}
 
 
-def open_account() -> dict:
+def open_account(desk_id: str = MAIN_DESK) -> dict:
     if not token_ok():
         raise ValueError("TINKOFF_SANDBOX_TOKEN пуст на сервере")
     from app.broker.tinkoff import ensure_sandbox_pay_in, open_sandbox_account_id
@@ -297,14 +344,14 @@ def open_account() -> dict:
     deposit = Decimal(os.environ.get("SANDBOX_DEPOSIT", "1000000"))
     account_id = open_sandbox_account_id()
     ensure_sandbox_pay_in(account_id, deposit)
-    return choose_account(account_id)
+    return choose_account(account_id, desk_id)
 
 
-def pay_in(amount: str) -> dict:
+def pay_in(amount: str, desk_id: str = MAIN_DESK) -> dict:
     """Пополнить выбранный счёт песочницы игровыми рублями (SandboxPayIn)."""
     if not token_ok():
         raise ValueError("TINKOFF_SANDBOX_TOKEN пуст на сервере")
-    state = load_state()
+    state = load_state(desk_id)
     account_id = state.get("account_id") or ""
     if not account_id:
         raise ValueError("сначала выберите счёт песочницы")
@@ -315,27 +362,166 @@ def pay_in(amount: str) -> dict:
         sandbox_pay_in_rub(account_id, value)
     except Exception as exc:  # noqa: BLE001
         raise ValueError(_public_error(exc)) from exc
-    state = remember_payin(load_state(), value)
+    state = remember_payin(load_state(desk_id), value)
     save_state(state)
     return {"ok": True, "amount": format(value, "f")}
 
 
-def choose_account(account_id: str) -> dict:
+def _all_states(include_archived: bool = False) -> list[dict]:
+    out = []
+    for desk_id in desk_ids():
+        try:
+            state = load_state(desk_id)
+        except ValueError:
+            continue
+        if state.get("archived") and not include_archived:
+            continue
+        out.append(state)
+    return out
+
+
+def _account_owner(account_id: str, *, skip: str) -> str:
+    for state in _all_states():
+        if state.get("id") != skip and state.get("account_id") == account_id:
+            return desk_meta(state)["name"]
+    return ""
+
+
+def choose_account(account_id: str, desk_id: str = MAIN_DESK) -> dict:
+    owner = _account_owner(account_id.strip(), skip=desk_id)
+    if owner:
+        raise ValueError(f"этот счёт уже занят песочницей «{owner}»")
     accounts = list_accounts()
     known = {row["broker_account_id"] for row in accounts}
-    state = set_account(load_state(), account_id, known)
+    state = set_account(load_state(desk_id), account_id, known)
     save_state(state)
     return {"ok": True}
 
 
-def attach_strategy() -> dict:
-    state = connect_strategy(load_state())
+def attach_strategy(desk_id: str = MAIN_DESK) -> dict:
+    state = connect_strategy(load_state(desk_id))
     save_state(state)
     return {"ok": True}
 
 
-def store_params(*, sleeve_share: str, name_cap: str) -> dict:
-    state = save_params(load_state(), sleeve_share=sleeve_share, name_cap=name_cap)
+def create_desk(*, sleeve: str, name: str = "", deposit: str = "1000000") -> dict:
+    """Новая песочница = новый счёт брокера + один дневной рукав."""
+    if sleeve not in WORK_SLEEVES:
+        raise ValueError("эту стратегию в песочницу пока не подключить")
+    for state in _all_states():
+        if state.get("sleeve") == sleeve:
+            raise ValueError(f"«{desk_meta(state)['name']}» уже торгует этой стратегией")
+    amount = payin_value(deposit)
+    if not token_ok():
+        raise ValueError("TINKOFF_SANDBOX_TOKEN пуст на сервере")
+    from app.broker.tinkoff import open_sandbox_account_id, sandbox_pay_in_rub
+
+    try:
+        account_id = open_sandbox_account_id()
+        sandbox_pay_in_rub(account_id, amount)
+    except Exception as exc:  # noqa: BLE001
+        raise ValueError(_public_error(exc)) from exc
+    desk_id = f"{sleeve.replace('_', '-')}-{uuid.uuid4().hex[:6]}"
+    title = (name or "").strip()[:60] or sleeve_info(sleeve)["title"]
+    state = empty_state(desk_id, sleeve=sleeve, name=title)
+    state.update(
+        {
+            "account_id": account_id,
+            "strategy_connected": True,
+            "created_at": datetime.now(UTC).isoformat(),
+        }
+    )
+    save_state(state)
+    return {"ok": True, "desk": desk_id}
+
+
+def archive_desk(desk_id: str) -> dict:
+    if desk_id == MAIN_DESK:
+        raise ValueError("основную песочницу убрать нельзя")
+    state = load_state(desk_id)
+    state["archived"] = True
+    state["enabled"] = False
+    save_state(state)
+    return {"ok": True}
+
+
+def _drawdown(values: list[Decimal]) -> Decimal:
+    peak = Decimal("0")
+    worst = Decimal("0")
+    for value in values:
+        peak = max(peak, value)
+        if peak > 0:
+            worst = min(worst, value / peak - 1)
+    return worst
+
+
+def overview() -> dict:
+    """Все песочницы рядом: результат без пополнений, просадка, сделки, кривая в % от старта."""
+    now = datetime.now(UTC)
+    desks = []
+    used = set()
+    for state in _all_states():
+        meta = desk_meta(state)
+        used.add(meta["sleeve"])
+        portfolio = state.get("portfolio") or {}
+        curve = state.get("equity_curve") or []
+        equity = equity_at_market(portfolio) if portfolio else Decimal("0")
+        if equity <= 0 and curve:
+            try:
+                equity = Decimal(str(curve[-1].get("equity")))
+            except Exception:  # noqa: BLE001
+                equity = Decimal("0")
+        first, _day_first, first_ts, _day_ts = _equity_points(curve)
+        payins = state.get("payins") or []
+        base = first + payins_after(payins, first_ts) if first is not None else None
+        pnl = equity - base if base is not None and equity > 0 else None
+        values = []
+        points = []
+        for row in curve_slice(curve, "all", now):
+            try:
+                value = Decimal(str(row.get("equity")))
+            except Exception:  # noqa: BLE001
+                continue
+            ts = _parse_ts(row.get("ts") or "")
+            flow = payins_after(payins, first_ts) - payins_after(payins, ts)
+            values.append(value - flow)
+            if first:
+                points.append({"ts": row.get("ts"), "pct": float((value - flow) / first - 1)})
+        sleeve_share = Decimal(str(state.get("sleeve_share") or "0.40"))
+        invested = equity - Decimal(str(portfolio.get("cash") or "0")) if portfolio else Decimal("0")
+        sleeve_rub = equity * sleeve_share
+        desks.append(
+            {
+                **meta,
+                "account_id": state.get("account_id") or "",
+                "enabled": bool(state.get("enabled")),
+                "ready": all(step["ok"] for step in steps(state, token_ok=True)[:-1]),
+                "equity": float(equity),
+                "pnl": float(pnl) if pnl is not None else None,
+                "pnl_pct": float(pnl / base) if pnl is not None and base else None,
+                "drawdown": float(_drawdown(values)) if values else None,
+                "trades": len(state.get("trades") or []),
+                "positions": sum(
+                    1
+                    for row in (portfolio.get("positions") or [])
+                    if not is_money_row(row) and Decimal(str(row.get("qty") or "0")) > 0
+                ),
+                "sleeve_fill": float(invested / sleeve_rub) if sleeve_rub > 0 else 0.0,
+                "curve": points,
+            }
+        )
+    return {
+        "desks": desks,
+        "strategies": [
+            {**sleeve_info(sleeve), "used": sleeve in used} for sleeve in WORK_SLEEVES
+        ],
+        "live": live_view(),
+        "server_time": now.isoformat(),
+    }
+
+
+def store_params(*, sleeve_share: str, name_cap: str, desk_id: str = MAIN_DESK) -> dict:
+    state = save_params(load_state(desk_id), sleeve_share=sleeve_share, name_cap=name_cap)
     save_state(state)
     return {
         "ok": True,
@@ -344,26 +530,27 @@ def store_params(*, sleeve_share: str, name_cap: str) -> dict:
     }
 
 
-def switch(enabled: bool) -> dict:
-    state = set_enabled(load_state(), enabled)
+def switch(enabled: bool, desk_id: str = MAIN_DESK) -> dict:
+    state = set_enabled(load_state(desk_id), enabled)
     save_state(state)
     return {"ok": True, "enabled": bool(state.get("enabled"))}
 
 
 def work_tickers(state: dict | None = None) -> list[str]:
-    state = state if state is not None else load_state()
+    states = [state] if state is not None else _all_states()
     names: list[str] = []
-    portfolio = state.get("portfolio") or {}
-    for row in portfolio.get("positions") or []:
-        if is_money_row(row):
-            continue
-        ticker = str(row.get("ticker") or "").upper()
-        if ticker and ticker not in names:
-            names.append(ticker)
-    for trade in state.get("trades") or []:
-        ticker = str(trade.get("ticker") or "").upper()
-        if ticker and ticker not in names:
-            names.append(ticker)
+    for item in states:
+        portfolio = item.get("portfolio") or {}
+        for row in portfolio.get("positions") or []:
+            if is_money_row(row):
+                continue
+            ticker = str(row.get("ticker") or "").upper()
+            if ticker and ticker not in names:
+                names.append(ticker)
+        for trade in item.get("trades") or []:
+            ticker = str(trade.get("ticker") or "").upper()
+            if ticker and ticker not in names:
+                names.append(ticker)
     return names[:WORK_TICKERS_LIMIT]
 
 
@@ -373,16 +560,17 @@ def refresh_tape() -> int:
 
     from app.ops.refresh_candles import refresh
 
-    state = load_state()
-    if token_ok() and state.get("account_id"):
-        try:
-            portfolio = read_portfolio(state["account_id"])
-            equity = equity_at_market(portfolio)
-            state = remember_mark(state, equity=str(equity), portfolio=portfolio)
-            save_state(state)
-        except Exception:  # noqa: BLE001
-            pass
-    tickers = work_tickers(state)
+    if token_ok():
+        for state in _all_states():
+            if not state.get("account_id"):
+                continue
+            try:
+                portfolio = read_portfolio(state["account_id"])
+                equity = equity_at_market(portfolio)
+                save_state(remember_mark(state, equity=str(equity), portfolio=portfolio))
+            except Exception:  # noqa: BLE001
+                continue
+    tickers = work_tickers()
     if not tickers:
         return 0
     root = Path(os.environ.get("CANDLE_DIR", "data/candles"))
@@ -430,59 +618,151 @@ def _note(state: dict, decision: dict) -> dict:
 
 
 def place_signals(rows: list) -> int:
-    """Заявки только для включённого мастера и abs_momentum_4. Отказы пишем в decisions."""
-    state = load_state()
-    wanted = []
-    for row in rows:
-        if getattr(row, "sleeve", "") != SLEEVE:
+    """Каждая песочница торгует только сигналами своего рукава. Отказы пишем в decisions."""
+    placed = 0
+    for state in _all_states():
+        try:
+            placed += _place_for_desk(state, rows)
+        except Exception:  # noqa: BLE001 — одна песочница не роняет остальные
+            log.exception("work desk %s orders failed", state.get("id"))
+    return placed
+
+
+def _held(portfolio: dict) -> dict[str, dict]:
+    return {
+        str(row.get("ticker") or "").upper(): row
+        for row in (portfolio.get("positions") or [])
+        if not is_money_row(row) and Decimal(str(row.get("qty") or "0")) > 0
+    }
+
+
+def plan_orders(
+    state: dict, rows: list, held: dict[str, dict]
+) -> list[tuple[str, str, str, Decimal | None]]:
+    """Заявки дня как в бэктесте: (ticker, side, day, roc).
+
+    Держимые бумаги — только выход, без доливок (у стратегий дня их нет).
+    Новые входы — по убыванию роста за 15 дней: мест меньше, чем кандидатов.
+    Продажи первыми: освобождают место рукава под покупки.
+    """
+    from app.broker.moex_candles import MOSCOW
+    from app.ops.refresh_candles import bar_day
+    from app.work.exits import day_bars, entry_day, held_exit, roc, strategy_for
+
+    sleeve = state.get("sleeve") or SLEEVE
+    mine = [row for row in rows if getattr(row, "sleeve", "") == sleeve and row.ts]
+    if not mine:
+        return []
+    day = max(bar_day(row) for row in mine)
+    day_key = day.isoformat()
+    strategy = strategy_for(sleeve)
+    lookback = int(getattr(strategy, "lookback", 15) or 15)
+    seen = {str(row.ticker or "").upper(): row for row in mine if bar_day(row) == day}
+    sells: list[tuple[str, str, str, Decimal | None]] = []
+    for ticker, position in held.items():
+        if ticker not in seen:
             continue
-        side = "sell" if row.kind in {"sell", "exit"} else "buy" if row.kind == "buy" else ""
-        if not side:
+        bars = day_bars(ticker, day)
+        kind = seen[ticker].kind
+        if strategy is not None and kind not in {"sell", "exit"}:
+            entry = Decimal(str(position.get("avg_price") or "0")) or mark_price(position)
+            kind = held_exit(
+                strategy,
+                ticker,
+                bars,
+                entry_price=entry,
+                entry_day=entry_day(state.get("trades") or [], ticker, MOSCOW),
+            ) or ""
+        if kind in {"sell", "exit"}:
+            sells.append((ticker, "sell", day_key, roc(bars, lookback)))
+    buys = []
+    for ticker, row in seen.items():
+        if row.kind != "buy" or ticker in held:
             continue
-        ticker = str(row.ticker or "").upper()
-        day = (
-            row.ts.astimezone(UTC).date().isoformat()
-            if row.ts
-            else datetime.now(UTC).date().isoformat()
+        buys.append((ticker, "buy", day_key, roc(day_bars(ticker, day), lookback)))
+    buys.sort(key=lambda item: (item[3] is None, -(item[3] or 0), item[0]))
+    return sells + buys
+
+
+def _note_stale(state: dict, rows: list, held: dict[str, dict]) -> dict:
+    """Держим бумагу, а свечи за день решения нет: продажу не решаем, поднимаем тревогу."""
+    from app.ops.refresh_candles import bar_day
+    from app.work.exits import stale_holdings
+
+    sleeve = state.get("sleeve") or SLEEVE
+    mine = [row for row in rows if getattr(row, "sleeve", "") == sleeve and row.ts]
+    if not mine or not held:
+        return state
+    day = max(bar_day(row) for row in mine)
+    stale = stale_holdings(held.keys(), day)
+    for item in stale:
+        state = _note(
+            state,
+            _decision(
+                item["ticker"],
+                "sell",
+                day.isoformat(),
+                "stale_data",
+                last_day=item["last_day"],
+                days_behind=item["days_behind"],
+            ),
         )
-        wanted.append((ticker, side, day))
-    if not wanted:
-        return 0
+    if stale:
+        names = ", ".join(
+            f"{item['ticker']} (последняя {item['last_day'] or 'нет'})" for item in stale
+        )
+        log.warning("work desk %s stale holdings: %s", state.get("id"), names)
+        try:
+            from app.ops.telegram import alert_data, send_telegram
 
+            alert_data(
+                f"Песочница «{state.get('name') or state.get('id')}»: нет свечей "
+                f"за {day.isoformat()} по бумагам в портфеле — {names}. "
+                "Продажа по ним не проверена.",
+                send=send_telegram,
+            )
+        except Exception:  # noqa: BLE001 — уведомление не мешает заявкам
+            log.exception("stale holdings alert failed")
+    return state
+
+
+def _place_for_desk(state: dict, rows: list) -> int:
+    sleeve = state.get("sleeve") or SLEEVE
     account_id = str(state.get("account_id") or "")
-    if not state.get("enabled") or not account_id or not token_ok():
-        status = "disabled" if not state.get("enabled") else "no_account"
-        for ticker, side, day in wanted:
-            state = _note(state, _decision(ticker, side, day, status))
-        save_state(state)
-        return 0
-
+    live = bool(state.get("enabled") and account_id and token_ok())
     portfolio = state.get("portfolio") or {}
-    if not portfolio:
+    if live and not portfolio:
         try:
             portfolio = read_portfolio(account_id)
         except Exception:  # noqa: BLE001
             return 0
+    held = _held(portfolio)
+    state = _note_stale(state, rows, held)
+    wanted = plan_orders(state, rows, held)
+    if not wanted:
+        save_state(state)
+        return 0
+
+    if not live:
+        status = "disabled" if not state.get("enabled") else "no_account"
+        for ticker, side, day, _roc in wanted:
+            state = _note(state, _decision(ticker, side, day, status))
+        save_state(state)
+        return 0
+
     equity = _equity(portfolio)
     sleeve_share = Decimal(str(state["sleeve_share"]))
     name_cap = Decimal(str(state["name_cap"]))
     if name_cap >= Decimal("1") or sleeve_share >= Decimal("1") or name_cap > sleeve_share:
         return 0
-    held = {
-        str(row.get("ticker") or "").upper(): row
-        for row in (portfolio.get("positions") or [])
-        if not is_money_row(row)
-    }
     sleeve_notional = Decimal("0")
     for row in held.values():
-        qty = Decimal(str(row.get("qty") or "0"))
-        if qty > 0:
-            sleeve_notional += qty * mark_price(row)
+        sleeve_notional += Decimal(str(row.get("qty") or "0")) * mark_price(row)
     placed = 0
     from app.broker.tinkoff import find_moex_instrument, post_sandbox_order
 
-    for ticker, side, day in wanted:
-        key = order_key(ticker, day, side)
+    for ticker, side, day, strength in wanted:
+        key = order_key(ticker, day, side, sleeve)
         if already_sent(state, key):
             continue
         position = held.get(ticker) or {}
@@ -514,6 +794,7 @@ def place_signals(rows: list) -> int:
                         name_room=float(max(name_room, Decimal("0"))),
                         sleeve_room=float(max(sleeve_room, Decimal("0"))),
                         price=float(price),
+                        roc=float(strength) if strength is not None else None,
                     ),
                 )
                 continue
@@ -546,6 +827,7 @@ def place_signals(rows: list) -> int:
             sleeve_notional += price * Decimal(qty)
         else:
             avg_after = old_avg
+            sleeve_notional -= old_qty * price
         trade = {
             "ticker": ticker,
             "side": side,
@@ -557,7 +839,18 @@ def place_signals(rows: list) -> int:
             "broker_order_id": ack.broker_order_id,
         }
         state = remember_order(state, key, ack.broker_order_id, trade)
-        state = _note(state, _decision(ticker, side, day, "sent", qty=qty, price=float(price)))
+        state = _note(
+            state,
+            _decision(
+                ticker,
+                side,
+                day,
+                "sent",
+                qty=qty,
+                price=float(price),
+                roc=float(strength) if strength is not None else None,
+            ),
+        )
         save_state(state)
         placed += 1
     save_state(state)
@@ -582,10 +875,10 @@ def _last_close(ticker: str) -> Decimal:
     return Decimal(parts[4])
 
 
-def chart(ticker: str) -> dict:
+def chart(ticker: str, desk_id: str = MAIN_DESK) -> dict:
     from pathlib import Path
 
-    state = load_state()
+    state = load_state(desk_id)
     symbol = ticker.strip().upper()
     path = Path(os.environ.get("CANDLE_DIR", "data/candles")) / f"{symbol}.csv"
     bars = []

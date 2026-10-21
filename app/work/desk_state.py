@@ -4,11 +4,24 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 
 SLEEVE = "abs_momentum_4"
+MAIN_DESK = "main"
+# Дневные рукава, которые решают по закрытому дню в 18:50 МСК. Внутридневные — отдельно.
+WORK_SLEEVES = (
+    "abs_momentum_4",
+    "abs_momentum_3",
+    "abs_momentum_2",
+    "abs_momentum",
+    "sma_cross",
+    "donchian_breakout",
+    "rsi_reversion",
+)
+_DESK_ID = re.compile(r"^[a-z0-9_-]{1,48}$")
 EQUITY_CURVE_LIMIT = 20000
 DECISIONS_LIMIT = 300
 PAYINS_LIMIT = 500
@@ -23,8 +36,51 @@ def desk_path() -> Path:
     return Path("data/work_desk.json")
 
 
-def empty_state() -> dict:
+def desks_dir() -> Path:
+    raw = os.environ.get("WORK_DESKS_DIR", "").strip()
+    if raw:
+        return Path(raw)
+    return desk_path().parent / "work_desks"
+
+
+def check_desk_id(desk_id: str) -> str:
+    value = (desk_id or MAIN_DESK).strip()
+    if not _DESK_ID.match(value):
+        raise ValueError("песочница не найдена")
+    return value
+
+
+def path_for(desk_id: str) -> Path:
+    value = check_desk_id(desk_id)
+    if value == MAIN_DESK:
+        return desk_path()
+    return desks_dir() / f"{value}.json"
+
+
+def desk_ids() -> list[str]:
+    """Основная песочница всегда первая, остальные — по времени создания."""
+    extra: list[tuple[str, str]] = []
+    folder = desks_dir()
+    if folder.is_dir():
+        for path in folder.glob("*.json"):
+            desk_id = path.stem
+            if not _DESK_ID.match(desk_id) or desk_id == MAIN_DESK:
+                continue
+            try:
+                raw = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            extra.append((str(raw.get("created_at") or ""), desk_id))
+    return [MAIN_DESK] + [desk_id for _, desk_id in sorted(extra)]
+
+
+def empty_state(desk_id: str = MAIN_DESK, sleeve: str = SLEEVE, name: str = "") -> dict:
     return {
+        "id": desk_id,
+        "sleeve": sleeve,
+        "name": name,
+        "archived": False,
+        "created_at": "",
         "account_id": "",
         "strategy_connected": False,
         "sleeve_share": "0.40",
@@ -40,18 +96,24 @@ def empty_state() -> dict:
     }
 
 
-def load_state() -> dict:
-    path = desk_path()
+def load_state(desk_id: str = MAIN_DESK) -> dict:
+    desk_id = check_desk_id(desk_id)
+    path = path_for(desk_id)
     if not path.is_file():
+        if desk_id != MAIN_DESK:
+            raise ValueError("песочница не найдена")
         return empty_state()
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        return empty_state()
+        return empty_state(desk_id)
     if not isinstance(raw, dict):
-        return empty_state()
-    state = empty_state()
+        return empty_state(desk_id)
+    state = empty_state(desk_id)
     state.update({key: raw.get(key, state[key]) for key in state})
+    state["id"] = desk_id
+    if state.get("sleeve") not in WORK_SLEEVES:
+        state["sleeve"] = SLEEVE
     if not isinstance(state["sent"], dict):
         state["sent"] = {}
     if not isinstance(state["trades"], list):
@@ -66,7 +128,7 @@ def load_state() -> dict:
 
 
 def save_state(state: dict) -> None:
-    path = desk_path()
+    path = path_for(str(state.get("id") or MAIN_DESK))
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(
@@ -148,8 +210,8 @@ def steps(state: dict, *, token_ok: bool) -> list[dict]:
     ]
 
 
-def order_key(ticker: str, day: str, side: str) -> str:
-    return f"{SLEEVE}|{ticker.strip().upper()}|{day}|{side}"
+def order_key(ticker: str, day: str, side: str, sleeve: str = SLEEVE) -> str:
+    return f"{sleeve}|{ticker.strip().upper()}|{day}|{side}"
 
 
 def already_sent(state: dict, key: str) -> bool:
