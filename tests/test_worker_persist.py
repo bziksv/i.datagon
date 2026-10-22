@@ -10,23 +10,27 @@ def test_persist_signals_noop_on_empty() -> None:
     assert persist_signals([]) == 0
 
 
-def test_persist_signals_commits_rows() -> None:
-    row = SignalRow(
+def _signal(ticker: str) -> SignalRow:
+    return SignalRow(
         sleeve="sma_cross",
-        ticker="SBER",
+        ticker=ticker,
         ts=datetime(2026, 10, 12, tzinfo=UTC),
         kind="buy",
         payload={},
     )
+
+
+def test_persist_signals_skips_already_saved_bars() -> None:
+    old, new = _signal("SBER"), _signal("GAZP")
     session = MagicMock()
-    session.add = MagicMock()
+    session.execute = AsyncMock(return_value=[("sma_cross", "SBER", old.ts)])
     session.commit = AsyncMock()
     session.__aenter__ = AsyncMock(return_value=session)
     session.__aexit__ = AsyncMock(return_value=None)
     maker = MagicMock(return_value=session)
     with patch("worker.persist.get_sessionmaker", return_value=maker):
-        assert persist_signals([row]) == 1
-    session.add.assert_called_once_with(row)
+        assert persist_signals([old, new, _signal("GAZP")]) == 1
+    session.add_all.assert_called_once_with([new])
     session.commit.assert_awaited_once()
 
 
