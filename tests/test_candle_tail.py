@@ -45,6 +45,34 @@ def test_tail_merges_and_overwrites_last_day(tmp_path) -> None:
     assert calls == [("SBER", "1d", date(2026, 10, 19), date(2026, 10, 21))]
 
 
+def test_tail_keeps_one_daily_bar_per_day_across_sources(tmp_path) -> None:
+    broker = _day_bar(date(2026, 10, 20), "101")
+    broker = CandleBar(
+        ts=datetime(2026, 10, 20, tzinfo=UTC),
+        o=broker.o,
+        h=broker.h,
+        low=broker.low,
+        c=broker.c,
+        v=broker.v,
+    )
+    write_candle_csv(
+        tmp_path / "SBER.csv", [_day_bar(date(2026, 10, 19), "100"), broker]
+    )
+
+    def fetch(symbol, tf, from_day, till_day):
+        return [_day_bar(date(2026, 10, 20), "102")]
+
+    refresh_tail(
+        "SBER",
+        tf="1d",
+        root=tmp_path,
+        depth_days=730,
+        today=date(2026, 10, 20),
+        fetch=fetch,
+    )
+    assert [str(bar.c) for bar in load_bars(tmp_path / "SBER.csv")] == ["100", "102"]
+
+
 def test_tail_without_file_pulls_full_depth(tmp_path) -> None:
     calls = []
 

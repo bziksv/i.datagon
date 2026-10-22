@@ -198,6 +198,29 @@ def desk_meta(state: dict) -> dict:
     }
 
 
+def _ranked_signals(signals: list[dict], state: dict) -> list[dict]:
+    """Покупки — в том порядке, в каком их возьмёт песочница: по росту за 15 дней."""
+    from datetime import date as _date
+
+    from app.work.exits import day_bars, roc, strategy_for
+
+    strategy = strategy_for(state.get("sleeve") or SLEEVE)
+    lookback = int(getattr(strategy, "lookback", 15) or 15)
+    out = []
+    for row in signals:
+        item = dict(row)
+        if item.get("kind") == "buy" and item.get("day"):
+            try:
+                value = roc(day_bars(item["ticker"], _date.fromisoformat(item["day"])), lookback)
+            except Exception:  # noqa: BLE001 — без силы покажем как есть
+                value = None
+            item["roc"] = float(value) if value is not None else None
+        out.append(item)
+    buys = [item for item in out if item.get("kind") == "buy"]
+    buys.sort(key=lambda item: (item.get("roc") is None, -(item.get("roc") or 0), item["ticker"]))
+    return buys + [item for item in out if item.get("kind") != "buy"]
+
+
 def view(
     *,
     desk_id: str = MAIN_DESK,
@@ -250,6 +273,7 @@ def view(
         rules=state.get("sleeve") == SLEEVE,
     )
     trades_view = _trades_view(trades, names or {})
+    signals = _ranked_signals(signals or [], state)
     try:
         from app.work.exits import stale_holdings
 

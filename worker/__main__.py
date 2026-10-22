@@ -54,6 +54,12 @@ async def run_worker() -> None:
     assert_paper_mode()
     setup_logging()
     log = logging.getLogger("worker")
+    from app.ops.prod_sync import enabled as mirror_enabled
+
+    if mirror_enabled():
+        # Зеркало прода: свечи и заявки делает воркер на сервере, второй торговал бы тем же счётом.
+        log.warning("worker not started: PROD_SYNC is set, this machine mirrors prod")
+        return
     log.info("worker start")
     # Компании / фундамент: по умолчанию раз в час.
     fund_interval = int(os.environ.get("FUNDAMENTALS_INTERVAL_SEC", "3600"))
@@ -73,6 +79,7 @@ async def run_worker() -> None:
     last_tape: datetime | None = None
     last_candle_refresh: datetime | None = None
     last_daily_pull: datetime | None = None
+    empty_alert_day: date | None = None
     candle_workers = int(os.environ.get("CANDLE_REFRESH_THREADS", "4"))
     day_sleeves = daily_strategies(os.environ)
     scalp_sleeves = scalp_strategies(os.environ)
@@ -152,7 +159,9 @@ async def run_worker() -> None:
                 skip,
                 int((datetime.now(UTC) - started).total_seconds()),
             )
-        books = load_daily_books(os.environ.get("CANDLE_DIR"))
+        from app.ops.candle_coverage import candle_root
+
+        books = load_daily_books(candle_root("1d"))
         m15_books = load_m15_books(os.environ.get("CANDLE_M15_DIR", "data/candles_m15"))
         if snapshot_due(last_snapshot, now, SNAPSHOT_INTERVAL_SEC):
             try:
@@ -169,9 +178,26 @@ async def run_worker() -> None:
             except Exception:
                 last_snapshot = now
                 log.exception("equity snapshot persist failed")
+        day = last_closed_day(now)
+        day_books, stale = books_for_day(books, day) if close_now else ({}, [])
+        if close_now and not day_books and (not books or day.weekday() < 5):
+            # День не закрываем: решение примем, как только свечи за него появятся.
+            close_now = False
+            if empty_alert_day != day:
+                empty_alert_day = day
+                log.error(
+                    "daily close waiting day=%s: no daily bars for the day in %s books=%s",
+                    day,
+                    candle_root("1d"),
+                    len(books),
+                )
+                from app.ops.telegram import alert_data
+
+                alert_data(
+                    f"Решение дня {day:%d.%m.%Y} не принято: нет дневных свечей "
+                    f"за этот день (книг {len(books)}). Заявки не выставлены."
+                )
         if close_now:
-            day = last_closed_day(now)
-            day_books, stale = books_for_day(books, day)
             log.info(
                 "daily close coverage day=%s fresh=%s stale=%s sample_stale=%s",
                 day,

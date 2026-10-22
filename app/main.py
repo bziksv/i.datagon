@@ -162,6 +162,9 @@ def create_app() -> FastAPI:
     async def lifespan(_app: FastAPI):
         assert_paper_mode()
         await bootstrap_book()
+        from app.ops.prod_sync import start_background
+
+        start_background()
         yield
 
     app = FastAPI(
@@ -193,6 +196,21 @@ def create_app() -> FastAPI:
         if not expected or not token_accepted(got, expected):
             return JSONResponse(
                 status_code=401, content=error_payload("401", "unauthorized")
+            )
+        return await call_next(request)
+
+    @app.middleware("http")
+    async def mirror_read_only(request: Request, call_next):
+        from app.ops.prod_sync import blocks_write
+
+        if request.method == "POST" and blocks_write(request.url.path):
+            return JSONResponse(
+                status_code=409,
+                content=error_payload(
+                    "409",
+                    "Локаль — зеркало прода: свечи и песочницы забираются с сервера "
+                    "автоматически. Это действие делается на проде.",
+                ),
             )
         return await call_next(request)
 
@@ -300,6 +318,7 @@ def create_app() -> FastAPI:
         }
         from app.ops.candle_refresh import schedule_view as candle_refresh_schedule
         from app.ops.fundamentals_refresh import schedule_view as fund_refresh_schedule
+        from app.ops.prod_sync import view as prod_sync_view
 
         return {
             **ready,
@@ -313,6 +332,7 @@ def create_app() -> FastAPI:
             "refresh": {
                 "candles": candle_refresh_schedule(now),
                 "fundamentals": fund_refresh_schedule(now),
+                "mirror": prod_sync_view(),
             },
         }
 
@@ -1650,15 +1670,18 @@ def create_app() -> FastAPI:
                     select(SignalRow)
                     .where(SignalRow.sleeve == sleeve)
                     .order_by(SignalRow.ts.desc())
-                    .limit(600)
+                    .limit(4000)
                 )
             )
             if recent:
-                last_day = recent[0].ts.date()
+                from app.ops.refresh_candles import bar_day
+
+                # Бар одного дня лежит и как 21:00 UTC накануне (ISS), и как 00:00 (брокер).
+                last_day = max(bar_day(row) for row in recent)
                 seen: set[str] = set()
                 for row in recent:
-                    if row.ts.date() != last_day:
-                        break
+                    if bar_day(row) != last_day:
+                        continue
                     ticker = str(row.ticker).upper()
                     if ticker in seen:
                         continue
@@ -1670,6 +1693,7 @@ def create_app() -> FastAPI:
                             "name": label if label and label.upper() != ticker else "",
                             "kind": row.kind,
                             "ts": row.ts.isoformat(),
+                            "day": last_day.isoformat(),
                         }
                     )
         except Exception:  # noqa: BLE001 — экран работы живёт и без БД

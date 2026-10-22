@@ -115,9 +115,11 @@ def refresh_tail(
     fresh = fetch(symbol, tf, today - timedelta(days=days), today)
     if not fresh and old:
         return path
-    merged = {bar.ts: bar for bar in old}
-    merged.update({bar.ts: bar for bar in fresh})
-    return write_candle_csv(path, [merged[ts] for ts in sorted(merged)])
+    # Дневной бар брокера лежит как 00:00 UTC, у ISS — 21:00 накануне: один день.
+    key = bar_day if tf == "1d" else (lambda bar: bar.ts)
+    merged = {key(bar): bar for bar in old}
+    merged.update({key(bar): bar for bar in fresh})
+    return write_candle_csv(path, sorted(merged.values(), key=lambda bar: bar.ts))
 
 
 def refresh_tails(

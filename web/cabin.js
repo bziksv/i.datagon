@@ -522,6 +522,18 @@
     return pillHtml(label, pace + " · " + last, refreshModTone(mod), tip);
   }
 
+  function mirrorPillHtml(mod) {
+    var last = mod.last_at ? humanBeat(mod.last_at) : "ещё не было";
+    var failed = mod.ok === false;
+    var text = failed ? "ошибка · последняя " + last : "раз в " + (intervalRu(mod.interval_sec) || "—") + " · " + last;
+    var tip =
+      "Локаль — зеркало прода: свечи, песочницы, сигналы, фундаментал и отметки счёта забираются с сервера " +
+      (mod.source ? "(" + mod.source + ") " : "") +
+      "автоматически, на сервере ничего не меняется. Сама локаль ничего не качает и не торгует." +
+      (failed && mod.error ? " Ошибка последней попытки: " + mod.error : "");
+    return pillHtml("С прода", text, failed ? "bad" : mod.last_at ? "ok" : "warn", tip);
+  }
+
   function renderStatus(data, meta) {
     var strip = byId("status-strip");
     if (!strip) return;
@@ -536,10 +548,13 @@
         : data && data.status === "ok"
           ? "связь есть"
           : "нет ответа";
-    var workerTone = alive ? "ok" : "warn";
-    var workerText = alive
-      ? "на связи · " + humanBeat(data.worker_beat)
-      : "нет связи · " + humanBeat(data && data.worker_beat);
+    var mirror = refresh.mirror || {};
+    var workerTone = alive || mirror.enabled ? "ok" : "warn";
+    var workerText = mirror.enabled
+      ? "на проде · здесь выключен"
+      : alive
+        ? "на связи · " + humanBeat(data.worker_beat)
+        : "нет связи · " + humanBeat(data && data.worker_beat);
     var tradeTone = killed ? "bad" : "ok";
     var tradeText = killed
       ? "стоп включён · новые ордера нельзя"
@@ -584,7 +599,8 @@
         "Воркер тянет P/E, P/B, EPS, ROE, дивиденд и капитализацию с брокера.",
         "Обновить с брокера"
       ),
-    ].join("");
+    ].concat(mirror.enabled ? [mirrorPillHtml(mirror)] : []).join("");
+    strip.classList.toggle("has-mirror", !!mirror.enabled);
 
     var env = (data && data.env) || "dev";
     byId("env-badge").textContent = env === "prod" ? "бой" : "песочница";
@@ -8516,14 +8532,20 @@
       else if (s.kind === "sell" || s.kind === "exit") groups.sell.push(s);
       else groups.flat += 1;
     });
-    function chips(rows, tone) {
-      return rows.slice(0, 24).map(function (s) {
-        return '<span class="wchip wchip--' + tone + '" title="' + escapeHtml(s.ticker) + '">' + escapeHtml(workLabel(s)) + "</span>";
+    var slots = Math.max(0, (Number(data.max_names) || 0) - (data.positions || []).length);
+    function chips(rows, tone, ranked) {
+      return rows.slice(0, 24).map(function (s, i) {
+        var strength = s.roc !== null && s.roc !== undefined ? " · рост за 15 дн. " + workPct(s.roc, true) : "";
+        var miss = ranked && i >= slots;
+        return '<span class="wchip wchip--' + (miss ? "muted" : tone) + '" title="' + escapeHtml(s.ticker + strength + (miss ? " · мест в рукаве не хватит" : "")) + '">' + escapeHtml(workLabel(s)) + "</span>";
       }).join("") + (rows.length > 24 ? '<span class="wchip">+' + (rows.length - 24) + "</span>" : "");
     }
-    // Дневной бар MOEX лежит как 21:00 UTC накануне — день берём по Москве.
-    var sigDay = (data.signals || [])[0]
-      ? ruDay(new Date(Date.parse(data.signals[0].ts) + 3 * 3600 * 1000).toISOString().slice(0, 10))
+    var first = (data.signals || [])[0];
+    var sigDay = first
+      ? ruDay(first.day || new Date(Date.parse(first.ts) + 3 * 3600 * 1000).toISOString().slice(0, 10))
+      : "";
+    var slotNote = groups.buy.length > slots
+      ? '<p class="muted">Мест в рукаве: ' + slots + " — берём сильнейших по росту за 15 дней, остальные (бледные) ждут.</p>"
       : "";
     var decisions = (data.decisions || []).slice(-12).reverse().map(function (d) {
       var tone = d.status === "sent" ? (d.side === "sell" ? "down" : "up") : d.status === "disabled" ? "muted" : "warn";
@@ -8544,7 +8566,7 @@
       '<span class="wtimeline-flag" title="18:50 МСК — решение по закрытому бару"></span></div>' +
       '<div class="wtimeline-labels"><span>10:00</span><span>14:00</span><span>18:50 решение</span></div></div>' +
       (data.signals && data.signals.length
-        ? '<div class="wsig"><div class="wsig-row"><span class="wsig-k is-up">Покупка (' + groups.buy.length + ")</span><div>" + (chips(groups.buy, "up") || '<span class="muted">нет</span>') + "</div></div>" +
+        ? '<div class="wsig"><div class="wsig-row"><span class="wsig-k is-up">Покупка (' + groups.buy.length + ")</span><div>" + (chips(groups.buy, "up", true) || '<span class="muted">нет</span>') + "</div></div>" + slotNote +
           '<div class="wsig-row"><span class="wsig-k is-down">Продажа (' + groups.sell.length + ")</span><div>" + (chips(groups.sell, "down") || '<span class="muted">нет</span>') + "</div></div>" +
           '<p class="muted">Без сигнала: ' + groups.flat + " бумаг · сигналы за " + escapeHtml(sigDay) + "</p></div>"
         : '<p class="muted">Сигналов рукава ещё нет — воркер посчитает их после 18:50 МСК.</p>') +

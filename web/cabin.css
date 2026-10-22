@@ -3148,8 +3148,13 @@ button.ghost.compact {
   backdrop-filter: none;
 }
 
+#app .status-strip.has-mirror {
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+
 @media (max-width: 1200px) {
-  #app .status-strip {
+  #app .status-strip,
+  #app .status-strip.has-mirror {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
@@ -3635,7 +3640,8 @@ button.ghost.compact {
 }
 
 @media (max-width: 820px) {
-  #app .status-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 0 0.85rem; }
+  #app .status-strip,
+  #app .status-strip.has-mirror { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 0 0.85rem; }
   #app .status-pill:first-child { border-left: 0; }
   #app .main { padding: 1rem 0.85rem 5rem; }
   .overview-home { grid-template-columns: 1fr; }
@@ -4635,6 +4641,7 @@ body[data-desk="work"] .nav { background: #f4f7f5; }
 .work.is-first .wchip { animation: work-grow 0.25s ease-out both; }
 .wchip--up { background: #e3f4ea; color: #17603b; }
 .wchip--down { background: #fbe9e9; color: #9b2c2c; }
+.wchip--muted { background: #f1f3f1; color: var(--muted); }
 .wdecs { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; font-size: 0.84rem; max-height: 180px; overflow: auto; }
 .wdec { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; gap: 8px; padding: 5px 8px; border-radius: 8px; background: var(--w-soft); }
 .wdec--up .wdec-side, .wdec--up strong { color: var(--w-up); }
