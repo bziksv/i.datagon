@@ -751,9 +751,24 @@ def _note_stale(state: dict, rows: list, held: dict[str, dict]) -> dict:
     return state
 
 
+# Вход меньше половины доли на бумагу — «крошка» на остатке бюджета: не покупаем.
+MIN_BUY_OF_CAP = Decimal("0.5")
 ORDER_PACE_SEC = 0.6
 ORDER_RETRIES = 5
 _last_order_at = 0.0
+
+
+def _too_small(ticker, day, price, qty, min_buy, strength) -> dict:
+    return _decision(
+        ticker,
+        "buy",
+        day,
+        "too_small",
+        price=float(price),
+        amount=float(price * qty),
+        min_amount=float(min_buy),
+        roc=float(strength) if strength is not None else None,
+    )
 
 
 def _rate_limited(exc: Exception) -> float | None:
@@ -818,6 +833,7 @@ def _place_for_desk(state: dict, rows: list) -> int:
     for row in held.values():
         sleeve_notional += Decimal(str(row.get("qty") or "0")) * mark_price(row)
     placed = 0
+    min_buy = equity * name_cap * MIN_BUY_OF_CAP
     from app.broker.tinkoff import find_moex_instrument, post_sandbox_order
 
     for ticker, side, day, strength in wanted:
@@ -857,6 +873,9 @@ def _place_for_desk(state: dict, rows: list) -> int:
                     ),
                 )
                 continue
+            if price * qty < min_buy:
+                state = _note(state, _too_small(ticker, day, price, qty, min_buy, strength))
+                continue
         try:
             instrument = find_moex_instrument(ticker)
             figi = getattr(instrument, "figi", "") or ""
@@ -871,6 +890,9 @@ def _place_for_desk(state: dict, rows: list) -> int:
             )
             continue
         qty = lots * lot
+        if side == "buy" and price * qty < min_buy:
+            state = _note(state, _too_small(ticker, day, price, qty, min_buy, strength))
+            continue
         try:
             ack = _post_paced(
                 post_sandbox_order,

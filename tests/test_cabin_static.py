@@ -48,8 +48,8 @@ def test_cabin_shell_stage01_menu_and_router() -> None:
     css = CSS.read_text()
     js = JS.read_text()
     assert "<!DOCTYPE html>" in html
-    assert 'href="/cabin.css?v=3.3.106"' in html
-    assert 'src="/cabin.js?v=3.3.106"' in html
+    assert 'href="/cabin.css?v=3.3.107"' in html
+    assert 'src="/cabin.js?v=3.3.107"' in html
     assert "whatIfCompanyLabel" in js
     assert "formatRubGrouped" in js
     assert "parseRubInput" in js

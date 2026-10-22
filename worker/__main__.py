@@ -25,6 +25,8 @@ from worker.bars import (
     load_daily_books,
     load_m15_books,
     m15_close_due,
+    read_close_day,
+    write_close_day,
 )
 from worker.equity import (
     SNAPSHOT_INTERVAL_SEC,
@@ -73,7 +75,8 @@ async def run_worker() -> None:
         if ticker.strip()
     ]
     last_snapshot: datetime | None = None
-    last_bar_day: date | None = None
+    last_bar_day: date | None = read_close_day()
+    log.info("daily close last day=%s", last_bar_day)
     last_m15_bar: datetime | None = None
     last_fundamentals: datetime | None = None
     last_tape: datetime | None = None
@@ -217,6 +220,10 @@ async def run_worker() -> None:
             except Exception:
                 log.exception("work sandbox orders failed")
             last_bar_day = last_closed_day(now)
+            try:
+                write_close_day(last_bar_day)
+            except OSError:
+                log.exception("daily close stamp failed")
             log.info(
                 "daily close day=%s signals=%s saved=%s books=%s sleeves=%s",
                 last_bar_day,

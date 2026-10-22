@@ -1,5 +1,6 @@
 """Закрытие дневного / M15 бара → on_bar. Кабина не нужна."""
 
+import os
 from collections.abc import Mapping, Sequence
 from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
@@ -27,6 +28,24 @@ def last_closed_day(
 
 def close_moment(day: date, close: time = SESSION_CLOSE_UTC) -> datetime:
     return datetime.combine(day, close, tzinfo=UTC)
+
+
+def close_stamp_path() -> Path:
+    return Path(os.environ.get("DAILY_CLOSE_STAMP", "data/logs/daily-close.day"))
+
+
+def read_close_day(path: Path | None = None) -> date | None:
+    """День последнего принятого решения: после перезапуска воркер его не повторяет."""
+    try:
+        return date.fromisoformat((path or close_stamp_path()).read_text().strip())
+    except (OSError, ValueError):
+        return None
+
+
+def write_close_day(day: date, path: Path | None = None) -> None:
+    target = path or close_stamp_path()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(day.isoformat(), encoding="utf-8")
 
 
 def daily_close_due(

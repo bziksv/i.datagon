@@ -134,3 +134,42 @@ def test_order_quantity_is_sent_in_lots(desk_file, monkeypatch):
     assert saved["trades"][0]["qty"] == 90
     statuses = {d["ticker"]: d["status"] for d in saved["decisions"]}
     assert statuses == {"GAZP": "sent", "AKRN": "no_room_name"}
+
+
+def test_leftover_crumb_is_not_bought(desk_file, monkeypatch):
+    state = desk_state.empty_state()
+    state.update(
+        {
+            "account_id": "acc-1",
+            "strategy_connected": True,
+            "params_saved": True,
+            "enabled": True,
+            "sleeve_share": "0.12",
+            "name_cap": "0.10",
+            "portfolio": {"cash": "100000", "positions": []},
+        }
+    )
+    desk_state.save_state(state)
+    monkeypatch.setattr(service, "token_ok", lambda: True)
+    monkeypatch.setattr(service, "_last_close", lambda ticker: Decimal("100"))
+    monkeypatch.setattr(
+        "app.broker.tinkoff.find_moex_instrument", lambda t: SimpleNamespace(figi="F", lot=1)
+    )
+    calls = []
+
+    def fake_post(order, *, account_id, figi="", instrument_id=""):
+        calls.append(order)
+        return OrderAck(broker_order_id="o", client_order_id=order.client_order_id, status="fill")
+
+    monkeypatch.setattr("app.broker.tinkoff.post_sandbox_order", fake_post)
+    monkeypatch.setattr(service, "sleep", lambda sec: None)
+    day = datetime(2026, 10, 21, tzinfo=UTC)
+    rows = [
+        SimpleNamespace(sleeve="abs_momentum_4", kind="buy", ticker=t, ts=day)
+        for t in ("AAA", "BBB")
+    ]
+    assert service.place_signals(rows) == 1
+    saved = desk_state.load_state()
+    statuses = {d["ticker"]: d["status"] for d in saved["decisions"]}
+    assert sorted(statuses.values()) == ["sent", "too_small"]
+    assert len(calls) == 1 and calls[0].qty == 100
