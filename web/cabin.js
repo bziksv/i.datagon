@@ -7511,6 +7511,8 @@
     no_price: "нет цены",
     nothing_to_sell: "нечего продавать",
     no_instrument: "бумага не найдена",
+    broker_error: "брокер не принял заявку",
+    below_lot: "денег меньше одного лота",
     stale_data: "нет свечей — продажа не проверена",
   };
   var WORK_VERDICT = {

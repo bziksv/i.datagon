@@ -91,3 +91,46 @@ def test_same_signal_is_not_sent_twice(desk_file, monkeypatch):
     saved = desk_state.load_state()
     assert saved["trades"][0]["ticker"] == "SBER"
     assert saved["trades"][0]["layer"] == 1
+
+
+def test_order_quantity_is_sent_in_lots(desk_file, monkeypatch):
+    state = desk_state.empty_state()
+    state.update(
+        {
+            "account_id": "acc-1",
+            "strategy_connected": True,
+            "params_saved": True,
+            "enabled": True,
+            "sleeve_share": "0.90",
+            "name_cap": "0.10",
+            "portfolio": {"cash": "100000", "positions": []},
+        }
+    )
+    desk_state.save_state(state)
+    monkeypatch.setattr(service, "token_ok", lambda: True)
+    prices = {"GAZP": Decimal("111"), "AKRN": Decimal("18698")}
+    monkeypatch.setattr(service, "_last_close", prices.__getitem__)
+    lots = {"GAZP": 10, "AKRN": 1}
+    monkeypatch.setattr(
+        "app.broker.tinkoff.find_moex_instrument",
+        lambda t: SimpleNamespace(figi=f"F-{t}", lot=lots[t]),
+    )
+    calls = []
+
+    def fake_post(order, *, account_id, figi="", instrument_id=""):
+        calls.append(order)
+        return OrderAck(broker_order_id="o", client_order_id=order.client_order_id, status="fill")
+
+    monkeypatch.setattr("app.broker.tinkoff.post_sandbox_order", fake_post)
+    monkeypatch.setattr(service, "sleep", lambda sec: None)
+    day = datetime(2026, 10, 21, tzinfo=UTC)
+    rows = [
+        SimpleNamespace(sleeve="abs_momentum_4", kind="buy", ticker=t, ts=day)
+        for t in ("GAZP", "AKRN")
+    ]
+    assert service.place_signals(rows) == 1
+    assert [(c.ticker, c.qty) for c in calls] == [("GAZP", 9)]
+    saved = desk_state.load_state()
+    assert saved["trades"][0]["qty"] == 90
+    statuses = {d["ticker"]: d["status"] for d in saved["decisions"]}
+    assert statuses == {"GAZP": "sent", "AKRN": "no_room_name"}

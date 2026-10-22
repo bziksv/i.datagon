@@ -7,6 +7,7 @@ import os
 import uuid
 from datetime import UTC, datetime, time, timedelta
 from decimal import Decimal
+from time import monotonic, sleep
 
 from app.broker.port import OrderRequest
 from app.work.desk_state import (
@@ -750,6 +751,40 @@ def _note_stale(state: dict, rows: list, held: dict[str, dict]) -> dict:
     return state
 
 
+ORDER_PACE_SEC = 0.6
+ORDER_RETRIES = 5
+_last_order_at = 0.0
+
+
+def _rate_limited(exc: Exception) -> float | None:
+    """Секунды до сброса лимита брокера или None, если ошибка не про лимит."""
+    if "RESOURCE_EXHAUSTED" not in repr(exc):
+        return None
+    meta = exc.args[2] if len(exc.args) > 2 else None
+    try:
+        return max(1.0, float(getattr(meta, "ratelimit_reset", 1) or 1))
+    except (TypeError, ValueError):
+        return 1.0
+
+
+def _post_paced(post, order, **kwargs):
+    """Песочница брокера пускает 2 заявки в секунду; client_order_id делает повтор безопасным."""
+    global _last_order_at
+    for attempt in range(ORDER_RETRIES):
+        wait = _last_order_at + ORDER_PACE_SEC - monotonic()
+        if wait > 0:
+            sleep(wait)
+        _last_order_at = monotonic()
+        try:
+            return post(order, **kwargs)
+        except Exception as exc:  # noqa: BLE001
+            reset = _rate_limited(exc)
+            if reset is None or attempt == ORDER_RETRIES - 1:
+                raise
+            sleep(reset)
+    raise RuntimeError("unreachable")
+
+
 def _place_for_desk(state: dict, rows: list) -> int:
     sleeve = state.get("sleeve") or SLEEVE
     account_id = str(state.get("account_id") or "")
@@ -828,17 +863,31 @@ def _place_for_desk(state: dict, rows: list) -> int:
         except Exception:  # noqa: BLE001
             state = _note(state, _decision(ticker, side, day, "no_instrument"))
             continue
-        ack = post_sandbox_order(
-            OrderRequest(
-                ticker=ticker,
-                side=side,
-                qty=qty,
-                type="market",
-                client_order_id=str(uuid.uuid5(uuid.NAMESPACE_OID, key)),
-            ),
-            account_id=account_id,
-            figi=figi,
-        )
+        lot = max(int(getattr(instrument, "lot", 1) or 1), 1)
+        lots = qty // lot
+        if lots < 1:
+            state = _note(
+                state, _decision(ticker, side, day, "below_lot", lot=lot, price=float(price))
+            )
+            continue
+        qty = lots * lot
+        try:
+            ack = _post_paced(
+                post_sandbox_order,
+                OrderRequest(
+                    ticker=ticker,
+                    side=side,
+                    qty=lots,
+                    type="market",
+                    client_order_id=str(uuid.uuid5(uuid.NAMESPACE_OID, key)),
+                ),
+                account_id=account_id,
+                figi=figi,
+            )
+        except Exception as exc:  # noqa: BLE001 — одна бумага не роняет остальные
+            log.warning("work desk %s order %s failed: %s", state.get("id"), key, exc)
+            state = _note(state, _decision(ticker, side, day, "broker_error"))
+            continue
         prev_layers = [
             item for item in _layers(state.get("trades") or [], ticker) if item.get("side") == "buy"
         ]
