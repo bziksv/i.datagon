@@ -583,7 +583,7 @@ def refresh_tape() -> int:
     """Отметка equity по рынку + короткие дневки рабочих тикеров."""
     from pathlib import Path
 
-    from app.ops.refresh_candles import refresh
+    from app.ops.refresh_candles import refresh_tail
 
     if token_ok():
         for state in _all_states():
@@ -602,7 +602,7 @@ def refresh_tape() -> int:
     written = 0
     for ticker in tickers:
         try:
-            refresh([ticker], days=5, tf="1d", root=root)
+            refresh_tail(ticker, tf="1d", root=root, depth_days=730)
             written += 1
         except Exception:  # noqa: BLE001
             continue

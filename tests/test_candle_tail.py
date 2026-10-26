@@ -16,12 +16,16 @@ def _day_bar(day: date, close: str) -> CandleBar:
     return CandleBar(ts=ts, o=price, h=price, low=price, c=price, v=Decimal("1"))
 
 
+def _history(last: date, count: int = 45) -> list[CandleBar]:
+    return [_day_bar(last - timedelta(days=count - 1 - i), "90") for i in range(count - 2)] + [
+        _day_bar(last - timedelta(days=1), "100"),
+        _day_bar(last, "101"),
+    ]
+
+
 def test_tail_merges_and_overwrites_last_day(tmp_path) -> None:
     root = tmp_path
-    write_candle_csv(
-        root / "SBER.csv",
-        [_day_bar(date(2026, 10, 19), "100"), _day_bar(date(2026, 10, 20), "101")],
-    )
+    write_candle_csv(root / "SBER.csv", _history(date(2026, 10, 20)))
     calls = []
 
     def fetch(symbol, tf, from_day, till_day):
@@ -40,9 +44,40 @@ def test_tail_merges_and_overwrites_last_day(tmp_path) -> None:
         fetch=fetch,
     )
     bars = load_bars(root / "SBER.csv")
-    assert [str(bar.c) for bar in bars] == ["100", "102", "103"]
+    assert len(bars) == 46
+    assert [str(bar.c) for bar in bars[-3:]] == ["100", "102", "103"]
     # тянем только хвост: от последнего дня в файле, а не 730 дней
     assert calls == [("SBER", "1d", date(2026, 10, 19), date(2026, 10, 21))]
+
+
+def test_tail_refills_truncated_history(tmp_path) -> None:
+    write_candle_csv(tmp_path / "GAZP.csv", _history(date(2026, 10, 23), count=4))
+    calls = []
+
+    def fetch(symbol, tf, from_day, till_day):
+        calls.append(from_day)
+        return _history(date(2026, 10, 26), count=60)
+
+    refresh_tail(
+        "GAZP", tf="1d", root=tmp_path, depth_days=730, today=date(2026, 10, 26), fetch=fetch
+    )
+    assert calls == [date(2026, 10, 26) - timedelta(days=730)]
+    assert len(load_bars(tmp_path / "GAZP.csv")) == 60
+
+
+def test_short_refresh_window_keeps_history(tmp_path, monkeypatch) -> None:
+    from app.ops import refresh_candles
+
+    write_candle_csv(tmp_path / "PLZL.csv", _history(date(2026, 10, 20), count=50))
+    monkeypatch.setattr(
+        refresh_candles,
+        "_fetch",
+        lambda symbol, tf, from_day, till_day: [_day_bar(date(2026, 10, 21), "105")],
+    )
+    refresh_candles.refresh(["PLZL"], days=5, tf="1d", root=tmp_path)
+    bars = load_bars(tmp_path / "PLZL.csv")
+    assert len(bars) == 51
+    assert str(bars[-1].c) == "105"
 
 
 def test_tail_keeps_one_daily_bar_per_day_across_sources(tmp_path) -> None:

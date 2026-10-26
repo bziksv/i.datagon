@@ -80,13 +80,29 @@ def refresh(
     for ticker in tickers:
         symbol = ticker.strip().upper()
         bars = _fetch(symbol, tf, from_day, today)
-        written.append(write_candle_csv(root / f"{symbol}.csv", bars))
+        written.append(merge_write(root / f"{symbol}.csv", bars, tf=tf))
     return written
+
+
+def merge_write(path: Path, fresh: list[CandleBar], *, tf: str) -> Path:
+    """Короткое окно не стирает историю: старые бары остаются, свежие их заменяют."""
+    old = load_bars(path) if path.is_file() else []
+    if not fresh and old:
+        return path
+    # Дневной бар брокера лежит как 00:00 UTC, у ISS — 21:00 накануне: один день.
+    key = bar_day if tf == "1d" else (lambda bar: bar.ts)
+    merged = {key(bar): bar for bar in old}
+    merged.update({key(bar): bar for bar in fresh})
+    return write_candle_csv(path, sorted(merged.values(), key=lambda bar: bar.ts))
 
 
 def bar_day(bar: CandleBar) -> date:
     """Торговый день бара по Москве: дневной бар 20.10 лежит как 19.10 21:00 UTC."""
     return bar.ts.astimezone(MOSCOW).date()
+
+
+# Меньше баров, чем нужно стратегии (SMA30 + запас), — докачиваем всю глубину заново.
+MIN_HISTORY_BARS = 40
 
 
 def refresh_tail(
@@ -107,19 +123,13 @@ def refresh_tail(
     path = root / f"{symbol}.csv"
     today = today or datetime.now(MOSCOW).date()
     old = load_bars(path) if path.is_file() else []
-    if old:
+    if len(old) >= MIN_HISTORY_BARS:
         lag = (today - bar_day(old[-1])).days
         days = max(1, min(depth_days, lag + 1))
     else:
         days = depth_days
     fresh = fetch(symbol, tf, today - timedelta(days=days), today)
-    if not fresh and old:
-        return path
-    # Дневной бар брокера лежит как 00:00 UTC, у ISS — 21:00 накануне: один день.
-    key = bar_day if tf == "1d" else (lambda bar: bar.ts)
-    merged = {key(bar): bar for bar in old}
-    merged.update({key(bar): bar for bar in fresh})
-    return write_candle_csv(path, sorted(merged.values(), key=lambda bar: bar.ts))
+    return merge_write(path, fresh, tf=tf)
 
 
 def refresh_tails(
