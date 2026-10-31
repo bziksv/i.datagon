@@ -109,6 +109,9 @@ class BacktestTrade:
     added_qty: int = 0
     buy_notional: Decimal = Decimal("0")
     sell_notional: Decimal = Decimal("0")
+    commission: Decimal = Decimal("0")
+    carry: Decimal = Decimal("0")
+    position_side: str = "long"
 
 
 def _bps(value: Decimal) -> Decimal:
@@ -124,6 +127,31 @@ def _execution_price(price: Decimal, side: str, slippage_bps: Decimal) -> Decima
 
 def _commission(notional: Decimal, commission_bps: Decimal) -> Decimal:
     return abs(Decimal(notional)) * _bps(commission_bps)
+
+
+# Плата Т-Банка за перенос короткой позиции на ночь. Ступень — фикс за весь объём,
+# выше последней ступени — доля от стоимости позиции в день.
+DEFAULT_SHORT_CARRY_TIERS: tuple[tuple[Decimal, Decimal], ...] = (
+    (Decimal("5000"), Decimal("0")),
+    (Decimal("50000"), Decimal("40")),
+    (Decimal("250000"), Decimal("190")),
+    (Decimal("1000000"), Decimal("750")),
+)
+DEFAULT_SHORT_CARRY_RATE = Decimal("0.00075")
+
+
+def short_carry_rub(
+    notional: Decimal,
+    tiers: Sequence[tuple[Decimal, Decimal]] | None = None,
+    rate: Decimal | None = None,
+) -> Decimal:
+    """Плата за одну ночь по модулю стоимости короткой позиции."""
+    size = abs(Decimal(notional))
+    steps = tiers if tiers is not None else DEFAULT_SHORT_CARRY_TIERS
+    for limit, fee in steps:
+        if size <= Decimal(limit):
+            return Decimal(fee)
+    return size * (DEFAULT_SHORT_CARRY_RATE if rate is None else Decimal(rate))
 
 
 def _max_drawdown(values: Sequence[Decimal]) -> Decimal:
@@ -177,11 +205,12 @@ def run_backtest(
     config: BacktestConfig | None = None,
     evaluation_start: int = 0,
 ) -> dict:
-    """Long-only simulation.
+    """Long simulation; shorts only if the strategy sets allow_short.
 
-    Cross/indicator decisions are made after bar close and executed no earlier
-    than the next bar open. A fixed strategy stop may execute intrabar; a gap
-    through the stop executes at the worse opening price.
+    Decisions are made after bar close and executed no earlier than the next
+    bar open. A fixed stop may execute intrabar; a gap through the stop fills
+    at the worse opening price. A long-only strategy never enters the short
+    branch, so its result stays the same.
     """
     cfg = config or BacktestConfig()
     if cfg.initial_cash <= 0:
@@ -217,6 +246,23 @@ def run_backtest(
     max_layers = max(int(getattr(strategy, "max_layers", 1) or 1), 1)
     take_profit_pct = Decimal(str(getattr(strategy, "take_profit_pct", 0) or 0))
     stop_from_first = bool(getattr(strategy, "stop_from_first", False))
+    allow_short = bool(getattr(strategy, "allow_short", False))
+    raw_short_share = getattr(strategy, "max_short_exposure", None)
+    short_share = (
+        Decimal(str(raw_short_share))
+        if raw_short_share is not None
+        else cfg.position_share
+    )
+    short_stop_pct = Decimal(str(getattr(strategy, "short_stop_pct", 0) or 0))
+    carry_tiers = getattr(strategy, "short_carry_tiers", None)
+    carry_rate = getattr(strategy, "short_carry_rate", None)
+    short_qty = 0
+    short_entry: Decimal | None = None
+    short_entry_ts: datetime | None = None
+    short_entry_fee = Decimal("0")
+    short_entry_notional = Decimal("0")
+    trade_carry = Decimal("0")
+    total_carry = Decimal("0")
 
     def buy(
         bar: CandleBar,
@@ -319,6 +365,81 @@ def run_backtest(
         layers = 0
         added_qty = 0
 
+    def open_short(
+        bar: CandleBar,
+        reason: str,
+        raw_price: Decimal | None = None,
+    ) -> None:
+        nonlocal cash, short_qty, short_entry, short_entry_ts, short_entry_fee
+        nonlocal short_entry_notional, turnover, trade_carry
+        if qty > 0 or short_qty > 0:
+            return
+        raw = Decimal(raw_price) if raw_price is not None else Decimal(bar.o)
+        # Шорт — это продажа: проскальзывание уменьшает выручку.
+        price = _execution_price(raw, "sell", cfg.slippage_bps)
+        budget = cash * short_share
+        lot_cost = price * Decimal(cfg.lot)
+        lots = int(budget // lot_cost) if lot_cost > 0 else 0
+        wanted = lots * cfg.lot
+        if wanted <= 0:
+            return
+        notional = price * Decimal(wanted)
+        fee = _commission(notional, cfg.commission_bps)
+        cash += notional - fee
+        turnover += notional
+        fills.append(BacktestFill(bar.ts, "short", wanted, price, fee, reason))
+        short_qty = wanted
+        short_entry = price
+        short_entry_ts = bar.ts
+        short_entry_fee = fee
+        short_entry_notional = notional
+        trade_carry = Decimal("0")
+
+    def cover_short(
+        bar: CandleBar,
+        reason: str,
+        raw_price: Decimal | None = None,
+    ) -> None:
+        nonlocal cash, short_qty, short_entry, short_entry_ts, short_entry_fee
+        nonlocal short_entry_notional, turnover, trade_carry
+        if short_qty <= 0 or short_entry is None or short_entry_ts is None:
+            return
+        raw = Decimal(raw_price) if raw_price is not None else Decimal(bar.o)
+        # Покрытие — покупка: проскальзывание увеличивает цену.
+        price = _execution_price(raw, "buy", cfg.slippage_bps)
+        notional = price * Decimal(short_qty)
+        fee = _commission(notional, cfg.commission_bps)
+        gross = (short_entry - price) * Decimal(short_qty)
+        commission = short_entry_fee + fee
+        costs = commission + trade_carry
+        trades.append(
+            BacktestTrade(
+                entry_ts=short_entry_ts,
+                exit_ts=bar.ts,
+                qty=short_qty,
+                entry_price=short_entry,
+                exit_price=price,
+                gross_pnl=gross,
+                costs=costs,
+                net_pnl=gross - costs,
+                exit_reason=reason,
+                buy_notional=notional,
+                sell_notional=short_entry_notional,
+                commission=commission,
+                carry=trade_carry,
+                position_side="short",
+            )
+        )
+        cash -= notional + fee
+        turnover += notional
+        fills.append(BacktestFill(bar.ts, "cover", short_qty, price, fee, reason))
+        short_qty = 0
+        short_entry = None
+        short_entry_ts = None
+        short_entry_fee = Decimal("0")
+        short_entry_notional = Decimal("0")
+        trade_carry = Decimal("0")
+
     for index, bar in enumerate(bars):
         evaluating = index >= evaluation_start
         if evaluating and fill_at == "morning":
@@ -332,6 +453,19 @@ def run_backtest(
                 buy(bar, pending_reason, add=pending_add and qty > 0)
             elif pending in {"sell", "exit"} and qty > 0:
                 sell(bar, pending_reason)
+            elif (
+                allow_short
+                and pending == "short"
+                and qty == 0
+                and short_qty == 0
+            ):
+                open_short(bar, pending_reason)
+            elif (
+                allow_short
+                and pending in {"sell", "exit", "cover"}
+                and short_qty > 0
+            ):
+                cover_short(bar, pending_reason)
         pending = None
         pending_reason = ""
         pending_add = False
@@ -352,6 +486,18 @@ def run_backtest(
                 note_stop = getattr(strategy, "note_stop", None)
                 if callable(note_stop):
                     note_stop()
+        if (
+            allow_short
+            and evaluating
+            and short_qty > 0
+            and short_entry is not None
+            and short_stop_pct > 0
+        ):
+            stop_price = short_entry * (Decimal("1") + short_stop_pct)
+            if Decimal(bar.h) >= stop_price:
+                raw_fill = max(Decimal(bar.o), stop_price)
+                cover_short(bar, "stop", raw_fill)
+                blocked_reentry = True
 
         if (
             evaluating
@@ -369,23 +515,41 @@ def run_backtest(
                 sell(bar, "take_profit", raw_fill)
                 blocked_reentry = True
 
+        if (
+            allow_short
+            and evaluating
+            and short_qty > 0
+            and short_entry is not None
+        ):
+            overnight = short_carry_rub(
+                Decimal(bar.c) * Decimal(short_qty),
+                carry_tiers,
+                carry_rate,
+            )
+            if overnight > 0:
+                cash -= overnight
+                total_carry += overnight
+                trade_carry += overnight
         if evaluating:
-            if qty > 0:
+            if qty > 0 or short_qty > 0:
                 exposed_bars += 1
             equity = cash + Decimal(qty) * Decimal(bar.c)
+            if short_qty > 0:
+                equity -= Decimal(short_qty) * Decimal(bar.c)
             equity_curve.append({"ts": bar.ts, "equity": equity})
 
         signal = strategy.on_bar(
             BarContext(
                 ticker=ticker,
                 bars=_BarPrefix(bars, index + 1),
-                entry_price=entry_price,
+                entry_price=short_entry if short_qty > 0 else entry_price,
+                side="short" if short_qty > 0 else "buy",
             )
         )
-        if (
-            signal is None
-            or signal.kind not in {"buy", "sell", "exit"}
-        ):
+        allowed = {"buy", "sell", "exit"}
+        if allow_short:
+            allowed.update({"short", "cover"})
+        if signal is None or signal.kind not in allowed:
             continue
         if fill_at == "close":
             if not evaluating:
@@ -423,15 +587,33 @@ def run_backtest(
         can_execute_next = index + 1 >= evaluation_start
         if not can_execute_next:
             continue
-        if signal.kind == "buy" and (qty == 0 or allow_add):
+        if signal.kind == "buy" and (qty == 0 or allow_add) and short_qty == 0:
             pending = "buy"
             pending_reason = f"signal:{signal.kind}"
             pending_add = qty > 0
         elif signal.kind in {"sell", "exit"} and qty > 0:
             pending = signal.kind
             pending_reason = f"signal:{signal.kind}"
+        elif (
+            allow_short
+            and signal.kind == "short"
+            and qty == 0
+            and short_qty == 0
+            and not blocked_reentry
+        ):
+            pending = "short"
+            pending_reason = f"signal:{signal.kind}"
+        elif (
+            allow_short
+            and signal.kind in {"sell", "exit", "cover"}
+            and short_qty > 0
+        ):
+            pending = "cover"
+            pending_reason = f"signal:{signal.kind}"
 
     final_equity = cash + Decimal(qty) * Decimal(bars[-1].c)
+    if short_qty > 0:
+        final_equity -= Decimal(short_qty) * Decimal(bars[-1].c)
     curve_values = [Decimal(str(row["equity"])) for row in equity_curve]
     period_returns = _returns(curve_values)
     total_return = final_equity / cfg.initial_cash - Decimal("1")
@@ -480,7 +662,9 @@ def run_backtest(
             "final_equity": _money(final_equity),
             "net_pnl": _money(final_equity - cfg.initial_cash),
             "closed_trade_pnl": _money(trade_net),
-            "costs": _money(costs),
+            "costs": _money(costs + total_carry),
+            "commissions": _money(costs),
+            "short_carry": _money(total_carry),
             "total_return": _number(total_return),
             "cagr": _number(cagr) if cagr is not None else None,
             "max_drawdown": _number(_max_drawdown(curve_values)),

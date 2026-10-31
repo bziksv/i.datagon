@@ -4,7 +4,7 @@ from decimal import Decimal
 from app.broker.port import CandleBar
 from app.strategy.abs_mom import AbsMomentumStrategy
 from app.strategy.backtest import BacktestConfig, run_backtest
-from app.strategy.base import BarContext
+from app.strategy.base import BarContext, Signal
 
 
 def _bar(day: int, c: float, *, o: float | None = None, h: float | None = None, low: float | None = None) -> CandleBar:
@@ -322,6 +322,145 @@ def test_abs_mom_backtest_uses_full_position_share_attr() -> None:
         evaluation_start=0,
     )
     assert report["summary"]["trades"] >= 0
+
+
+def test_abs_mom5_without_shorts_matches_v4_signals() -> None:
+    from app.strategy.abs_mom import AbsMomentum4Strategy, AbsMomentum5Strategy
+
+    bars = [_bar(i, 100 + i) for i in range(40)]
+    left = AbsMomentum4Strategy(
+        lookback=5,
+        sma_period=5,
+        min_roc=Decimal("0"),
+        exit_roc=Decimal("-0.01"),
+        max_stretch=Decimal("0"),
+        trail_pct=Decimal("0"),
+        require_volume=False,
+        breadth_min=Decimal("0"),
+        max_day_up=Decimal("0"),
+    )
+    right = AbsMomentum5Strategy(
+        lookback=5,
+        sma_period=5,
+        min_roc=Decimal("0"),
+        exit_roc=Decimal("-0.01"),
+        max_stretch=Decimal("0"),
+        trail_pct=Decimal("0"),
+        require_volume=False,
+        breadth_min=Decimal("0"),
+        max_day_up=Decimal("0"),
+        shorts_enabled=False,
+    )
+    for end in range(1, len(bars) + 1):
+        ctx = BarContext("SBER", bars[:end])
+        a = left.on_bar(ctx)
+        b = right.on_bar(ctx)
+        assert (None if a is None else a.kind) == (None if b is None else b.kind)
+
+
+def test_short_carry_tiers_and_same_day_round_trip_is_free() -> None:
+    from app.strategy.abs_mom import AbsMomentum5Strategy
+    from app.strategy.backtest import short_carry_rub
+
+    assert short_carry_rub(Decimal("5000")) == Decimal("0")
+    assert short_carry_rub(Decimal("50000")) == Decimal("40")
+    assert short_carry_rub(Decimal("250000")) == Decimal("190")
+    assert short_carry_rub(Decimal("1000000")) == Decimal("750")
+    assert short_carry_rub(Decimal("2000000")) == Decimal("1500")
+
+    class OneShot(AbsMomentum5Strategy):
+        def on_bar(self, ctx):
+            if ctx.entry_price is None and len(ctx.bars) == 1:
+                return Signal(self.sleeve, ctx.ticker, "short", ctx.bars[-1].ts)
+            if ctx.side == "short":
+                return Signal(self.sleeve, ctx.ticker, "exit", ctx.bars[-1].ts)
+            return None
+
+    start = datetime(2026, 3, 2, 21, tzinfo=UTC)
+    bars = [
+        CandleBar(
+            ts=start,
+            o=Decimal("100"),
+            h=Decimal("101"),
+            low=Decimal("99"),
+            c=Decimal("100"),
+            v=Decimal("1000"),
+        ),
+        CandleBar(
+            ts=start + timedelta(days=1),
+            o=Decimal("100"),
+            h=Decimal("130"),
+            low=Decimal("99"),
+            c=Decimal("100"),
+            v=Decimal("1000"),
+        ),
+    ]
+    report = run_backtest(
+        OneShot(
+            shorts_enabled=True,
+            short_stop_pct=Decimal("0.05"),
+            short_breadth_max=Decimal("1"),
+            shortable=frozenset({"SBER"}),
+            max_short_exposure=Decimal("1"),
+        ),
+        "SBER",
+        bars,
+        config=BacktestConfig(
+            initial_cash=Decimal("100000"),
+            position_share=Decimal("1"),
+            commission_bps=Decimal("5"),
+            slippage_bps=Decimal("0"),
+        ),
+    )
+    summary = report["summary"]
+    assert summary["trades"] == 1
+    assert summary["short_carry"] == 0
+    assert summary["commissions"] > 0
+    assert summary["costs"] == summary["commissions"]
+
+
+def test_overnight_short_pays_carry() -> None:
+    from app.strategy.abs_mom import AbsMomentum5Strategy
+    from app.strategy.backtest import short_carry_rub
+
+    class HoldShort(AbsMomentum5Strategy):
+        def on_bar(self, ctx):
+            if ctx.entry_price is None:
+                return Signal(self.sleeve, ctx.ticker, "short", ctx.bars[-1].ts)
+            return None
+
+    start = datetime(2026, 3, 2, 21, tzinfo=UTC)
+    bars = [
+        CandleBar(
+            ts=start + timedelta(days=i),
+            o=Decimal("100"),
+            h=Decimal("101"),
+            low=Decimal("99"),
+            c=Decimal("100"),
+            v=Decimal("100000"),
+        )
+        for i in range(4)
+    ]
+    report = run_backtest(
+        HoldShort(
+            shorts_enabled=True,
+            short_breadth_max=Decimal("1"),
+            shortable=frozenset({"SBER"}),
+            max_short_exposure=Decimal("1"),
+        ),
+        "SBER",
+        bars,
+        config=BacktestConfig(
+            initial_cash=Decimal("1000000"),
+            position_share=Decimal("1"),
+            commission_bps=Decimal("0"),
+            slippage_bps=Decimal("0"),
+        ),
+    )
+    # Вход на втором баре, позиция жива на закрытиях трёх баров (индексы 1, 2, 3).
+    night = short_carry_rub(Decimal("1000000"))
+    assert report["summary"]["short_carry"] == float(night * 3)
+    assert report["trades"] == []
 
 
 def test_stale_breadth_cache_rereads_the_new_session(tmp_path, monkeypatch) -> None:

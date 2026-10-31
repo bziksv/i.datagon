@@ -19,6 +19,7 @@ SLEEVE = "abs_momentum"
 SLEEVE_V2 = "abs_momentum_2"
 SLEEVE_V3 = "abs_momentum_3"
 SLEEVE_V4 = "abs_momentum_4"
+SLEEVE_V5 = "abs_momentum_5"
 TIMEFRAME = "1d"
 DEFAULT_LOOKBACK = 20
 DEFAULT_SMA_PERIOD = 40
@@ -415,3 +416,153 @@ class AbsMomentum4Strategy(AbsMomentum3Strategy):
     def __init__(self, **kwargs):
         kwargs.setdefault("breadth_min", Decimal("0.42"))
         super().__init__(**kwargs)
+
+
+# Бумаги, которые в бэктесте считаем доступными для шорта в Т-Банке:
+# ядро прогона и ликвидные голубые фишки. Список можно подменить.
+def default_shortable() -> frozenset[str]:
+    from app.strategy.moex_groups import MOEX_DESK_CORE
+
+    extra = (
+        "AFKS",
+        "AFLT",
+        "HYDR",
+        "IRAO",
+        "MAGN",
+        "MTSS",
+        "NLMK",
+        "PHOR",
+        "PIKK",
+        "SBERP",
+        "SNGSP",
+        "TATNP",
+        "VKCO",
+    )
+    return frozenset(MOEX_DESK_CORE).union(extra)
+
+
+class AbsMomentum5Strategy(AbsMomentum4Strategy):
+    """Те же длинные правила, что у четвёртой версии, плюс зеркальный шорт.
+
+    Шорты выключены — сигналы совпадают с моментумом-4. Включены — в слабой
+    бумаге при узкой широте рынка открывается короткая позиция. Выход зеркальный:
+    серия дней с ростом ROC, трейл от минимума после прибыли, стоп выше входа.
+    """
+
+    sleeve = SLEEVE_V5
+
+    def __init__(
+        self,
+        *,
+        shorts_enabled: bool = False,
+        longs_enabled: bool = True,
+        short_breadth_max: Decimal = Decimal("0.42"),
+        short_stop_pct: Decimal = Decimal("0"),
+        max_short_exposure: Decimal = Decimal("1"),
+        shortable: frozenset[str] | None = None,
+        **kwargs,
+    ) -> None:
+        super().__init__(**kwargs)
+        self.shorts_enabled = bool(shorts_enabled)
+        self.allow_short = self.shorts_enabled
+        self.longs_enabled = bool(longs_enabled)
+        self.short_breadth_max = Decimal(short_breadth_max)
+        self.short_stop_pct = Decimal(short_stop_pct)
+        self.max_short_exposure = Decimal(max_short_exposure)
+        self.shortable = shortable if shortable is not None else default_shortable()
+        self._short_weak = 0
+        self._short_trough: Decimal | None = None
+
+    def _sync_ticker(self, ticker: str) -> None:
+        changed = self._ticker != ticker
+        super()._sync_ticker(ticker)
+        if changed:
+            self._short_weak = 0
+            self._short_trough = None
+
+    def _shortable(self, ticker: str) -> bool:
+        return ticker.strip().upper() in self.shortable
+
+    def _volume_ok(self, ctx: BarContext, close: Decimal) -> bool:
+        if not self.require_volume:
+            return True
+        bars = ctx.bars
+        if len(bars) < 21:
+            return False
+        last = Decimal(bars[-1].v) * close
+        avg = sum(
+            (Decimal(bar.v) * Decimal(bar.c) for bar in bars[-21:-1]),
+            Decimal("0"),
+        ) / Decimal(20)
+        return avg > 0 and last >= avg * self.vol_mult
+
+    def _short_entry_ok(self, ctx: BarContext) -> bool:
+        if not self._shortable(ctx.ticker):
+            return False
+        packed = self._sma_and_roc(ctx)
+        if packed is None:
+            return False
+        close, mean, roc = packed
+        if mean <= 0 or close >= mean or roc > -self.min_roc:
+            return False
+        if self.max_stretch > 0 and close / mean < Decimal("1") / self.max_stretch:
+            return False
+        if not self._volume_ok(ctx, close):
+            return False
+        if self.max_day_up > 0 and len(ctx.bars) >= 2:
+            prev = Decimal(ctx.bars[-2].c)
+            if prev > 0 and close / prev - Decimal("1") < -self.max_day_up:
+                return False
+        if self.short_breadth_max < Decimal("1"):
+            key = ctx.bars[-1].ts.date().isoformat()
+            breadth = session_breadth(ctx.ticker, key)
+            if breadth is None or breadth > float(self.short_breadth_max):
+                return False
+        return True
+
+    def _short_exit(self, ctx: BarContext) -> Signal | None:
+        bar = ctx.bars[-1]
+        entry = Decimal(ctx.entry_price or "0")
+        close = Decimal(bar.c)
+        self._short_trough = (
+            close if self._short_trough is None else min(self._short_trough, close)
+        )
+        armed = self.trail_arm <= 0 or (close > 0 and entry / close >= self.trail_arm)
+        if (
+            self._trail_base > 0
+            and armed
+            and close >= self._short_trough * (Decimal("1") + self._trail_base)
+        ):
+            self._short_trough = None
+            self._short_weak = 0
+            return Signal(self.sleeve, ctx.ticker, "exit", bar.ts)
+        packed = self._sma_and_roc(ctx)
+        if packed is not None:
+            roc = packed[2]
+            if roc <= -self.exit_roc:
+                self._short_weak = 0
+            else:
+                self._short_weak += 1
+                if self._short_weak >= self.exit_streak:
+                    self._short_trough = None
+                    self._short_weak = 0
+                    return Signal(self.sleeve, ctx.ticker, "exit", bar.ts)
+        return None
+
+    def on_bar(self, ctx: BarContext) -> Signal | None:
+        if not self.shorts_enabled:
+            return super().on_bar(ctx)
+        if ctx.entry_price is not None and ctx.side == "short":
+            return self._short_exit(ctx)
+        if not self.longs_enabled:
+            if ctx.entry_price is not None:
+                return super().on_bar(ctx)
+            if self._short_entry_ok(ctx):
+                return Signal(self.sleeve, ctx.ticker, "short", ctx.bars[-1].ts)
+            return None
+        signal = super().on_bar(ctx)
+        if ctx.entry_price is None and (
+            signal is None or signal.kind != "buy"
+        ) and self._short_entry_ok(ctx):
+            return Signal(self.sleeve, ctx.ticker, "short", ctx.bars[-1].ts)
+        return signal

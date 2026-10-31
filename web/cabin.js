@@ -302,12 +302,13 @@
     "abs_momentum_2",
     "abs_momentum_3",
     "abs_momentum_4",
+    "abs_momentum_5",
   ];
   var SLEEVE_GROUPS = [
     { title: "Дневные", ids: ["sma_cross", "donchian_breakout", "rsi_reversion"] },
     { title: "Скальп", ids: ["ema_scalp", "vol_scalp"] },
     { title: "Докуп", ids: ["overnight_bounce", "morning_bounce"] },
-    { title: "Моментум", ids: ["abs_momentum", "abs_momentum_2", "abs_momentum_3", "abs_momentum_4"] },
+    { title: "Моментум", ids: ["abs_momentum", "abs_momentum_2", "abs_momentum_3", "abs_momentum_4", "abs_momentum_5"] },
   ];
   var SLEEVE_LINE = {
     sma_cross: "Дневки. Быстрая средняя пересекла медленную.",
@@ -321,6 +322,7 @@
     abs_momentum_2: "Как моментум, плюс фильтр: рынок в целом должен быть сильным.",
     abs_momentum_3: "Короче окно и мягче выход.",
     abs_momentum_4: "Как моментум-3, порог широты чуть ниже. Эта стратегия стоит в рабочей среде.",
+    abs_momentum_5: "Как моментум-4, плюс шорты слабых бумаг при узком рынке.",
   };
   var SLEEVE_NAMES = {
     sma_cross: "Пересечение средних",
@@ -334,6 +336,7 @@
     abs_momentum_2: "Абс. моментум-2",
     abs_momentum_3: "Абс. моментум-3",
     abs_momentum_4: "Абс. моментум-4",
+    abs_momentum_5: "Абс. моментум-5",
     fund_screener: "Фундамент-скринер",
   };
   var authed = false;
@@ -381,6 +384,8 @@
       "SMA30 и ROC15 ≥ 0, оборот от 60% среднего, день не выше +7%, широта этого рынка ≥ 45%. Для S&P широта по файлам S&P и их датам. Слабый ROC держим три дня, выход с четвёртого (порог −1%). Трейл 4% после +20%. На TQBR 2024–2026 около +30.8%. Это история, не обещание вперёд.",
     abs_momentum_4:
       "Как абсолютный моментум-3, но широта этого рынка от 42%, не от 45%. Для S&P широта по файлам S&P и их датам. На TQBR 2024–2026 около +31.3%. Это история, не обещание вперёд.",
+    abs_momentum_5:
+      "Длинная сторона как у моментума-4. Шорты — зеркало слабой бумаги при широте рынка не выше 35%, стоп 5% выше входа, не больше четверти счёта. За ночь — плата Т-Банка по ступеням. На ядре с 2023 шорты с этой платой дают около +15.9% против +30.2% у четвёртой. Это история, не обещание вперёд.",
   };
   var SIGNAL_KIND_RU = {
     buy: "покупка",
@@ -4110,6 +4115,13 @@
         "</div></div>" +
         '<div class="metric"><div class="k">сделки / расходы</div><div class="v">' +
         escapeHtml(String(summary.trades || 0) + " / " + money(summary.costs)) +
+        "</div></div>" +
+        '<div class="metric"><div class="k">комиссия / плата за шорт</div><div class="v">' +
+        escapeHtml(
+          money(summary.commissions == null ? summary.costs : summary.commissions) +
+            " / " +
+            money(summary.short_carry || 0)
+        ) +
         "</div></div>" +
         '<div class="metric"><div class="k">доходность стратегии</div><div class="v">' +
         escapeHtml(

@@ -8,6 +8,7 @@ from app.strategy.abs_mom import (
     AbsMomentum2Strategy,
     AbsMomentum3Strategy,
     AbsMomentum4Strategy,
+    AbsMomentum5Strategy,
     DEFAULT_BACKTEST_POSITION_SHARE as ABS_MOM_SHARE,
     DEFAULT_EXIT_ROC as ABS_MOM_EXIT_ROC,
     DEFAULT_LOOKBACK as ABS_MOM_LOOKBACK,
@@ -665,6 +666,61 @@ def abs_mom4_from_config(
     return AbsMomentum4Strategy(**abs_mom4_params(env, _yaml_text(yaml_path)))
 
 
+def abs_mom5_params(
+    env: Mapping[str, str],
+    yaml_text: str | None = None,
+) -> dict:
+    params = abs_mom4_params({}, None)
+    params.update(
+        {
+            "shorts_enabled": False,
+            "longs_enabled": True,
+            "short_breadth_max": Decimal("0.42"),
+            "short_stop_pct": Decimal("0"),
+            "max_short_exposure": Decimal("1"),
+        }
+    )
+    if yaml_text:
+        section = _section(yaml_text, "abs_momentum_5")
+        params["lookback"] = _int_field(section, "lookback", params["lookback"])
+        params["sma_period"] = _int_field(section, "sma_period", params["sma_period"])
+        params["min_roc"] = _decimal_field(section, "min_roc", params["min_roc"])
+        params["exit_roc"] = _decimal_field(section, "exit_roc", params["exit_roc"])
+        params["stop_pct"] = _decimal_field(section, "stop_pct", params["stop_pct"])
+        params["trail_pct"] = _decimal_field(section, "trail_pct", params["trail_pct"])
+        params["max_stretch"] = _decimal_field(
+            section, "max_stretch", params["max_stretch"]
+        )
+        params["backtest_position_share"] = _decimal_field(
+            section,
+            "backtest_position_share",
+            params["backtest_position_share"],
+        )
+        params["shorts_enabled"] = _bool_field(
+            section, "shorts_enabled", params["shorts_enabled"]
+        )
+        params["longs_enabled"] = _bool_field(
+            section, "longs_enabled", params["longs_enabled"]
+        )
+        params["short_breadth_max"] = _decimal_field(
+            section, "short_breadth_max", params["short_breadth_max"]
+        )
+        params["short_stop_pct"] = _decimal_field(
+            section, "short_stop_pct", params["short_stop_pct"]
+        )
+        params["max_short_exposure"] = _decimal_field(
+            section, "max_short_exposure", params["max_short_exposure"]
+        )
+    return params
+
+
+def abs_mom5_from_config(
+    env: Mapping[str, str],
+    yaml_path: Path | None = DEFAULT_YAML,
+) -> AbsMomentum5Strategy:
+    return AbsMomentum5Strategy(**abs_mom5_params(env, _yaml_text(yaml_path)))
+
+
 def active_strategies(env: Mapping[str, str], yaml_path: Path | None = DEFAULT_YAML):
     return [
         sma_from_config(env, yaml_path),
@@ -678,6 +734,7 @@ def active_strategies(env: Mapping[str, str], yaml_path: Path | None = DEFAULT_Y
         abs_mom2_from_config(env, yaml_path),
         abs_mom3_from_config(env, yaml_path),
         abs_mom4_from_config(env, yaml_path),
+        abs_mom5_from_config(env, yaml_path),
     ]
 
 
