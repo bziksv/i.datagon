@@ -21,10 +21,12 @@ from app.strategy.abs_mom import SLEEVE as ABS_MOM_SLEEVE
 from app.strategy.abs_mom import SLEEVE_V2 as ABS_MOM2_SLEEVE
 from app.strategy.abs_mom import SLEEVE_V3 as ABS_MOM3_SLEEVE
 from app.strategy.abs_mom import SLEEVE_V4 as ABS_MOM4_SLEEVE
+from app.strategy.abs_mom import SLEEVE_V5 as ABS_MOM5_SLEEVE
 from app.strategy.config import (
     abs_mom2_from_config,
     abs_mom3_from_config,
     abs_mom4_from_config,
+    abs_mom5_from_config,
     abs_mom_from_config,
     donchian_from_config,
     morning_from_config,
@@ -180,11 +182,13 @@ def strategy_for(sleeve: str, env: dict[str, str] | None = None):
         return abs_mom3_from_config(env)
     if sleeve == ABS_MOM4_SLEEVE:
         return abs_mom4_from_config(env)
+    if sleeve == ABS_MOM5_SLEEVE:
+        return abs_mom5_from_config(env)
     raise ValueError(f"unknown sleeve: {sleeve}")
 
 
 def _bars_path(sleeve: str, symbol: str) -> Path:
-    if sleeve == VOL_SCALP_SLEEVE:
+    if sleeve in {VOL_SCALP_SLEEVE, ABS_MOM5_SLEEVE}:
         m10 = candle_m10_dir() / f"{symbol}.csv"
         if m10.exists():
             return m10

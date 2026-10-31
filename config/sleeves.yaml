@@ -126,3 +126,21 @@ abs_momentum_4:
   backtest_position_share: 1.0
   name_share: 0.10
   sleeve_share: 0.40
+
+# 10-минутки. Сетка 2024–H1 2025: фиксированный тейк 1–2% с выходом к вечеру
+# проигрывал. Оставлен вход с отката и выход, когда цена теряет среднюю.
+abs_momentum_5:
+  timeframe: 10m
+  trend_bars: 80
+  roc_bars: 24
+  min_roc: 0
+  dip_bars: 6
+  pullback: 0.012
+  max_pullback: 0.05
+  take_profit_pct: 0
+  stop_pct: 0.04
+  cooldown_bars: 1
+  max_trades_per_day: 6
+  backtest_position_share: 1.0
+  name_share: 0.10
+  sleeve_share: 0.40
