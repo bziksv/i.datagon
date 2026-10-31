@@ -130,18 +130,52 @@ def stale_holdings(tickers, day: date | None = None) -> list[dict]:
     return out
 
 
+def _trade_qty(row: dict) -> int | None:
+    raw = row.get("qty")
+    if raw is None or raw == "":
+        return None
+    try:
+        return int(Decimal(str(raw)))
+    except (ArithmeticError, ValueError):
+        return None
+
+
 def entry_day(trades: Sequence[dict], ticker: str, tz) -> date | None:
-    """День первой покупки текущей позиции: после последней продажи бумаги."""
+    """День первой покупки текущей позиции.
+
+    Частичная продажа день входа не сбрасывает. Иначе выход ищется по последним
+    30 барам без цены входа этой позиции и продаёт бумагу по сигналу, который
+    был ещё до покупки. Полная продажа закрывает отсчёт. Сделка без qty —
+    полный выход, как раньше.
+    """
+    qty = 0
     found: date | None = None
+    symbol = ticker.strip().upper()
     for row in trades:
-        if str(row.get("ticker") or "").upper() != ticker:
+        if str(row.get("ticker") or "").upper() != symbol:
             continue
-        if row.get("side") == "sell":
+        side = row.get("side")
+        traded = _trade_qty(row)
+        if side == "buy":
+            if qty <= 0 and found is None:
+                try:
+                    found = (
+                        datetime.fromisoformat(str(row.get("ts")))
+                        .astimezone(tz)
+                        .date()
+                    )
+                except ValueError:
+                    continue
+            qty += 0 if traded is None else traded
+            continue
+        if side != "sell":
+            continue
+        if traded is None:
+            qty = 0
             found = None
             continue
-        if row.get("side") == "buy" and found is None:
-            try:
-                found = datetime.fromisoformat(str(row.get("ts"))).astimezone(tz).date()
-            except ValueError:
-                continue
+        qty -= traded
+        if qty <= 0:
+            qty = 0
+            found = None
     return found

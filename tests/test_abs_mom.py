@@ -322,3 +322,52 @@ def test_abs_mom_backtest_uses_full_position_share_attr() -> None:
         evaluation_start=0,
     )
     assert report["summary"]["trades"] >= 0
+
+
+def test_stale_breadth_cache_rereads_the_new_session(tmp_path, monkeypatch) -> None:
+    """Кэш вчерашнего закрытия не должен обнулять широту сегодня.
+
+    Пропуск ключа читался как 0 при пороге 42% — и покупки замирали,
+    пока процесс воркера не перезапустят.
+    """
+    from app.broker.moex_candles import write_candle_csv
+    from app.strategy import abs_mom
+    from app.strategy.abs_mom import AbsMomentum4Strategy
+
+    monkeypatch.setenv("CANDLE_DIR", str(tmp_path))
+    monkeypatch.setenv("CANDLE_SP500_DIR", str(tmp_path / "no-sp"))
+    last = datetime(2026, 10, 27, 21, tzinfo=UTC)
+    bars = []
+    for index in range(45):
+        ts = last - timedelta(days=44 - index)
+        price = Decimal(100 + index)
+        bars.append(
+            CandleBar(ts=ts, o=price, h=price, low=price, c=price, v=Decimal("1000"))
+        )
+    for ticker in ("SBER", "GAZP", "LKOH"):
+        write_candle_csv(tmp_path / f"{ticker}.csv", bars)
+    abs_mom._BREADTH = {"2026-10-26": 0.90}
+    abs_mom._BREADTH_MISS.clear()
+    abs_mom._SP_BREADTH = None
+    abs_mom._SP_BREADTH_MISS.clear()
+    try:
+        sleeve = AbsMomentum4Strategy(
+            lookback=5,
+            sma_period=5,
+            min_roc=Decimal("0"),
+            max_stretch=Decimal("0"),
+            trail_pct=Decimal("0"),
+            require_volume=False,
+            max_day_up=Decimal("0"),
+            breadth_min=Decimal("0.42"),
+        )
+        signal = sleeve.on_bar(BarContext("SBER", bars[-12:]))
+        assert signal is not None
+        assert signal.kind == "buy"
+        assert abs_mom._BREADTH is not None
+        assert abs_mom._BREADTH["2026-10-27"] > 0.42
+    finally:
+        abs_mom._BREADTH = None
+        abs_mom._SP_BREADTH = None
+        abs_mom._BREADTH_MISS.clear()
+        abs_mom._SP_BREADTH_MISS.clear()
