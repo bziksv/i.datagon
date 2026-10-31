@@ -10,6 +10,7 @@ from app.strategy.abs_mom import SLEEVE as ABS_MOM_SLEEVE
 from app.strategy.abs_mom import SLEEVE_V2 as ABS_MOM2_SLEEVE
 from app.strategy.abs_mom import SLEEVE_V3 as ABS_MOM3_SLEEVE
 from app.strategy.abs_mom import SLEEVE_V4 as ABS_MOM4_SLEEVE
+from app.strategy.abs_mom import SLEEVE_V5 as ABS_MOM5_SLEEVE
 from app.strategy.donchian import SLEEVE as DONCHIAN_SLEEVE
 from app.strategy.morning import SLEEVE as MORNING_SLEEVE
 from app.strategy.overnight import SLEEVE as OVERNIGHT_SLEEVE
@@ -30,6 +31,7 @@ ACTIVE_SLEEVES = (
     ABS_MOM2_SLEEVE,
     ABS_MOM3_SLEEVE,
     ABS_MOM4_SLEEVE,
+    ABS_MOM5_SLEEVE,
 )
 
 

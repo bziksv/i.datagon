@@ -10,6 +10,7 @@
 плюс на обеих вселенных и max min(MOEX, SP). In-sample, не гарантия вперёд.
 """
 
+from datetime import UTC, datetime, time
 from decimal import Decimal
 from pathlib import Path
 
@@ -19,6 +20,7 @@ SLEEVE = "abs_momentum"
 SLEEVE_V2 = "abs_momentum_2"
 SLEEVE_V3 = "abs_momentum_3"
 SLEEVE_V4 = "abs_momentum_4"
+SLEEVE_V5 = "abs_momentum_5"
 TIMEFRAME = "1d"
 DEFAULT_LOOKBACK = 20
 DEFAULT_SMA_PERIOD = 40
@@ -383,3 +385,188 @@ class AbsMomentum4Strategy(AbsMomentum3Strategy):
     def __init__(self, **kwargs):
         kwargs.setdefault("breadth_min", Decimal("0.42"))
         super().__init__(**kwargs)
+
+
+# Пятая версия — не дневной фильтр, а оборот внутри дня на 10-минутках.
+# Сетка на ликвидном TQBR (2024–H1 2025 обучение, дальше проверка):
+# откат от локального хая в уже растущей бумаге, тейк около 1.2%, стоп короче.
+# Сетка на 10-минутках ликвидного TQBR: тейк 1–2% с выходом каждый вечер
+# проигрывал удержанию. Оставлен вариант, который меньше теряет на той же
+# выборке: вход с отката, выход когда цена теряет среднюю, стоп 4%.
+V5_TREND_BARS = 80
+V5_ROC_BARS = 24
+V5_MIN_ROC = Decimal("0")
+V5_DIP_BARS = 6
+V5_PULLBACK = Decimal("0.012")
+V5_MAX_PULLBACK = Decimal("0.05")
+V5_TAKE_PROFIT = Decimal("0")
+V5_STOP = Decimal("0.04")
+V5_COOLDOWN_BARS = 1
+V5_MAX_TRADES_PER_DAY = 6
+# MOEX 10:00–18:40 МСК = 07:00–15:40 UTC. Новые входы не позже 17:00 МСК.
+V5_SESSION_OPEN = time(7, 0)
+V5_LAST_ENTRY = time(14, 0)
+V5_FLAT_AFTER = time(15, 20)
+
+
+def _as_utc(ts: datetime) -> datetime:
+    if ts.tzinfo is None:
+        return ts.replace(tzinfo=UTC)
+    return ts.astimezone(UTC)
+
+
+class AbsMomentum5Strategy(Strategy):
+    """Внутридневный моментум на 10-минутках.
+
+    Вход: бумага уже выше средней, зелёный бар после отката от локального
+    максимума. Выход: close снова под средней или стоп. Вечерний выход
+    выключен — ночное движение на истории было дороже, чем тейк 1–2%.
+    Если позиция закрылась, в тот же день можно зайти снова.
+    """
+
+    sleeve = SLEEVE_V5
+    timeframe = "10m"
+    fill_at = "next_open"
+    backtest_position_share = DEFAULT_BACKTEST_POSITION_SHARE
+
+    def __init__(
+        self,
+        *,
+        trend_bars: int = V5_TREND_BARS,
+        roc_bars: int = V5_ROC_BARS,
+        min_roc: Decimal = V5_MIN_ROC,
+        dip_bars: int = V5_DIP_BARS,
+        pullback: Decimal = V5_PULLBACK,
+        max_pullback: Decimal = V5_MAX_PULLBACK,
+        take_profit_pct: Decimal = V5_TAKE_PROFIT,
+        stop_pct: Decimal = V5_STOP,
+        cooldown_bars: int = V5_COOLDOWN_BARS,
+        max_trades_per_day: int = V5_MAX_TRADES_PER_DAY,
+        style: str = "ride",
+        hold_overnight: bool = True,
+        session_open: time = V5_SESSION_OPEN,
+        last_entry: time = V5_LAST_ENTRY,
+        flat_after: time = V5_FLAT_AFTER,
+        backtest_position_share: Decimal = DEFAULT_BACKTEST_POSITION_SHARE,
+    ) -> None:
+        if trend_bars < 2 or roc_bars < 1 or dip_bars < 2:
+            raise ValueError("windows must be positive")
+        if not Decimal("0") < backtest_position_share <= Decimal("1"):
+            raise ValueError("backtest_position_share must be in (0, 1]")
+        self.trend_bars = trend_bars
+        self.roc_bars = roc_bars
+        self.min_roc = Decimal(min_roc)
+        self.dip_bars = dip_bars
+        self.pullback = Decimal(pullback)
+        self.max_pullback = Decimal(max_pullback)
+        self.take_profit_pct = Decimal(take_profit_pct)
+        self.stop_pct = Decimal(stop_pct)
+        if style not in {"pullback", "breakout", "ride"}:
+            raise ValueError("style")
+        self.cooldown_bars = cooldown_bars
+        self.max_trades_per_day = max_trades_per_day
+        self.style = style
+        self.hold_overnight = hold_overnight
+        self.session_open = session_open
+        self.last_entry = last_entry
+        self.flat_after = flat_after
+        self.backtest_position_share = Decimal(backtest_position_share)
+        self._ticker: str | None = None
+        self._day: object = None
+        self._trades_today = 0
+        self._cooldown = 0
+        self._was_in = False
+
+    def _reset_ticker(self, ticker: str, day) -> None:
+        if self._ticker != ticker:
+            self._ticker = ticker
+            self._cooldown = 0
+            self._was_in = False
+            self._trades_today = 0
+            self._day = day
+        elif self._day != day:
+            self._day = day
+            self._trades_today = 0
+
+    def on_bar(self, ctx: BarContext) -> Signal | None:
+        if not ctx.bars:
+            return None
+        bar = ctx.bars[-1]
+        stamp = _as_utc(bar.ts)
+        self._reset_ticker(ctx.ticker, stamp.date())
+        in_position = ctx.entry_price is not None
+        just_flat = self._was_in and not in_position
+        self._was_in = in_position
+        if just_flat:
+            self._cooldown = self.cooldown_bars
+        elif self._cooldown > 0 and not in_position:
+            self._cooldown -= 1
+
+        clock = stamp.time()
+        if in_position and not self.hold_overnight and clock >= self.flat_after:
+            return Signal(
+                sleeve=self.sleeve,
+                ticker=ctx.ticker,
+                kind="exit",
+                ts=bar.ts,
+            )
+        if (
+            in_position
+            and self.style == "ride"
+            and len(ctx.bars) >= self.trend_bars
+        ):
+            trend = ctx.bars[-self.trend_bars :]
+            mean = sum((Decimal(item.c) for item in trend), Decimal("0")) / Decimal(
+                self.trend_bars
+            )
+            if Decimal(bar.c) < mean:
+                return Signal(
+                    sleeve=self.sleeve,
+                    ticker=ctx.ticker,
+                    kind="exit",
+                    ts=bar.ts,
+                )
+        if in_position or clock < self.session_open or clock >= self.last_entry:
+            return None
+        if self._cooldown > 0 or self._trades_today >= self.max_trades_per_day:
+            return None
+        need = max(self.trend_bars, self.roc_bars + 1, self.dip_bars)
+        if len(ctx.bars) < need:
+            return None
+        window = ctx.bars[-self.trend_bars :]
+        closes = [Decimal(item.c) for item in window]
+        close = closes[-1]
+        mean = sum(closes, Decimal("0")) / Decimal(self.trend_bars)
+        base = Decimal(ctx.bars[-(self.roc_bars + 1)].c)
+        if mean <= 0 or base <= 0 or close <= mean:
+            return None
+        roc = close / base - Decimal("1")
+        if roc < self.min_roc:
+            return None
+        recent = ctx.bars[-self.dip_bars :]
+        if self.style == "breakout":
+            prior = recent[:-1]
+            if not prior:
+                return None
+            peak = max(Decimal(item.h) for item in prior)
+            if peak <= 0 or close < peak:
+                return None
+        else:
+            peak = max(Decimal(item.h) for item in recent)
+            if peak <= 0:
+                return None
+            dip = Decimal("1") - close / peak
+            if dip < self.pullback or dip > self.max_pullback:
+                return None
+        if close <= Decimal(bar.o):
+            return None
+        prev = Decimal(ctx.bars[-2].c)
+        if close <= prev:
+            return None
+        self._trades_today += 1
+        return Signal(
+            sleeve=self.sleeve,
+            ticker=ctx.ticker,
+            kind="buy",
+            ts=bar.ts,
+        )

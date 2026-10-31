@@ -70,6 +70,86 @@ def test_abs_mom3_copies_v2_rules() -> None:
     assert nxt.breadth_min == Decimal("0.45")
 
 
+def test_abs_mom5_round_trips_twice_in_one_session() -> None:
+    """Откат внутри роста даёт две сделки за утро, обе с тейком."""
+    from app.strategy.abs_mom import AbsMomentum5Strategy
+    from app.strategy.backtest import BacktestConfig, run_backtest
+
+    start = datetime(2026, 3, 2, 7, 0, tzinfo=UTC)
+
+    def bar(index: int, o: float, h: float, low: float, c: float) -> CandleBar:
+        return CandleBar(
+            ts=start + timedelta(minutes=10 * index),
+            o=Decimal(str(o)),
+            h=Decimal(str(h)),
+            low=Decimal(str(low)),
+            c=Decimal(str(c)),
+            v=Decimal("1000"),
+        )
+
+    bars: list[CandleBar] = []
+    i = 0
+    for _ in range(16):
+        bars.append(bar(i, 99.8, 100.2, 99.6, 100))
+        i += 1
+    for close in (102, 104, 105.5, 106.2):
+        bars.append(bar(i, close - 0.4, close + 0.2, close - 0.5, close))
+        i += 1
+    bars.append(bar(i, 106.2, 106.3, 104.2, 104.6))
+    i += 1
+    bars.append(bar(i, 104.5, 105.4, 104.4, 105.2))
+    i += 1
+    bars.append(bar(i, 105.2, 107.2, 105.0, 106.8))
+    i += 1
+    bars.append(bar(i, 106.8, 106.9, 104.6, 104.9))
+    i += 1
+    bars.append(bar(i, 104.8, 105.8, 104.7, 105.6))
+    i += 1
+    bars.append(bar(i, 105.6, 107.8, 105.4, 107.2))
+    sleeve = AbsMomentum5Strategy(
+        trend_bars=12,
+        roc_bars=6,
+        min_roc=Decimal("0"),
+        dip_bars=4,
+        pullback=Decimal("0.008"),
+        max_pullback=Decimal("0.04"),
+        take_profit_pct=Decimal("0.012"),
+        stop_pct=Decimal("0.04"),
+        cooldown_bars=1,
+        max_trades_per_day=4,
+    )
+    report = run_backtest(
+        sleeve,
+        "SBER",
+        bars,
+        config=BacktestConfig(
+            initial_cash=Decimal("100000"),
+            position_share=Decimal("1"),
+            commission_bps=Decimal("5"),
+            slippage_bps=Decimal("5"),
+        ),
+    )
+    trades = report["trades"]
+    assert len(trades) == 2
+    assert {row["exit_reason"] for row in trades} == {"take_profit"}
+    days = {row["entry_ts"][:10] for row in trades}
+    assert days == {"2026-03-02"}
+
+
+def test_abs_mom5_is_intraday_sleeve() -> None:
+    from app.strategy.config import abs_mom5_from_config
+
+    sleeve = abs_mom5_from_config({})
+    assert sleeve.sleeve == "abs_momentum_5"
+    assert sleeve.timeframe == "10m"
+    assert sleeve.style == "ride"
+    assert sleeve.hold_overnight is True
+    assert sleeve.take_profit_pct == Decimal("0")
+    assert sleeve.stop_pct == Decimal("0.04")
+    assert sleeve.pullback == Decimal("0.012")
+    assert sleeve.max_trades_per_day == 6
+
+
 def test_abs_mom2_skips_a_day_that_already_ran() -> None:
     from app.strategy.abs_mom import AbsMomentum2Strategy
 

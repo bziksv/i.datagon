@@ -8,6 +8,7 @@ from app.strategy.abs_mom import (
     AbsMomentum2Strategy,
     AbsMomentum3Strategy,
     AbsMomentum4Strategy,
+    AbsMomentum5Strategy,
     DEFAULT_BACKTEST_POSITION_SHARE as ABS_MOM_SHARE,
     DEFAULT_EXIT_ROC as ABS_MOM_EXIT_ROC,
     DEFAULT_LOOKBACK as ABS_MOM_LOOKBACK,
@@ -665,6 +666,65 @@ def abs_mom4_from_config(
     return AbsMomentum4Strategy(**abs_mom4_params(env, _yaml_text(yaml_path)))
 
 
+def abs_mom5_params(
+    env: Mapping[str, str],
+    yaml_text: str | None = None,
+) -> dict:
+    from app.strategy.abs_mom import (
+        V5_COOLDOWN_BARS,
+        V5_DIP_BARS,
+        V5_MAX_PULLBACK,
+        V5_MAX_TRADES_PER_DAY,
+        V5_MIN_ROC,
+        V5_PULLBACK,
+        V5_ROC_BARS,
+        V5_STOP,
+        V5_TAKE_PROFIT,
+        V5_TREND_BARS,
+    )
+
+    params = {
+        "trend_bars": V5_TREND_BARS,
+        "roc_bars": V5_ROC_BARS,
+        "min_roc": V5_MIN_ROC,
+        "dip_bars": V5_DIP_BARS,
+        "pullback": V5_PULLBACK,
+        "max_pullback": V5_MAX_PULLBACK,
+        "take_profit_pct": V5_TAKE_PROFIT,
+        "stop_pct": V5_STOP,
+        "cooldown_bars": V5_COOLDOWN_BARS,
+        "max_trades_per_day": V5_MAX_TRADES_PER_DAY,
+    }
+    if yaml_text:
+        section = _section(yaml_text, "abs_momentum_5")
+        params["trend_bars"] = _int_field(section, "trend_bars", params["trend_bars"])
+        params["roc_bars"] = _int_field(section, "roc_bars", params["roc_bars"])
+        params["min_roc"] = _decimal_field(section, "min_roc", params["min_roc"])
+        params["dip_bars"] = _int_field(section, "dip_bars", params["dip_bars"])
+        params["pullback"] = _decimal_field(section, "pullback", params["pullback"])
+        params["max_pullback"] = _decimal_field(
+            section, "max_pullback", params["max_pullback"]
+        )
+        params["take_profit_pct"] = _decimal_field(
+            section, "take_profit_pct", params["take_profit_pct"]
+        )
+        params["stop_pct"] = _decimal_field(section, "stop_pct", params["stop_pct"])
+        params["cooldown_bars"] = _int_field(
+            section, "cooldown_bars", params["cooldown_bars"]
+        )
+        params["max_trades_per_day"] = _int_field(
+            section, "max_trades_per_day", params["max_trades_per_day"]
+        )
+    return params
+
+
+def abs_mom5_from_config(
+    env: Mapping[str, str],
+    yaml_path: Path | None = DEFAULT_YAML,
+) -> AbsMomentum5Strategy:
+    return AbsMomentum5Strategy(**abs_mom5_params(env, _yaml_text(yaml_path)))
+
+
 def active_strategies(env: Mapping[str, str], yaml_path: Path | None = DEFAULT_YAML):
     return [
         sma_from_config(env, yaml_path),
@@ -678,6 +738,7 @@ def active_strategies(env: Mapping[str, str], yaml_path: Path | None = DEFAULT_Y
         abs_mom2_from_config(env, yaml_path),
         abs_mom3_from_config(env, yaml_path),
         abs_mom4_from_config(env, yaml_path),
+        abs_mom5_from_config(env, yaml_path),
     ]
 
 
