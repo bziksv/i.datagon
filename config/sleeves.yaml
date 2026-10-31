@@ -126,3 +126,21 @@ abs_momentum_4:
   backtest_position_share: 1.0
   name_share: 0.10
   sleeve_share: 0.40
+
+# Длинная сторона совпадает с моментумом-4. Шорты — зеркало при узкой широте.
+abs_momentum_5:
+  lookback: 15
+  sma_period: 30
+  min_roc: 0
+  exit_roc: -0.01
+  max_stretch: 1.10
+  stop_pct: 0
+  trail_pct: 0.04
+  backtest_position_share: 1.0
+  name_share: 0.10
+  sleeve_share: 0.40
+  shorts_enabled: true
+  longs_enabled: true
+  short_breadth_max: 0.35
+  short_stop_pct: 0.05
+  max_short_exposure: 0.25
