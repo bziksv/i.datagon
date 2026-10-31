@@ -212,6 +212,8 @@ def _reset_caches() -> None:
 
         abs_mom._BREADTH = None
         abs_mom._SP_BREADTH = None
+        abs_mom._BREADTH_MISS.clear()
+        abs_mom._SP_BREADTH_MISS.clear()
     except Exception:  # noqa: BLE001
         log.exception("prod sync: cache reset failed")
 

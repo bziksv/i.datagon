@@ -2,9 +2,11 @@ from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from types import SimpleNamespace
 
-from app.broker.moex_candles import write_candle_csv
+from app.broker.moex_candles import MOSCOW, write_candle_csv
 from app.broker.port import CandleBar
+from app.strategy.abs_mom import AbsMomentum4Strategy
 from app.work import desk_state, service
+from app.work.exits import entry_day, held_exit
 
 START = date(2026, 8, 1)
 
@@ -110,3 +112,54 @@ def test_held_name_in_trend_is_kept(tmp_path, monkeypatch) -> None:
     ]
     positions = {"UP": {"ticker": "UP", "qty": "10", "avg_price": str(bars[40].c)}}
     assert service.plan_orders(state, [_row("UP", "buy", bars[-1])], positions) == []
+
+
+def test_partial_sell_keeps_entry_and_ignores_pre_entry_exit() -> None:
+    """Остаток после утренней урезки не продаём по выходу, который был до покупки.
+
+    Так 27.10 ушла PMSB: продажа 550 из 610 обнулила день входа, и прогон
+    последних 30 баров нашёл выход 10.10 — ещё до реальной покупки 22.10.
+    """
+    # Прогрев SMA30, потом трейл +30%/−8% ещё до покупки, дальше ровная цена.
+    closes = [100.0] * 35 + [130.0, 120.0] + [100.0] * 23
+    bars = _bars(closes)
+    bought = START + timedelta(days=55)
+    bought_at = datetime(bought.year, bought.month, bought.day, 12, tzinfo=MOSCOW)
+    trades = [
+        {"ticker": "PMSB", "side": "buy", "qty": 610, "ts": bought_at.isoformat()},
+        {
+            "ticker": "PMSB",
+            "side": "sell",
+            "qty": 550,
+            "ts": (bought_at + timedelta(minutes=7)).isoformat(),
+        },
+    ]
+    assert entry_day(trades, "PMSB", MOSCOW) == bought
+    strategy = AbsMomentum4Strategy()
+    assert (
+        held_exit(
+            strategy,
+            "PMSB",
+            bars,
+            entry_price=Decimal("100"),
+            entry_day=entry_day(trades, "PMSB", MOSCOW),
+        )
+        is None
+    )
+    # Без дня входа тот же ряд продаётся: трейл внутри чужих 30 баров.
+    assert (
+        held_exit(strategy, "PMSB", bars, entry_price=Decimal("100"), entry_day=None)
+        == "exit"
+    )
+    trades.append(
+        {
+            "ticker": "PMSB",
+            "side": "sell",
+            "qty": 60,
+            "ts": (bought_at + timedelta(days=5)).isoformat(),
+        }
+    )
+    assert entry_day(trades, "PMSB", MOSCOW) is None
+    rebuy = bought_at + timedelta(days=6)
+    trades.append({"ticker": "PMSB", "side": "buy", "qty": 60, "ts": rebuy.isoformat()})
+    assert entry_day(trades, "PMSB", MOSCOW) == rebuy.date()

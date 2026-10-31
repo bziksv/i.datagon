@@ -186,6 +186,9 @@ V2_EXIT_STREAK = 2
 
 _BREADTH: dict[str, float] | None = None
 _SP_BREADTH: dict[str, float] | None = None
+# День, которого не было даже после перечитывания файлов: второй раз не долбим диск.
+_BREADTH_MISS: set[str] = set()
+_SP_BREADTH_MISS: set[str] = set()
 
 
 def _breadth_from_dir(root: Path) -> dict[str, float]:
@@ -212,7 +215,7 @@ def _breadth_from_dir(root: Path) -> dict[str, float]:
 
 
 def tqbr_breadth() -> dict[str, float]:
-    """Доля бумаг TQBR с close > SMA40 на дату свечи. Считается один раз."""
+    """Доля бумаг TQBR с close > SMA40 на дату свечи. Кэш сбрасывает session_breadth."""
     global _BREADTH
     if _BREADTH is None:
         import os
@@ -233,16 +236,46 @@ def sp500_breadth() -> dict[str, float]:
     return _SP_BREADTH
 
 
-def breadth_for(ticker: str) -> dict[str, float]:
-    """Широта того рынка, откуда взята бумага. S&P не смотрит календарь TQBR."""
+def _market(ticker: str) -> str:
     import os
 
     symbol = (ticker or "").strip().upper()
     moex = Path(os.environ.get("CANDLE_DIR", "data/candles")) / f"{symbol}.csv"
     sp = Path(os.environ.get("CANDLE_SP500_DIR", "data/candles_sp500")) / f"{symbol}.csv"
     if symbol and sp.is_file() and not moex.is_file():
+        return "sp"
+    return "tqbr"
+
+
+def breadth_for(ticker: str) -> dict[str, float]:
+    """Широта того рынка, откуда взята бумага. S&P не смотрит календарь TQBR."""
+    if _market(ticker) == "sp":
         return sp500_breadth()
     return tqbr_breadth()
+
+
+def session_breadth(ticker: str, key: str) -> float | None:
+    """Широта на дату бара. None — справочника нет, фильтр входа не включаем.
+
+    Воркер не перезапускается сутками. Кэш, собранный на закрытии одного дня,
+    не содержит следующую сессию: пропуск ключа читался как 0, и при пороге
+    42% не проходила ни одна покупка. Если дня в кэше нет — один раз перечитать
+    файлы свечей, которые к закрытию уже докачаны.
+    """
+    global _BREADTH, _SP_BREADTH
+    market = _market(ticker)
+    missed = _SP_BREADTH_MISS if market == "sp" else _BREADTH_MISS
+    book = sp500_breadth() if market == "sp" else tqbr_breadth()
+    if key not in book and key not in missed:
+        missed.add(key)
+        if market == "sp":
+            _SP_BREADTH = None
+        else:
+            _BREADTH = None
+        book = sp500_breadth() if market == "sp" else tqbr_breadth()
+    if not book:
+        return None
+    return float(book.get(key, 0.0))
 
 
 class AbsMomentum2Strategy(AbsMomentumStrategy):
@@ -323,11 +356,10 @@ class AbsMomentum2Strategy(AbsMomentumStrategy):
                 if prev > 0 and close / prev - Decimal("1") > self.max_day_up:
                     return False
             if self.breadth_min > 0:
-                book = breadth_for(ctx.ticker)
-                if book:
-                    key = ctx.bars[-1].ts.date().isoformat()
-                    if book.get(key, 0) < float(self.breadth_min):
-                        return False
+                key = ctx.bars[-1].ts.date().isoformat()
+                breadth = session_breadth(ctx.ticker, key)
+                if breadth is not None and breadth < float(self.breadth_min):
+                    return False
             return True
         if roc >= self.exit_roc:
             self._weak = 0
